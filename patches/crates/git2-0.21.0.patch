@@ -1,0 +1,40 @@
+diff -ruN '--exclude=target' git2-0.21.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/git2-0.21.0/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-29 12:21:45.068222184 +0100
+@@ -896,6 +896,7 @@
+ }
+ 
+ #[cfg(any(
++    target_os = "plan9",
+     windows,
+     target_os = "macos",
+     target_os = "ios",
+diff -ruN '--exclude=target' git2-0.21.0/src/util.rs /home/stefan/Devel/9front-rust/crates/git2-0.21.0/src/util.rs
+--- a/src/util.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/util.rs	2026-10-29 12:21:45.067099497 +0100
+@@ -101,6 +101,12 @@
+     use std::os::unix::prelude::*;
+     Path::new(OsStr::from_bytes(b))
+ }
++/// 9front (Plan 9): paths are bytes, as on unix
++#[cfg(target_os = "plan9")]
++pub fn bytes2path(b: &[u8]) -> &Path {
++    use std::os::plan9::prelude::*;
++    Path::new(OsStr::from_bytes(b))
++}
+ #[cfg(windows)]
+ pub fn bytes2path(b: &[u8]) -> &Path {
+     use std::str;
+@@ -167,6 +173,12 @@
+         let s: &OsStr = self.as_ref();
+         Ok(CString::new(s.as_bytes())?)
+     }
++    #[cfg(target_os = "plan9")]
++    fn into_c_string(self) -> Result<CString, Error> {
++        use std::os::plan9::prelude::*;
++        let s: &OsStr = self.as_ref();
++        Ok(CString::new(s.as_bytes())?)
++    }
+     #[cfg(windows)]
+     fn into_c_string(self) -> Result<CString, Error> {
+         match self.to_str() {

@@ -1,0 +1,23 @@
+diff -ruN '--exclude=target' ring-0.17.14/build.rs /home/stefan/Devel/9front-rust/crates/ring-0.17.14/build.rs
+--- a/build.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/build.rs	2026-10-29 12:28:10.405796578 +0100
+@@ -251,6 +251,8 @@
+     "illumos",
+     "netbsd",
+     "openbsd",
++    // 9front (Plan 9): System V ABI and ELF under its gcc port
++    "plan9",
+     "linux",
+     "redox",
+     "solaris",
+diff -ruN '--exclude=target' ring-0.17.14/src/rand.rs /home/stefan/Devel/9front-rust/crates/ring-0.17.14/src/rand.rs
+--- a/src/rand.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/rand.rs	2026-10-29 12:16:31.771603396 +0100
+@@ -137,6 +137,7 @@
+     target_os = "linux",
+     target_os = "netbsd",
+     target_os = "openbsd",
++    target_os = "plan9",
+     target_os = "redox",
+     target_os = "solaris",
+     target_os = "vita",

@@ -1,0 +1,43 @@
+diff -ruN '--exclude=target' filetime-0.2.29/src/lib.rs /home/stefan/Devel/9front-rust/crates/filetime-0.2.29/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-29 12:00:29.154856223 +0100
+@@ -44,6 +44,9 @@
+     if #[cfg(target_os = "redox")] {
+         #[path = "redox.rs"]
+         mod imp;
++    } else if #[cfg(target_os = "plan9")] {
++        #[path = "plan9.rs"]
++        mod imp;
+     } else if #[cfg(windows)] {
+         #[path = "windows.rs"]
+         mod imp;
+diff -ruN '--exclude=target' filetime-0.2.29/src/plan9.rs /home/stefan/Devel/9front-rust/crates/filetime-0.2.29/src/plan9.rs
+--- a/src/plan9.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/plan9.rs	2026-10-29 12:00:29.137841741 +0100
+@@ -0,0 +1,26 @@
++//! 9front (Plan 9): times of stat(5), in seconds; set through std (wstat).
++use crate::FileTime;
++use std::fs;
++use std::io;
++use std::path::Path;
++
++pub fn set_symlink_file_times(p: &Path, atime: FileTime, mtime: FileTime) -> io::Result<()> {
++    // no symbolic links: the file itself
++    open(p)?.set_times(fs::FileTimes::new().set_accessed(atime.into()).set_modified(mtime.into()))
++}
++
++pub fn from_last_modification_time(meta: &fs::Metadata) -> FileTime {
++    FileTime::from_system_time(meta.modified().unwrap_or(std::time::UNIX_EPOCH))
++}
++
++pub fn from_last_access_time(meta: &fs::Metadata) -> FileTime {
++    FileTime::from_system_time(meta.accessed().unwrap_or(std::time::UNIX_EPOCH))
++}
++
++pub fn from_creation_time(_meta: &fs::Metadata) -> Option<FileTime> {
++    None
++}
++
++pub fn open(path: &Path) -> io::Result<fs::File> {
++    fs::File::open(path)
++}

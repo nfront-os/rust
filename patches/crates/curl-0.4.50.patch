@@ -1,0 +1,91 @@
+diff -ruN '--exclude=target' curl-0.4.50/Cargo.toml /home/stefan/Devel/9front-rust/crates/curl-0.4.50/Cargo.toml
+--- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
++++ b/Cargo.toml	2026-10-29 12:12:02.992372720 +0100
+@@ -126,9 +126,6 @@
+ [dependencies.libc]
+ version = "0.2.42"
+ 
+-[dependencies.socket2]
+-version = "0.6.0"
+-
+ [dev-dependencies.anyhow]
+ version = "1.0.31"
+ 
+@@ -156,3 +153,13 @@
+     "Win32_System_LibraryLoader",
+     "Win32_Security_Cryptography",
+ ]
++
++[target.'cfg(not(target_os = "plan9"))'.dependencies.socket2]
++version = "0.6.0"
++
++
++# 9front: TLS by rustls (no OpenSSL against APE)
++[target.'cfg(target_os = "plan9")'.dependencies.curl-sys]
++version = "0.4.83"
++default-features = false
++features = ["rustls"]
+diff -ruN '--exclude=target' curl-0.4.50/src/easy/form.rs /home/stefan/Devel/9front-rust/crates/curl-0.4.50/src/easy/form.rs
+--- a/src/easy/form.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/easy/form.rs	2026-10-29 12:24:46.118995635 +0100
+@@ -332,9 +332,12 @@
+         }
+     }
+ 
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "plan9"))]
+     fn path2cstr(&mut self, p: &Path) -> Option<CString> {
++        #[cfg(unix)]
+         use std::os::unix::prelude::*;
++        #[cfg(target_os = "plan9")]
++        use std::os::plan9::prelude::*;
+         self.bytes2cstr(p.as_os_str().as_bytes())
+     }
+ 
+diff -ruN '--exclude=target' curl-0.4.50/src/easy/handler.rs /home/stefan/Devel/9front-rust/crates/curl-0.4.50/src/easy/handler.rs
+--- a/src/easy/handler.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/easy/handler.rs	2026-10-29 12:24:46.123178896 +0100
+@@ -10,6 +10,7 @@
+ use std::time::Duration;
+ 
+ use libc::{c_char, c_double, c_int, c_long, c_ulong, c_void, size_t};
++#[cfg(not(target_os = "plan9"))]
+ use socket2::Socket;
+ 
+ use crate::easy::form;
+@@ -278,9 +279,21 @@
+         socktype: c_int,
+         protocol: c_int,
+     ) -> Option<curl_sys::curl_socket_t> {
++        // 9front: libcurl is built against APE, Plan 9's POSIX layer, whose sockets
++        // are its emulation over /net (renamed __ape_, see 9front-rust's ape9)
++        #[cfg(target_os = "plan9")]
++        {
++            extern "C" {
++                fn __ape_socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
++            }
++            let fd = unsafe { __ape_socket(family, socktype, protocol) };
++            return if fd < 0 { None } else { Some(fd as curl_sys::curl_socket_t) };
++        }
++
+         // Note that we override this to calling a function in `socket2` to
+         // ensure that we open all sockets with CLOEXEC. Otherwise if we rely on
+         // libcurl to open sockets it won't use CLOEXEC.
++        #[cfg(not(target_os = "plan9"))]
+         return Socket::new(family.into(), socktype.into(), Some(protocol.into()))
+             .ok()
+             .map(cvt);
+@@ -3384,9 +3397,12 @@
+         self.inner.handle
+     }
+ 
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "plan9"))]
+     fn setopt_path(&mut self, opt: curl_sys::CURLoption, val: &Path) -> Result<(), Error> {
++        #[cfg(unix)]
+         use std::os::unix::prelude::*;
++        #[cfg(target_os = "plan9")]
++        use std::os::plan9::prelude::*;
+         let s = CString::new(val.as_os_str().as_bytes())?;
+         self.setopt_str(opt, &s)
+     }

@@ -1,0 +1,87 @@
+diff -ruN '--exclude=target' libgit2-sys-0.18.7+1.9.6/build.rs /home/stefan/Devel/9front-rust/crates/libgit2-sys-0.18.7+1.9.6/build.rs
+--- a/build.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/build.rs	2026-10-29 12:15:50.596700157 +0100
+@@ -82,8 +82,11 @@
+         )"
+     );
+ 
+-    let https = env::var("CARGO_FEATURE_HTTPS").is_ok();
+-    let ssh = env::var("CARGO_FEATURE_SSH").is_ok();
++    // 9front: libgit2 against APE (Plan 9's POSIX layer), without its own TLS or SSH (cargo's
++    // git goes over curl, git2-curl), without threads (APE has none)
++    let plan9 = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("plan9");
++    let https = env::var("CARGO_FEATURE_HTTPS").is_ok() && !plan9;
++    let ssh = env::var("CARGO_FEATURE_SSH").is_ok() && !plan9;
+     let vendored = env::var("CARGO_FEATURE_VENDORED").is_ok();
+     let zlib_ng_compat = env::var("CARGO_FEATURE_ZLIB_NG_COMPAT").is_ok();
+     let unstable_sha256 = env::var("CARGO_FEATURE_UNSTABLE_SHA256").is_ok();
+@@ -217,11 +220,15 @@
+ 
+     features.push_str("#ifndef INCLUDE_features_h\n");
+     features.push_str("#define INCLUDE_features_h\n");
+-    features.push_str("#define GIT_THREADS 1\n");
++    if !plan9 {
++        features.push_str("#define GIT_THREADS 1\n");
++    } else {
++        cfg.define("NO_MMAP", None);
++    }
+     features.push_str("#define GIT_TRACE 1\n");
+     features.push_str("#define GIT_HTTPPARSER_BUILTIN 1\n");
+ 
+-    if !target.contains("android") {
++    if !target.contains("android") && !plan9 {
+         features.push_str("#define GIT_USE_NSEC 1\n");
+     }
+ 
+@@ -229,12 +236,16 @@
+         features.push_str("#define GIT_IO_WSAPOLL 1\n");
+     } else {
+         // Should we fallback to `select` as more systems have that?
++        // 9front: poll from 9front-rust's ape9
+         features.push_str("#define GIT_IO_POLL 1\n");
+-        features.push_str("#define GIT_IO_SELECT 1\n");
++        if !plan9 {
++            features.push_str("#define GIT_IO_SELECT 1\n");
++        }
+     }
+ 
+     if target.contains("apple") {
+         features.push_str("#define GIT_USE_STAT_MTIMESPEC 1\n");
++    } else if plan9 {
+     } else {
+         features.push_str("#define GIT_USE_STAT_MTIM 1\n");
+     }
+diff -ruN '--exclude=target' libgit2-sys-0.18.7+1.9.6/lib.rs /home/stefan/Devel/9front-rust/crates/libgit2-sys-0.18.7+1.9.6/lib.rs
+--- a/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/lib.rs	2026-10-29 12:12:14.001544469 +0100
+@@ -5,7 +5,7 @@
+ extern crate libz_sys as libz;
+ 
+ use libc::{c_char, c_int, c_uchar, c_uint, c_ushort, c_void, size_t};
+-#[cfg(feature = "ssh")]
++#[cfg(all(feature = "ssh", not(target_os = "plan9")))]
+ use libssh2_sys as libssh2;
+ use std::ffi::CStr;
+ 
+@@ -4743,16 +4743,18 @@
+     openssl_sys::init();
+ }
+ 
+-#[cfg(any(windows, not(feature = "https")))]
++// 9front: libgit2 without its own TLS
++#[cfg(any(windows, not(feature = "https"), target_os = "plan9"))]
+ #[doc(hidden)]
+ pub fn openssl_init() {}
+ 
+-#[cfg(feature = "ssh")]
++#[cfg(all(feature = "ssh", not(target_os = "plan9")))]
+ fn ssh_init() {
+     libssh2::init();
+ }
+ 
+-#[cfg(not(feature = "ssh"))]
++// 9front: libgit2 without SSH
++#[cfg(any(not(feature = "ssh"), target_os = "plan9"))]
+ fn ssh_init() {}
+ 
+ #[doc(hidden)]

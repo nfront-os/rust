@@ -1,0 +1,20 @@
+diff -ruN '--exclude=target' rustls-native-certs-0.8.5/src/lib.rs /home/stefan/Devel/9front-rust/crates/rustls-native-certs-0.8.5/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-29 12:22:15.383044029 +0100
+@@ -38,6 +38,16 @@
+ #[cfg(windows)]
+ use windows as platform;
+ 
++/// 9front (Plan 9): the system's roots are /sys/lib/tls/ca.pem.
++#[cfg(target_os = "plan9")]
++mod platform {
++    use crate::{CertPaths, CertificateResult};
++
++    pub fn load_native_certs() -> CertificateResult {
++        CertPaths { file: Some("/sys/lib/tls/ca.pem".into()), dirs: Vec::new() }.load()
++    }
++}
++
+ #[cfg(target_os = "macos")]
+ mod macos;
+ #[cfg(target_os = "macos")]

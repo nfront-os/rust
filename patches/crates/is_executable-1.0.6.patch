@@ -1,0 +1,28 @@
+diff -ruN '--exclude=target' is_executable-1.0.6/src/lib.rs /home/stefan/Devel/9front-rust/crates/is_executable-1.0.6/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-29 12:16:52.741189795 +0100
+@@ -122,6 +122,24 @@
+ // Since wasm and wasi
+ //  is not supposed to add executables ideologically,
+ // specify them collectively
++// 9front (Plan 9): the execute bits of the mode
++#[cfg(target_os = "plan9")]
++mod plan9 {
++    use std::os::plan9::fs::PermissionsExt;
++    use std::path::Path;
++
++    use super::IsExecutable;
++
++    impl IsExecutable for Path {
++        fn is_executable(&self) -> bool {
++            match self.metadata() {
++                Ok(m) => m.is_file() && m.permissions().mode() & 0o111 != 0,
++                Err(_) => false,
++            }
++        }
++    }
++}
++
+ #[cfg(any(target_os = "wasi", target_family = "wasm"))]
+ mod wasm {
+     use std::path::Path;

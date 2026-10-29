@@ -1,0 +1,95 @@
+diff -ruN '--exclude=target' url-2.5.8/src/lib.rs /home/stefan/Devel/9front-rust/crates/url-2.5.8/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-29 12:18:05.455641323 +0100
+@@ -170,7 +170,7 @@
+     windows,
+     target_os = "redox",
+     target_os = "wasi",
+-    target_os = "hermit"
++    target_os = "hermit", target_os = "plan9"
+ ))]
+ use crate::net::{SocketAddr, ToSocketAddrs};
+ use crate::parser::{to_u32, Context, Parser, SchemeType, USERINFO};
+@@ -190,7 +190,7 @@
+     windows,
+     target_os = "redox",
+     target_os = "wasi",
+-    target_os = "hermit"
++    target_os = "hermit", target_os = "plan9"
+ ))]
+ use std::io;
+ #[cfg(feature = "std")]
+@@ -1335,7 +1335,7 @@
+         windows,
+         target_os = "redox",
+         target_os = "wasi",
+-        target_os = "hermit"
++        target_os = "hermit", target_os = "plan9"
+     ))]
+     pub fn socket_addrs(
+         &self,
+@@ -2546,7 +2546,7 @@
+             windows,
+             target_os = "redox",
+             target_os = "wasi",
+-            target_os = "hermit"
++            target_os = "hermit", target_os = "plan9"
+         )
+     ))]
+     #[allow(clippy::result_unit_err)]
+@@ -2594,7 +2594,7 @@
+             windows,
+             target_os = "redox",
+             target_os = "wasi",
+-            target_os = "hermit"
++            target_os = "hermit", target_os = "plan9"
+         )
+     ))]
+     #[allow(clippy::result_unit_err)]
+@@ -2719,7 +2719,7 @@
+             windows,
+             target_os = "redox",
+             target_os = "wasi",
+-            target_os = "hermit"
++            target_os = "hermit", target_os = "plan9"
+         )
+     ))]
+     #[allow(clippy::result_unit_err)]
+@@ -2943,7 +2943,7 @@
+ 
+ #[cfg(all(
+     feature = "std",
+-    any(unix, target_os = "redox", target_os = "wasi", target_os = "hermit")
++    any(unix, target_os = "redox", target_os = "wasi", target_os = "hermit", target_os = "plan9")
+ ))]
+ fn path_to_file_url_segments(
+     path: &Path,
+@@ -2953,6 +2953,9 @@
+     use percent_encoding::percent_encode;
+     #[cfg(target_os = "hermit")]
+     use std::os::hermit::ffi::OsStrExt;
++    // 9front (Plan 9): paths are bytes, as on unix
++    #[cfg(target_os = "plan9")]
++    use std::os::plan9::ffi::OsStrExt;
+     #[cfg(any(unix, target_os = "redox"))]
+     use std::os::unix::prelude::OsStrExt;
+     if !path.is_absolute() {
+@@ -3059,7 +3062,7 @@
+ 
+ #[cfg(all(
+     feature = "std",
+-    any(unix, target_os = "redox", target_os = "wasi", target_os = "hermit")
++    any(unix, target_os = "redox", target_os = "wasi", target_os = "hermit", target_os = "plan9")
+ ))]
+ fn file_url_segments_to_pathbuf(
+     estimated_capacity: usize,
+@@ -3072,6 +3075,9 @@
+     use std::ffi::OsStr;
+     #[cfg(target_os = "hermit")]
+     use std::os::hermit::ffi::OsStrExt;
++    // 9front (Plan 9): paths are bytes, as on unix
++    #[cfg(target_os = "plan9")]
++    use std::os::plan9::ffi::OsStrExt;
+     #[cfg(any(unix, target_os = "redox"))]
+     use std::os::unix::prelude::OsStrExt;
+ 

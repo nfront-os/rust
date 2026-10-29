@@ -1,0 +1,20 @@
+diff -ruN '--exclude=target' gix-config-value-0.21.1/src/path.rs /home/stefan/Devel/9front-rust/crates/gix-config-value-0.21.1/src/path.rs
+--- a/src/path.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/path.rs	2026-10-29 12:16:52.747844225 +0100
+@@ -39,9 +39,16 @@
+     #[cfg_attr(windows, allow(unused_variables))]
+     #[cfg_attr(all(target_family = "wasm", not(target_os = "emscripten")), allow(unused_variables))]
+     pub fn home_for_user(name: &str) -> Option<PathBuf> {
++        // 9front (Plan 9): a user's home is /usr/<name>
++        #[cfg(target_os = "plan9")]
++        {
++            let home = PathBuf::from("/usr").join(name);
++            home.is_dir().then_some(home)
++        }
+         #[cfg(not(any(
+             target_os = "android",
+             target_os = "windows",
++            target_os = "plan9",
+             all(target_family = "wasm", not(target_os = "emscripten"))
+         )))]
+         {

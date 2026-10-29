@@ -1,0 +1,119 @@
+diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/build.rs /home/stefan/Devel/9front-rust/crates/curl-sys-0.4.90+curl-8.21.0/build.rs
+--- a/build.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/build.rs	2026-10-29 12:31:51.226627664 +0100
+@@ -15,6 +15,9 @@
+     );
+     let target = env::var("TARGET").unwrap();
+     let windows = target.contains("windows");
++    // 9front: against APE (Plan 9's POSIX layer): no threads (a synchronous resolver), no
++    // Unix sockets; TLS by rustls (the curl crate turns it on there)
++    let plan9 = target.contains("plan9");
+ 
+     if cfg!(feature = "mesalink") {
+         println!("cargo:warning=MesaLink support has been removed as of curl 7.82.0, will use default TLS backend instead.");
+@@ -128,7 +131,6 @@
+         .define("HAVE_BOOL_T", None)
+         .define("HAVE_STDBOOL_H", None)
+         .define("HAVE_STDINT_H", None)
+-        .define("USE_RESOLV_THREADED", None)
+         .file("curl/lib/altsvc.c")
+         .file("curl/lib/asyn-base.c")
+         .file("curl/lib/asyn-thrdd.c")
+@@ -265,6 +267,13 @@
+         .define("HAVE_GETPEERNAME", None)
+         .define("HAVE_GETSOCKNAME", None)
+         .warnings(false);
++    if plan9 {
++        cfg.define("CURL_DISABLE_SOCKETPAIR", None);
++        // the system's roots (rustls needs a file or the native store)
++        cfg.define("CURL_CA_BUNDLE", "\"/sys/lib/tls/ca.pem\"");
++    } else {
++        cfg.define("USE_RESOLV_THREADED", None);
++    }
+ 
+     if cfg!(feature = "ntlm") {
+         cfg.file("curl/lib/curl_endian.c")
+@@ -383,7 +392,7 @@
+         }
+     } else {
+         cfg.define("RECV_TYPE_ARG1", "int")
+-            .define("HAVE_PTHREAD_H", None)
++
+             .define("HAVE_ARPA_INET_H", None)
+             .define("HAVE_ERRNO_H", None)
+             .define("HAVE_FCNTL_H", None)
+@@ -401,11 +410,10 @@
+             .define("HAVE_SEND", None)
+             .define("HAVE_SOCKET", None)
+             .define("HAVE_STERRROR_R", None)
+-            .define("HAVE_SOCKETPAIR", None)
++
+             .define("HAVE_STRUCT_TIMEVAL", None)
+             .define("HAVE_SYS_UN_H", None)
+-            .define("HAVE_THREADS_POSIX", None)
+-            .define("USE_UNIX_SOCKETS", None)
++
+             .define("RECV_TYPE_ARG2", "void*")
+             .define("RECV_TYPE_ARG3", "size_t")
+             .define("RECV_TYPE_ARG4", "int")
+@@ -419,6 +427,12 @@
+             .define("SIZEOF_CURL_OFF_T", "8")
+             .define("SIZEOF_INT", "4")
+             .define("SIZEOF_SHORT", "2");
++        if !plan9 {
++            cfg.define("HAVE_PTHREAD_H", None)
++                .define("HAVE_THREADS_POSIX", None)
++                .define("USE_UNIX_SOCKETS", None)
++                .define("HAVE_SOCKETPAIR", None);
++        }
+ 
+         if target.contains("-apple-") {
+             cfg.define("__APPLE__", None)
+diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/Cargo.toml /home/stefan/Devel/9front-rust/crates/curl-sys-0.4.90+curl-8.21.0/Cargo.toml
+--- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
++++ b/Cargo.toml	2026-10-29 12:13:35.442933163 +0100
+@@ -70,7 +70,9 @@
+ 
+ [dependencies.rustls-ffi]
+ version = "0.15"
+-features = ["no_log_capture"]
++# 9front: ring, not aws-lc (a large C library to port to APE)
++default-features = false
++features = ["no_log_capture", "ring"]
+ optional = true
+ 
+ [build-dependencies.cc]
+diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/lib.rs /home/stefan/Devel/9front-rust/crates/curl-sys-0.4.90+curl-8.21.0/lib.rs
+--- a/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/lib.rs	2026-10-29 12:24:46.123515922 +0100
+@@ -14,7 +14,7 @@
+ use libc::c_ulong;
+ use libc::{c_char, c_double, c_int, c_long, c_short, c_uint, c_void, size_t, time_t};
+ 
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "plan9"))]
+ pub use libc::fd_set;
+ #[cfg(windows)]
+ pub use windows_sys::Win32::Networking::WinSock::FD_SET as fd_set;
+@@ -36,9 +36,10 @@
+ 
+ pub enum CURL {}
+ 
+-#[cfg(unix)]
++// 9front: libcurl against APE, whose sockets are descriptors
++#[cfg(any(unix, target_os = "plan9"))]
+ pub type curl_socket_t = libc::c_int;
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "plan9"))]
+ pub const CURL_SOCKET_BAD: curl_socket_t = -1;
+ #[cfg(all(windows, target_pointer_width = "32"))]
+ pub type curl_socket_t = libc::c_uint;
+@@ -1027,7 +1028,7 @@
+     pub socktype: c_int,
+     pub protocol: c_int,
+     pub addrlen: c_uint,
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "plan9"))]
+     pub addr: libc::sockaddr,
+     #[cfg(windows)]
+     pub addr: SOCKADDR,
