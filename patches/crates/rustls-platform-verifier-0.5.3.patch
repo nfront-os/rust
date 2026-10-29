@@ -1,6 +1,6 @@
 diff -ruN '--exclude=target' rustls-platform-verifier-0.5.3/Cargo.toml /home/stefan/Devel/9front-rust/crates/rustls-platform-verifier-0.5.3/Cargo.toml
 --- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-10-29 12:22:15.383163577 +0100
++++ b/Cargo.toml	2026-10-29 12:51:53.502281804 +0100
 @@ -88,10 +88,10 @@
  features = ["ring"]
  default-features = false
@@ -16,7 +16,7 @@ diff -ruN '--exclude=target' rustls-platform-verifier-0.5.3/Cargo.toml /home/ste
  package = "rustls-webpki"
 diff -ruN '--exclude=target' rustls-platform-verifier-0.5.3/src/verification/mod.rs /home/stefan/Devel/9front-rust/crates/rustls-platform-verifier-0.5.3/src/verification/mod.rs
 --- a/src/verification/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/verification/mod.rs	2026-10-29 12:21:53.812551457 +0100
++++ b/src/verification/mod.rs	2026-10-29 12:51:53.502394313 +0100
 @@ -2,14 +2,14 @@
  use std::sync::Arc;
  
@@ -36,7 +36,7 @@ diff -ruN '--exclude=target' rustls-platform-verifier-0.5.3/src/verification/mod
  ))]
 diff -ruN '--exclude=target' rustls-platform-verifier-0.5.3/src/verification/others.rs /home/stefan/Devel/9front-rust/crates/rustls-platform-verifier-0.5.3/src/verification/others.rs
 --- a/src/verification/others.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/verification/others.rs	2026-10-29 12:22:15.383243596 +0100
++++ b/src/verification/others.rs	2026-10-29 12:51:53.502494932 +0100
 @@ -121,11 +121,14 @@
              );
          }

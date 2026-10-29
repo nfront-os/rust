@@ -1,6 +1,6 @@
 diff -ruN '--exclude=target' rustls-native-certs-0.8.5/src/lib.rs /home/stefan/Devel/9front-rust/crates/rustls-native-certs-0.8.5/src/lib.rs
 --- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-29 12:22:15.383044029 +0100
++++ b/src/lib.rs	2026-10-29 12:51:53.497539286 +0100
 @@ -38,6 +38,16 @@
  #[cfg(windows)]
  use windows as platform;

@@ -31,6 +31,8 @@ done | sort -u | grep -vxE 'malloc|free|realloc' | awk '{print $1, "__ape_" $1}'
 for a in ap bsd compat ext; do
 	$X-objcopy --redefine-syms="$O/ape9.syms" "$O/libape9-$a.a"
 done
+# libbsd's getsockopt fails without errno: ape9/ext/posix.c's
+$X-objcopy --redefine-sym __ape_getsockopt=__ape9_bsd_getsockopt "$O/libape9-bsd.a"
 # _envsetup takes no notes: the program has its handler
 mkdir -p "$O/tmp"; (cd "$O/tmp" && $X-ar x "$O/libape9-ap.a" _envsetup.o)
 $X-objcopy --redefine-sym __ape__NOTIFY=__ape9_nonotify "$O/tmp/_envsetup.o"

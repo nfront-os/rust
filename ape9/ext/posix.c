@@ -113,3 +113,34 @@ posix_fallocate(int fd, off_t off, off_t len)
 		return errno;
 	return 0;
 }
+
+/*
+ * APE's getsockopt fails without an errno (libbsd's socket.c; renamed away in ape9.sh):
+ * curl asks SO_ERROR after connect, whose connect(2) is done or failed already.
+ */
+#define _BSD_EXTENSION
+#include <sys/socket.h>
+
+int
+getsockopt(int fd, int level, int opt, void *val, int *len)
+{
+	(void)fd;
+	if(level != SOL_SOCKET || val == NULL || len == NULL || *len < (int)sizeof(int)){
+		errno = EINVAL;
+		return -1;
+	}
+	switch(opt){
+	case SO_ERROR:
+		*(int *)val = 0;
+		break;
+	case SO_SNDBUF:
+	case SO_RCVBUF:
+		*(int *)val = 65536;
+		break;
+	default:
+		errno = ENOPROTOOPT;
+		return -1;
+	}
+	*len = sizeof(int);
+	return 0;
+}

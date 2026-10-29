@@ -107,6 +107,61 @@ Im Gast: `tests/guest.sh -f prog... -- 'rc-Zeile' ...` (über `../9front`s `boot
   registriert `.eh_frame`), `unwind`/`panic_unwind`/personality wie unix. Backtraces: Submodul
   `library/backtrace` (Branch `plan9`): libunwind-Trace, gimli liest `/proc/<pid>/text`.
 
+## cargo für 9front (Teil 3, 2026-10-29)
+
+`scripts/build-cargo.sh` baut cargo (`rust/src/tools/cargo`, Branch `plan9`) für
+x86_64-unknown-plan9; `tests/cargo.sh` testet im Gast: `--version`, `new` (libgit2), `search`
+(crates.io-API: curl + rustls), `fetch` (Index, Downloads, Entpacken, sqlite), alle ok.
+Ohne rustc auf 9front gibt ein rc-Skript die Antworten des Stage-1-rustc (`-vV`, `--print`).
+
+- **C-Bibliotheken über APE: ape9** (`scripts/ape9.sh`, `ape9/`): libap, libbsd, 9front-gccs
+  libapecompat (ohne `pthread.o`, das wie std `__plan9_mainstack` definiert) mit **jedem
+  definierten Symbol umbenannt** `__ape_<name>` (objcopy `--redefine-syms`, 1000+ Symbole);
+  die C-Bibliotheken der Crates genauso: `scripts/ape9-ar` ist das `ar` des cc-Crates und
+  benennt das Archiv nach. So treffen APEs `open`, `read`, `malloc`… nicht auf libcs. APEs
+  `malloc.o` fliegt raus (malloc/free/realloc = libcs, ein Heap; aligned_alloc &c. in
+  `ape9init.c` über `mallocalign`). `ape9init.c` (aus `.init_array`) tut, was APEs `_main`
+  täte: `_tos`, errno pro Proc (ein `privalloc`-Slot), `_envsetup` (aber ohne `_NOTIFY`: std hat
+  den Note-Handler; per objcopy auf `__ape9_nonotify`), APEs stdio beim Ende leeren (libcs
+  `atexit`: Rust endet über `exits`). Link: `-u __ape9_init`, Gruppe der libape9-*, dann `-lc`
+  nochmals (ape9 steht hinter `-lc`).
+- **APEs `select` ist unbrauchbar** in einem Rust-Programm: es forkt Kopier-Procs (ohne
+  RFMEM) auf dem laufenden Stack, der hier geteilt ist (Stack-Slots sind SG_SHARED), hängt
+  seinen Puffer-Segment erst beim ersten Aufruf an (andere Procs sehen es nicht → Fault),
+  nur ein Wartender. Ersetzt durch `ape9/ext/buf.c` (`_startbuf`, `_readbuf`, `_closebuf`,
+  `select`, `poll`): Kopier-Procs RFMEM|RFFDG über std (`__plan9_rforkproc`: eigenes
+  Stack-Segment, als Thread registriert → endet mit dem Programm), Puffer aus malloc,
+  beliebig viele Wartende auf eigenen Semaphoren. Der Kopier-Proc schließt alle fremden
+  fds (RFFDG kopiert die geteilte fd-Tabelle aller Threads → hielt z. B. den Server-Socket
+  eines anderen Threads offen, kein EOF), mit rohen Aufrufen (`_fdinfo` ist geteilt).
+- ape9/ext/posix.c: fsync, getsid/getpgid, utimes, getpwuid_r/getpwnam_r, fchown (no-op),
+  posix_fallocate (ftruncate), **getsockopt** (APEs gibt -1 ohne errno → curl las altes
+  `errno` = EAGAIN als Verbindungsfehler; SO_ERROR=0). ape9/ext/pthread.c: nur Mutexe
+  (Drepper + Semaphore, rekursiv pro Proc) für sqlite. ape9/include: Ergänzungs-Header
+  (`#include_next`): poll.h, unistd.h, sys/socket.h (HAVE_SOCK_OPTS, fd_set), netinet/in.h …
+- libc-Crate: APEs POSIX-Typen (off_t, fd_set, sockaddr, …) und errno-Werte (APE: EINVAL=12,
+  ENOMEM=23!) für die Bindings der C-Bibliotheken.
+- **Crates** (`patches/crates/*.patch`, `scripts/crates-patch.sh apply` → `crates/`,
+  `cargo-plan9.toml` = `[patch.crates-io]`; `cargo update -p libc` nach Patch-Änderungen):
+  getrandom 0.2/0.3/0.4 (`/dev/random`), ring (Linux-ABI-Liste: SysV + ELF → Asm), rustls-
+  native-certs (`/sys/lib/tls/ca.pem`), rustls-platform-verifier, curl (socket über
+  `__ape_socket`, kein socket2; curl-sys mit **rustls** statt OpenSSL, ring statt aws-lc),
+  curl-sys (kein Threaded-Resolver, keine Unix-Sockets/socketpair, `CURL_CA_BUNDLE`),
+  libgit2-sys (ohne TLS/SSH — git über curl via git2-curl —, ohne Threads, poll, NO_MMAP),
+  libssh2-sys leer, libsqlite3-sys (ohne mmap/WAL/Extensions/Worker; Locks mit
+  „unix-dotfile“ per SQLITE_EXTRA_INIT, APEs fcntl hat keine Record-Locks), git2, tar
+  (wie wasm32, aber Rechte setzen), url (file paths), filetime, home, is_executable,
+  gix-sec (`/dev/user`), gix-config-value (`/usr/<name>`). Umgebung: `LIBZ_SYS_STATIC=1`
+  (APEs zlib.h ist alt).
+- cargo selbst: cargo-util (exec_replace = spawn+wait, read2 mit zwei Threads, Pfade),
+  cargo-credential (`/dev/cons`), Terminal ohne Escapes, job (Note-Gruppe), flock (Plan 9 hat
+  keine Locks → wie ein Dateisystem ohne), FileId, `$path` statt `PATH`.
+- std-Fix: `Path::is_absolute` (Plan 9 war nicht in der unix-artigen Liste).
+- **CA-Wurzeln**: 9front prüft TLS mit Thumbprints, hat kein CA-Bündel: cargo erwartet
+  `/sys/lib/tls/ca.pem` (oder `http.cainfo`). Für die Tests das des Hosts.
+- Nach jedem std-Neubau: `rm -rf tests/out/cargo-port` (sonst „possibly newer version of
+  crate std“), und std immer für beide Targets bauen (sonst fehlt eins im Sysroot).
+
 ## Tests
 
 - `tests/run.sh`: baut `tests/*.rs`, läuft im Gast, eine Zeile pro Test; Stand: alle 5 ok.
@@ -117,6 +172,8 @@ Im Gast: `tests/guest.sh -f prog... -- 'rc-Zeile' ...` (über `../9front`s `boot
 
 ## Offen
 
+- cargo nativ braucht rustc nativ (LLVM über 9front-gccs g++). Offen bei cargo: Datei-Locks
+  (DMEXCL?), Kopier-Procs-Puffer nach `close` mit laufendem read bleiben stehen (Leck).
 - cargo (Linux, cross): host-cargo + `RUSTC=rust/build/host/stage1/bin/rustc`, Linux-std im Stage-1
   (`./x build --stage 1 library --target x86_64-unknown-linux-gnu`), `.cargo/config.toml` mit
   `linker`. `tests/crates` (regex, serde, serde_json) noch nicht gebaut. Crates von crates.io mit

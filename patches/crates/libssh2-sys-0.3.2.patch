@@ -1,6 +1,6 @@
 diff -ruN '--exclude=target' libssh2-sys-0.3.2/build.rs /home/stefan/Devel/9front-rust/crates/libssh2-sys-0.3.2/build.rs
 --- a/build.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/build.rs	2026-10-29 12:09:09.886057440 +0100
++++ b/build.rs	2026-10-29 12:51:53.477467743 +0100
 @@ -10,6 +10,10 @@
  use std::process::Command;
  
@@ -14,7 +14,7 @@ diff -ruN '--exclude=target' libssh2-sys-0.3.2/build.rs /home/stefan/Devel/9fron
      if !zlib_ng_compat && try_vcpkg() {
 diff -ruN '--exclude=target' libssh2-sys-0.3.2/lib.rs /home/stefan/Devel/9front-rust/crates/libssh2-sys-0.3.2/lib.rs
 --- a/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/lib.rs	2026-10-29 12:12:02.992471639 +0100
++++ b/lib.rs	2026-10-29 12:51:53.477611431 +0100
 @@ -1,3 +1,5 @@
 +// 9front: no SSH (libgit2 is built without it)
 +#![cfg(not(target_os = "plan9"))]
