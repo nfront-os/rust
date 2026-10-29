@@ -5,7 +5,10 @@
 use core::ffi::{c_char, c_int, c_long, c_void};
 
 unsafe extern "C" {
+    // the native libc, as libp9.a has it (its names renamed __p9_*)
+    #[link_name = "__p9_write"]
     fn write(fd: c_int, buf: *const c_void, n: c_long) -> c_long;
+    #[link_name = "__p9_exits"]
     fn exits(msg: *const c_char) -> !;
 }
 

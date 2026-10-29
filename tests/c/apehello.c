@@ -1,4 +1,4 @@
-/* C against APE in a Rust program (build/ape9) */
+/* C against APE in a Rust program: built as any APE program (9front-gcc), no renaming */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,7 +20,7 @@ ape_hello(char *buf, int n)
 	home = getenv("home");
 	fd = open("/nonexistent", O_RDONLY);
 	e = errno;
-	printf("ape9: sysname %s home %s open %d errno %d (%s)\n", buf, home ? home : "?", fd, e, strerror(e));
+	printf("cmain: sysname %s home %s open %d errno %d (%s)\n", buf, home ? home : "?", fd, e, strerror(e));
 	fflush(stdout);
 	return fd == -1 && e == ENOENT && home != NULL ? 0 : 1;
 }

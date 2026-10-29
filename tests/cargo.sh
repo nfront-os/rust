@@ -7,10 +7,12 @@
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 GCC9=${GCC9:-$TOP/../9front-gcc}
+# its build directory with the toolchain over gcc's APE (9front branch gcc)
+GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
 R=$TOP/rust/build/host/stage1/bin/rustc
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
-"$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-strip" -o "$T/cargo" "$TOP/tests/out/cargo-port/x86_64-unknown-plan9/release/cargo"
+"$GCC9BUILD/amd64/cross/bin/x86_64-pc-plan9-strip" -o "$T/cargo" "$TOP/tests/out/cargo-port/x86_64-unknown-plan9/release/cargo"
 "$R" -vV | sed 's/^host: .*/host: x86_64-unknown-plan9/' > "$T/rustc.vV"
 "$R" - --crate-name ___ --print=file-names --target x86_64-unknown-plan9 --crate-type bin \
 	--crate-type rlib --crate-type dylib --crate-type cdylib --crate-type staticlib \

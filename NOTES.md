@@ -162,9 +162,33 @@ Ohne rustc auf 9front gibt ein rc-Skript die Antworten des Stage-1-rustc (`-vV`,
 - Nach jedem std-Neubau: `rm -rf tests/out/cargo-port` (sonst „possibly newer version of
   crate std“), und std immer für beide Targets bauen (sonst fehlt eins im Sysroot).
 
+## APE neben der nativen libc, ohne ape9 (Teil 4, 2026-10-29)
+
+Der Nutzer wollte, dass C aus Crates ohne ape9-Umbenennung linkt. Umgekehrt gelöst: die
+**native libc** wird umbenannt, APE bleibt, wie es ist.
+- 9front (Branch `gcc`): compat von 9front-gcc ist in APE (`sys/src/ape/lib/ap/gnu`,
+  `sys/src/ape/lib/musl`, Header unter `__GNUC__`); `libp9.a` (`scripts/build/libp9.sh`, Post-
+  Schritt von libc): libc.a mit allen Namen als `__p9_*`; `ap/gnu/native.c`: `__ape_attach`
+  (Konstruktor 101: `_tos`, errno/`_privates` in privalloc-Slots, `_envsetup` ohne Notes),
+  `__ape_exit`; leere `libm/libpthread/librt/libdl.a`. 9front-gcc linkt nur noch `-lbsd -lap`
+  (kein libapecompat), Bau in `../9front-gcc/build-gcc` gegen `../9front-gccwt` (`GCC9BUILD`),
+  bis `gpu` den Branch `gcc` mergt.
+- libc-Crate: jede native Funktion `#[link_name = "__p9_…"]`. Target: Einstieg `__p9__main`,
+  `--start-group -lp9 -lbsd -lap -lgcc --end-group`. std: `malloc`, `free`, `realloc`,
+  `aligned_alloc`, `memalign`, `posix_memalign` (16 Byte, auf libcs mallocalign; APEs malloc.o
+  kommt nicht in den Link: ein Heap), `__ape_exit` in `end_program`.
+- C/C++ der Crates: normale APE-Übersetzung mit `x86_64-pc-plan9-gcc`/`ar`; APEs pthreads
+  laufen auf std-Threads (`__plan9_thread_spawn`), select/poll über APEs neue Pufferung.
+- Gefunden: APEs `uintptr_t` war `unsigned long long`, `size_t` `unsigned long` (curl ↔
+  rustls-ffi; ape9s `-Wno-error=incompatible-pointer-types` hatte das verdeckt): für gcc jetzt
+  die Typen des Compilers. Nach einem rustc-Neubau std für **beide** Targets in einem Lauf
+  bauen (`--target x86_64-unknown-linux-gnu,x86_64-unknown-plan9`), sonst fehlt eins.
+- Tests: `tests/run.sh` 7/7 (neu `cmain`, `cxxmain`: C und C++ aus `tests/c`), `tests/cargo.sh`
+  5/5 (version, new, search, fetch, refetch).
+
 ## Tests
 
-- `tests/run.sh`: baut `tests/*.rs`, läuft im Gast, eine Zeile pro Test; Stand: alle 5 ok.
+- `tests/run.sh`: baut `tests/*.rs` und `tests/c`, läuft im Gast, eine Zeile pro Test; Stand: alle 7 ok.
 - `tests/nostd.rs` (core, libc von Hand), `tests/std1.rs` (args, scoped threads, Mutex unter
   Last, Condvar/Timeout, Barrier, RwLock, Kanäle rendezvous/gepuffert, TLS + Destruktor,
   sleep, SystemTime, HashMap, Float-Format), `tests/overflow.rs` (Überlauf in main und Thread

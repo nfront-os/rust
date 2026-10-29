@@ -19,3 +19,4 @@ url = { package = "url", path = "/home/stefan/Devel/9front-rust/crates/url-2.5.8
 git2 = { package = "git2", path = "/home/stefan/Devel/9front-rust/crates/git2-0.21.0" }
 rustls-platform-verifier = { package = "rustls-platform-verifier", path = "/home/stefan/Devel/9front-rust/crates/rustls-platform-verifier-0.5.3" }
 rustls-native-certs = { package = "rustls-native-certs", path = "/home/stefan/Devel/9front-rust/crates/rustls-native-certs-0.8.5" }
+libsqlite3-sys = { package = "libsqlite3-sys", path = "/home/stefan/Devel/9front-rust/crates/libsqlite3-sys-0.38.1" }

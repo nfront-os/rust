@@ -1,4 +1,4 @@
-//! A C library built against APE (tests/ape9/apehello.c), in a program with std.
+//! A C library built against APE (tests/c/apehello.c), in a program with std.
 unsafe extern "C" {
     fn ape_hello(buf: *mut u8, n: i32) -> i32;
     fn ape_poll(port: i32) -> i32;
@@ -25,5 +25,5 @@ fn main() {
     let r = unsafe { ape_poll(port as i32) };
     srv.join().unwrap();
     assert_eq!(r, 0, "ape_poll");
-    println!("ape9: ok");
+    println!("cmain: ok");
 }

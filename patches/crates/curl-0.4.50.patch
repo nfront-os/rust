@@ -44,7 +44,7 @@ diff -ruN '--exclude=target' curl-0.4.50/src/easy/form.rs /home/stefan/Devel/9fr
  
 diff -ruN '--exclude=target' curl-0.4.50/src/easy/handler.rs /home/stefan/Devel/9front-rust/crates/curl-0.4.50/src/easy/handler.rs
 --- a/src/easy/handler.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/easy/handler.rs	2026-10-29 12:51:53.374809744 +0100
++++ b/src/easy/handler.rs	2026-10-29 22:00:30.826825153 +0100
 @@ -10,6 +10,7 @@
  use std::time::Duration;
  
@@ -58,13 +58,13 @@ diff -ruN '--exclude=target' curl-0.4.50/src/easy/handler.rs /home/stefan/Devel/
          protocol: c_int,
      ) -> Option<curl_sys::curl_socket_t> {
 +        // 9front: libcurl is built against APE, Plan 9's POSIX layer, whose sockets
-+        // are its emulation over /net (renamed __ape_, see 9front-rust's ape9)
++        // are its emulation over /net (APE's socket, beside std's native libc)
 +        #[cfg(target_os = "plan9")]
 +        {
 +            extern "C" {
-+                fn __ape_socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
++                fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
 +            }
-+            let fd = unsafe { __ape_socket(family, socktype, protocol) };
++            let fd = unsafe { socket(family, socktype, protocol) };
 +            return if fd < 0 { None } else { Some(fd as curl_sys::curl_socket_t) };
 +        }
 +
