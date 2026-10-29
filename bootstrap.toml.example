@@ -25,3 +25,6 @@ cxx = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-g++"
 ar = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-ar"
 ranlib = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-ranlib"
 linker = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-gcc"
+# rustc for 9front: its LLVM (scripts/build-llvm.sh; llvm-config answers on Linux:
+# scripts/llvm-config-plan9.sh)
+llvm-config = "/home/stefan/Devel/9front-rust/build/llvm-plan9/bin/llvm-config"

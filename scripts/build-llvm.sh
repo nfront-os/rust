@@ -3,6 +3,7 @@
 # libraries only, X86, static, C++ against APE (cmake/plan9.cmake), the
 # tablegens for Linux from the same sources (build/llvm-native-tools, made first). Out: build/llvm-plan9 (bin/llvm-config
 # is a 9front program: scripts/llvm-config-plan9 answers for it on Linux).
+# The threads are APE's, in libap: CMake's FindThreads is told so (its probes cannot link).
 # usage: scripts/build-llvm.sh [ninja targets]
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
@@ -17,7 +18,7 @@ if [ ! -x "$N/bin/llvm-tblgen" ]; then
 fi
 mkdir -p "$B"
 cd "$B"
-[ -f build.ninja ] || cmake -G Ninja "$TOP/rust/src/llvm-project/llvm" \
+cmake -G Ninja "$TOP/rust/src/llvm-project/llvm" \
 	-DCMAKE_TOOLCHAIN_FILE="$TOP/cmake/plan9.cmake" \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DLLVM_TARGETS_TO_BUILD=X86 \
@@ -32,5 +33,7 @@ cd "$B"
 	-DLLVM_ENABLE_BACKTRACES=OFF -DLLVM_ENABLE_CRASH_OVERRIDES=OFF \
 	-DLLVM_NATIVE_TOOL_DIR="$N/bin" \
 	-DLLVM_ENABLE_ONDISK_CAS=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Backtrace=ON \
+	-DCMAKE_THREAD_LIBS_INIT= -DCMAKE_HAVE_THREADS_LIBRARY=1 -DCMAKE_USE_PTHREADS_INIT=1 \
+	-DThreads_FOUND=TRUE -DCMAKE_HAVE_LIBC_PTHREAD=1 \
 	> "$TOP/logs/llvm-cmake.log" 2>&1
 ninja -k 0 "$@" > "$TOP/logs/llvm-build.log" 2>&1
