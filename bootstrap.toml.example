@@ -1,0 +1,25 @@
+# 9front port (../NOTES.md): the compiler for Linux, std for x86_64-unknown-plan9,
+# linked by 9front-gcc's cross gcc against the built 9front tree (its sysroot)
+profile = "compiler"
+change-id = "ignore"
+
+[llvm]
+download-ci-llvm = true
+
+[build]
+target = ["x86_64-unknown-linux-gnu", "x86_64-unknown-plan9"]
+docs = false
+extended = false
+
+[rust]
+channel = "dev"
+download-rustc = false
+lld = false
+llvm-tools = false
+
+[target.x86_64-unknown-plan9]
+cc = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-gcc"
+cxx = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-g++"
+ar = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-ar"
+ranlib = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-ranlib"
+linker = "$GCC9/build/amd64/cross/bin/x86_64-pc-plan9-gcc"

@@ -1,0 +1,6 @@
+# the sources are repositories of their own (branch plan9)
+/libc/
+/llvm-project/
+/rust/
+/logs/
+/tests/out/
