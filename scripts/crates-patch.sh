@@ -18,6 +18,20 @@ diff)
 		[ -s "$P/$c.patch" ] || rm "$P/$c.patch"
 	done
 	ls "$P"
+	# native libc functions declared by hand: without __p9_ they are APE's (README.md)
+	nat=$(nm -g --defined-only "${PLAN9:-$TOP/../9front-gccwt}/amd64/lib.gcc/libp9.a" 2>/dev/null |
+		awk 'NF == 3 && $3 ~ /^__p9_/ {print substr($3, 6)}' | sort -u)
+	for p in "$P"/*.patch; do
+		awk '/^\+.*extern "C"/ {ext = 1}
+			/^\+}/ {ext = 0}
+			/^\+.*link_name *= *"__p9_/ {skip = 1; next}
+			ext && /^\+ *(pub )?fn [A-Za-z_0-9]+\(/ {
+				match($0, /fn [A-Za-z_0-9]+/); n = substr($0, RSTART + 3, RLENGTH - 3)
+				if(!skip) print FILENAME ": " n }
+			{skip = 0}' "$p"
+	done | while read -r f n; do
+		echo "$nat" | grep -qx "$n" && echo "warning: ${f%:} declares $n: APE's, not the native libc's (link_name = \"__p9_$n\")" >&2
+	done
 	;;
 apply)
 	for p in "$P"/*.patch; do

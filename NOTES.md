@@ -183,6 +183,10 @@ Der Nutzer wollte, dass C aus Crates ohne ape9-Umbenennung linkt. Umgekehrt gel�
   rustls-ffi; ape9s `-Wno-error=incompatible-pointer-types` hatte das verdeckt): für gcc jetzt
   die Typen des Compilers. Nach einem rustc-Neubau std für **beide** Targets in einem Lauf
   bauen (`--target x86_64-unknown-linux-gnu,x86_64-unknown-plan9`), sonst fehlt eins.
+- **Regel für Crate-Ports und eigenen Code:** native Plan-9-Aufrufe nur über das libc-Crate
+  oder mit `#[link_name = "__p9_…"]`. Ein eigenes `extern "C" { fn open(…) }` landet still bei
+  APEs `open` (andere Flags: OCEXEC 32 ist dort etwas anderes); so war es in den getrandom-Ports,
+  die Tests liefen trotzdem. `scripts/crates-patch.sh diff` meldet solche Deklarationen.
 - Tests: `tests/run.sh` 7/7 (neu `cmain`, `cxxmain`: C und C++ aus `tests/c`), `tests/cargo.sh`
   5/5 (version, new, search, fetch, refetch).
 

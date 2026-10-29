@@ -15,6 +15,12 @@ Log of the port (German): `NOTES.md`.
 - `tests/`: test programs; `tests/guest.sh` runs programs in the 9front guest.
 - `bootstrap.toml.example`: `rust/bootstrap.toml` (`$GCC9`: the 9front-gcc checkout).
 
+## Porting crates
+
+Native Plan 9 calls go through the `libc` crate (its functions are bound to `__p9_*`) or
+`#[link_name = "__p9_open"]` & co.: a plain `extern "C" { fn open(...) }` is APE's open.
+`scripts/crates-patch.sh diff` warns about such declarations in the crate patches.
+
 ## Build
 
     cd rust && ./x build --stage 1 library --target x86_64-unknown-linux-gnu,x86_64-unknown-plan9
