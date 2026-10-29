@@ -15,13 +15,22 @@ extern void *__ape__tos;
 extern int *__ape__errnoloc;
 extern char *__ape__plan9err;
 extern void __ape__envsetup(void);
+extern int __ape_fflush(void *);
 
 /* libc's */
+extern int atexit(void (*)(void));
 extern void *_tos;
 extern void **privalloc(void);
 extern void *mallocalign(unsigned int, unsigned int, long, unsigned int);
 
 static char errbuf[128];
+
+/* the program ends through libc's exits, not APE's exit: APE's streams flushed there */
+static void
+apeflush(void)
+{
+	__ape_fflush(NULL);
+}
 
 int
 __ape9_nonotify(void *f)
@@ -40,6 +49,7 @@ __ape9_init(void)
 	/* the error text: one for all procs */
 	__ape__plan9err = errbuf;
 	__ape__envsetup();
+	atexit(apeflush);
 }
 
 /* APE's malloc.o is out: its aligned allocations from libc's */
@@ -59,5 +69,5 @@ int
 __ape_posix_memalign(void **p, size_t align, size_t size)
 {
 	*p = mallocalign(size, align, 0, 0);
-	return *p == NULL ? 12 : 0;	/* ENOMEM */
+	return *p == NULL ? 23 : 0;	/* APE's ENOMEM */
 }

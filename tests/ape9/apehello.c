@@ -24,3 +24,55 @@ ape_hello(char *buf, int n)
 	fflush(stdout);
 	return fd == -1 && e == ENOENT && home != NULL ? 0 : 1;
 }
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <poll.h>
+
+/* poll on an APE socket: nothing for 200 ms, then data, then the end */
+int
+ape_poll(int port)
+{
+	struct sockaddr_in a;
+	struct pollfd p;
+	char buf[64];
+	int s, r, n;
+
+	s = socket(AF_INET, SOCK_STREAM, 0);
+	if(s < 0)
+		return -1;
+	memset(&a, 0, sizeof a);
+	a.sin_family = AF_INET;
+	a.sin_port = htons(port);
+	a.sin_addr.s_addr = inet_addr("127.0.0.1");
+	if(connect(s, (struct sockaddr*)&a, sizeof a) < 0)
+		return -2;
+	p.fd = s;
+	p.events = POLLIN;
+	r = poll(&p, 1, 200);
+	if(r != 0)
+		return -3;
+	if(write(s, "go\n", 3) != 3)
+		return -4;
+	r = poll(&p, 1, 5000);
+	if(r != 1 || !(p.revents & POLLIN))
+		return -5;
+	n = read(s, buf, sizeof buf - 1);
+	if(n <= 0)
+		return -6;
+	buf[n] = 0;
+	r = poll(&p, 1, 5000);
+	if(r != 1){
+		printf("ape9: eof poll %d revents %x\n", r, p.revents);
+		return -7;
+	}
+	if((r = read(s, buf + n, 1)) != 0){
+		printf("ape9: eof read %d errno %d\n", r, errno);
+		return -9;
+	}
+	close(s);
+	printf("ape9: poll got %s", buf);
+	fflush(stdout);
+	return strcmp(buf, "data\n") == 0 ? 0 : -8;
+}

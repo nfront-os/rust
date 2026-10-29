@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run programs in the 9front guest (../9front's scripts/guest/boot-cli.sh): the files
 # given are copied to /tests; each further argument is one rc command line.
-# usage: tests/guest.sh -f file... -- cmd...
+# usage: tests/guest.sh [-x /guest/path=hostfile]... -f file... -- cmd...
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 PLAN9=$(cd "${PLAN9:-$TOP/../9front}" && pwd)
@@ -9,7 +9,11 @@ T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/extra/tests"
 while [ $# -gt 0 ] && [ "$1" != -- ]; do
-	[ "$1" = -f ] || cp "$1" "$T/extra/tests/"
+	case $1 in
+	-f) ;;
+	-x) shift; dst=${1%%=*}; mkdir -p "$T/extra$(dirname "$dst")"; cp "${1#*=}" "$T/extra$dst" ;;
+	*) cp "$1" "$T/extra/tests/" ;;
+	esac
 	shift
 done
 [ "$1" = -- ] && shift

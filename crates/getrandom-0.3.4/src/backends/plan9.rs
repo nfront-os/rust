@@ -13,7 +13,7 @@ unsafe extern "C" {
 /// cons(3): `/dev/random`, the kernel's generator.
 fn fill(dest: &mut [MaybeUninit<u8>]) -> Result<(), Error> {
     const OREAD_OCEXEC: i32 = 32;
-    let fd = unsafe { open(c"/dev/random".as_ptr(), OREAD_OCEXEC) };
+    let fd = unsafe { open(b"/dev/random\0".as_ptr().cast(), OREAD_OCEXEC) };
     if fd < 0 {
         return Err(Error::UNEXPECTED);
     }

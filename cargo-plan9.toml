@@ -6,3 +6,16 @@ getrandom-0_2_17 = { package = "getrandom", path = "/home/stefan/Devel/9front-ru
 getrandom-0_3_4 = { package = "getrandom", path = "/home/stefan/Devel/9front-rust/crates/getrandom-0.3.4" }
 filetime = { package = "filetime", path = "/home/stefan/Devel/9front-rust/crates/filetime-0.2.29" }
 gix-sec = { package = "gix-sec", path = "/home/stefan/Devel/9front-rust/crates/gix-sec-0.16.0" }
+curl = { package = "curl", path = "/home/stefan/Devel/9front-rust/crates/curl-0.4.50" }
+libssh2-sys = { package = "libssh2-sys", path = "/home/stefan/Devel/9front-rust/crates/libssh2-sys-0.3.2" }
+libgit2-sys = { package = "libgit2-sys", path = "/home/stefan/Devel/9front-rust/crates/libgit2-sys-0.18.7+1.9.6" }
+curl-sys = { package = "curl-sys", path = "/home/stefan/Devel/9front-rust/crates/curl-sys-0.4.90+curl-8.21.0" }
+ring = { package = "ring", path = "/home/stefan/Devel/9front-rust/crates/ring-0.17.14" }
+home = { package = "home", path = "/home/stefan/Devel/9front-rust/crates/home-0.5.12" }
+is_executable = { package = "is_executable", path = "/home/stefan/Devel/9front-rust/crates/is_executable-1.0.6" }
+gix-config-value = { package = "gix-config-value", path = "/home/stefan/Devel/9front-rust/crates/gix-config-value-0.21.1" }
+tar = { package = "tar", path = "/home/stefan/Devel/9front-rust/crates/tar-0.4.46" }
+url = { package = "url", path = "/home/stefan/Devel/9front-rust/crates/url-2.5.8" }
+git2 = { package = "git2", path = "/home/stefan/Devel/9front-rust/crates/git2-0.21.0" }
+rustls-platform-verifier = { package = "rustls-platform-verifier", path = "/home/stefan/Devel/9front-rust/crates/rustls-platform-verifier-0.5.3" }
+rustls-native-certs = { package = "rustls-native-certs", path = "/home/stefan/Devel/9front-rust/crates/rustls-native-certs-0.8.5" }
