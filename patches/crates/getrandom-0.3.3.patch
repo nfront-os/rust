@@ -1,0 +1,58 @@
+diff -ruN '--exclude=target' getrandom-0.3.3/src/backends/plan9.rs /home/stefan/Devel/9front-rust/crates/getrandom-0.3.3/src/backends/plan9.rs
+--- a/src/backends/plan9.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/backends/plan9.rs	2026-10-29 22:14:53.026525959 +0100
+@@ -0,0 +1,41 @@
++//! 9front (Plan 9)
++use crate::Error;
++use core::mem::MaybeUninit;
++
++pub use crate::util::{inner_u32, inner_u64};
++
++// the native libc (libp9.a: __p9_*), not APE's open/read/close
++unsafe extern "C" {
++    #[link_name = "__p9_open"]
++    fn open(file: *const core::ffi::c_char, mode: i32) -> i32;
++    #[link_name = "__p9_read"]
++    fn read(fd: i32, buf: *mut core::ffi::c_void, n: core::ffi::c_long) -> core::ffi::c_long;
++    #[link_name = "__p9_close"]
++    fn close(fd: i32) -> i32;
++}
++
++/// cons(3): `/dev/random`, the kernel's generator.
++fn fill(dest: &mut [MaybeUninit<u8>]) -> Result<(), Error> {
++    const OREAD_OCEXEC: i32 = 32;
++    let fd = unsafe { open(b"/dev/random\0".as_ptr().cast(), OREAD_OCEXEC) };
++    if fd < 0 {
++        return Err(Error::UNEXPECTED);
++    }
++    let mut rest = dest;
++    while !rest.is_empty() {
++        let n = rest.len().min(32768);
++        let r = unsafe { read(fd, rest.as_mut_ptr().cast(), n as core::ffi::c_long) };
++        if r <= 0 {
++            unsafe { close(fd) };
++            return Err(Error::UNEXPECTED);
++        }
++        rest = &mut rest[r as usize..];
++    }
++    unsafe { close(fd) };
++    Ok(())
++}
++
++#[inline]
++pub fn fill_inner(dest: &mut [MaybeUninit<u8>]) -> Result<(), Error> {
++    fill(dest)
++}
+diff -ruN '--exclude=target' getrandom-0.3.3/src/backends.rs /home/stefan/Devel/9front-rust/crates/getrandom-0.3.3/src/backends.rs
+--- a/src/backends.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/backends.rs	2026-10-29 22:15:00.843404952 +0100
+@@ -146,6 +146,9 @@
+                 );
+             }
+         }
++    } else if #[cfg(target_os = "plan9")] {
++        mod plan9;
++        pub use plan9::*;
+     } else if #[cfg(target_os = "hermit")] {
+         mod hermit;
+         pub use hermit::*;

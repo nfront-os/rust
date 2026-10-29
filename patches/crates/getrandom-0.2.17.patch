@@ -12,15 +12,19 @@ diff -ruN '--exclude=target' getrandom-0.2.17/src/lib.rs /home/stefan/Devel/9fro
      } else if #[cfg(target_os = "vxworks")] {
 diff -ruN '--exclude=target' getrandom-0.2.17/src/plan9.rs /home/stefan/Devel/9front-rust/crates/getrandom-0.2.17/src/plan9.rs
 --- a/src/plan9.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/plan9.rs	2026-10-29 12:51:53.408789827 +0100
-@@ -0,0 +1,34 @@
++++ b/src/plan9.rs	2026-10-29 22:14:52.957590647 +0100
+@@ -0,0 +1,38 @@
 +//! 9front (Plan 9)
 +use crate::Error;
 +use core::mem::MaybeUninit;
 +
++// the native libc (libp9.a: __p9_*), not APE's open/read/close
 +unsafe extern "C" {
++    #[link_name = "__p9_open"]
 +    fn open(file: *const core::ffi::c_char, mode: i32) -> i32;
++    #[link_name = "__p9_read"]
 +    fn read(fd: i32, buf: *mut core::ffi::c_void, n: core::ffi::c_long) -> core::ffi::c_long;
++    #[link_name = "__p9_close"]
 +    fn close(fd: i32) -> i32;
 +}
 +

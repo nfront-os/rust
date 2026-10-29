@@ -7,6 +7,8 @@ change-id = "ignore"
 download-ci-llvm = true
 
 [build]
+# the submodules are the port's branches (llvm-project: plan9): bootstrap leaves them
+submodules = false
 target = ["x86_64-unknown-linux-gnu", "x86_64-unknown-plan9"]
 docs = false
 extended = false
