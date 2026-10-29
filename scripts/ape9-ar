@@ -1,0 +1,13 @@
+#!/bin/bash
+# ar for the C of Rust crates built for 9front (the cc crate's AR): the archive's references
+# to APE's functions renamed as in build/ape9 (scripts/ape9.sh), after ar has run.
+TOP=$(cd "$(dirname "$0")/.." && pwd)
+GCC9=${GCC9:-$TOP/../9front-gcc}
+X=$GCC9/build/amd64/cross/bin/x86_64-pc-plan9
+"$X-ar" "$@" || exit
+for a in "$@"; do
+	case $a in
+	*.a) [ -f "$a" ] && exec "$X-objcopy" --redefine-syms="$TOP/build/ape9/ape9.syms" "$a" ;;
+	esac
+done
+exit 0

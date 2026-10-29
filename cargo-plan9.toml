@@ -1,0 +1,8 @@
+# cargo --config cargo-plan9.toml: the crates with 9front changes (crates/, scripts/crate.sh)
+[patch.crates-io]
+libc = { path = "/home/stefan/Devel/9front-rust/libc" }
+getrandom = { package = "getrandom", path = "/home/stefan/Devel/9front-rust/crates/getrandom-0.4.3" }
+getrandom-0_2_17 = { package = "getrandom", path = "/home/stefan/Devel/9front-rust/crates/getrandom-0.2.17" }
+getrandom-0_3_4 = { package = "getrandom", path = "/home/stefan/Devel/9front-rust/crates/getrandom-0.3.4" }
+filetime = { package = "filetime", path = "/home/stefan/Devel/9front-rust/crates/filetime-0.2.29" }
+gix-sec = { package = "gix-sec", path = "/home/stefan/Devel/9front-rust/crates/gix-sec-0.16.0" }

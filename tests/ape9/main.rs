@@ -1,0 +1,14 @@
+//! A C library built against APE (tests/ape9/apehello.c), in a program with std.
+unsafe extern "C" {
+    fn ape_hello(buf: *mut u8, n: i32) -> i32;
+}
+
+fn main() {
+    let mut buf = [0u8; 64];
+    let h = std::thread::spawn(|| std::fs::read_to_string("/dev/sysname").unwrap());
+    let r = unsafe { ape_hello(buf.as_mut_ptr(), 64) };
+    let s = h.join().unwrap();
+    assert_eq!(r, 0);
+    assert!(buf.starts_with(s.as_bytes()));
+    println!("ape9: ok");
+}
