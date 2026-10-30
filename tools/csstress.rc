@@ -1,0 +1,15 @@
+#!/bin/rc
+fn st {
+	echo '== cs procs'
+	ps | grep ' cs$| cs ' 
+	for(p in `{ps | awk '$NF == "cs" {print $2}'}) echo $p `{cat /proc/$p/status | awk '{print $3}'}
+	echo '== tcp states'
+	cat /net/tcp/*/status | awk '{print $1}' | sort | uniq -c
+	echo '== csstress procs'
+	for(p in `{ps | awk '$NF == "csstress" {print $2}'}) echo $p `{cat /proc/$p/status | awk '{print $3}'}
+}
+for(n in 12 50){
+	/tests/csstress $n 200 >[2=1]
+	if(! ~ $status ''){ echo STUCK with $n; st; exit }
+}
+echo csstress: all done

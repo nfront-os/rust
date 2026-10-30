@@ -384,13 +384,11 @@ zurück (`STDTEST_LOG`: alle Gastprotokolle).
   `clone_accept_*`. Mit einem Test-Thread grün (40 Läufe). Nicht die incall-Grenze
   (`Maxincall` 10, keine Meldung „incall queue full“), keine doppelten Ports (zufällig aus
   2^15..2^16). Ungeklärt: 9fronts TCP über Loopback unter Last oder std's Netzcode.
-- **Offen, Bug in 9front: `/net/cs` hängt unter Last.** Mit `RUST_TEST_THREADS=12` hingen
-  `clone_while_reading`/`multiple_connect_*` (nicht mit einem Thread, 40 Läufe): tools/pstack
-  zeigte die Clients in `dial` → `csdial` im `pwrite` an `/net/cs`, die Server-Threads im
-  `read` ihrer angenommenen Verbindungen. std wählt numerische Adressen jetzt selbst
-  (`/net/tcp/clone`, `connect a!p` bzw. `announce a!p` ins ctl, dann `data`): ein SocketAddr
-  braucht keine Übersetzung. Die Ursache in cs (oder im mount-Treiber) ist offen; C-Programme
-  und curl wählen weiter über cs (Eintrag in 9front-gccwt MEMORY.md).
+- **Offen, Bug in 9front: TCP-`connect` über Loopback hängt unter Last** (nicht `/net/cs`, wie
+  zuerst gedeutet: im Stack lag `call` von dial(2), das `connect` ans ctl schreibt). Mit C
+  nachgestellt (`tools/csstress.c`, `tools/csstress.rc`), gleich mit dem kencc-Kernel: ein Fehler von
+  9front, nicht vom gcc-Port (9front-gccwt MEMORY.md). std wählt numerische Adressen
+  trotzdem direkt (`/net/tcp/clone`), cs ist für SocketAddr unnötig.
 - **Offen: TCP halb schließen.** 9fronts ctl `close` legt auch die Leseseite auf (`tcpclose`:
   `qhangup(c->rq)`), `shutdown(Write)` beendet also beide Richtungen: eine Antwort der
   Gegenseite geht still verloren (HTTP-Clients, nc-artige Werkzeuge). Nur im Kernel lösbar.
