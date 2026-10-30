@@ -212,6 +212,23 @@ baut rustc für 9front: statisch, LLVM (build/llvm-plan9) eingebaut, 575 MB mit 
 - `tests/rustc.sh`: rustc --version, übersetzt `tests/std1.rs` im Gast und führt es aus:
   alle ok (MEM=3072). `tests/guest.sh -d /gast/dir=hostdir` kopiert Verzeichnisse.
 
+## cargo build auf 9front (Teil 6, 2026-10-30)
+
+`tests/cargo-build.sh` (rustc, cargo, nativer gcc, Header/Bibliotheken des gcc-Baums im Gast;
+`CMDWAIT` hoch: boot-cli wartet sonst 60 s pro Zeile): `cargo new` + `cargo build` + Lauf ok,
+`itoa` von crates.io ok. Gefunden: jobserver 0.1.34 fiel auf seinen wasm-Stub (`configure`
+→ Panik) → Jobserver nur im Prozess; 9fronts Kernel prüft die Pufferadresse auch bei 0 Bytes
+(leerer Slice: 0x1) → std `buf_ptr`; rustc inkrementell braucht Locks → plan9: ohne Sperre
+(wie cargo); rustc findet seine Sysroot über den eigenen Pfad: als `/bin/rustc` (bind) wäre
+das `/` → Test setzt `RUSTC=/amd64/rust/bin/rustc` (offen: dauerhafte Lösung).
+- **Offen: serde** (Build-Skript läuft, `serde_core` baut) bleibt danach lange beim Übersetzen
+  von `serde` stehen; im zweiten Diagnoselauf war rustc `Ready` (rechnet), cargos `PREAD`-
+  Procs sind APEs Kopier-Procs der curl-Verbindungen. Eher sehr langsam als Deadlock: messen
+  (Zeit für serde im Gast, `-Z time-passes`), Allokator (alles über mallocalign 16?) prüfen.
+  Log: `logs/cargo-dbg-serde-hang.log`.
+- Uncommittet und ungetestet (auf Wunsch später): `__plan9_abort` in std (andere Procs gehen,
+  der abbrechende bleibt Broken für acid), APE `gen/abort.c`, Test in `tests/run.sh`.
+
 ## Tests
 
 - `tests/run.sh`: baut `tests/*.rs` und `tests/c`, läuft im Gast, eine Zeile pro Test; Stand: alle 7 ok.
