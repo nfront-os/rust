@@ -21,7 +21,7 @@ O=$TOP/tests/out/$objtype
 mkdir -p "$O" "$TOP/logs"
 cd "$TOP/tests"
 $R --edition 2024 --target $T -O -C panic=abort nostd.rs -o "$O/nostd"
-for t in std1 std2 unwind overflow lock; do
+for t in std1 std2 unwind overflow lock nb; do
 	$R --edition 2024 --target $T -O -g $t.rs -o "$O/$t"
 done
 # C and C++ against APE in Rust programs, compiled as any APE program
@@ -49,13 +49,15 @@ cmds=(
 	# file locks: ramfs keeps DMEXCL; /tmp as its server has it
 	"ramfs -m /n/ram; $(run lock '/tests/lock /n/ram')"
 	"$(run lock-any '/tests/lock /tmp any')"
+	# non-blocking sockets (std's pumps, os::plan9::net)
+	"$(run nb /tests/nb)"
 	# C's exit and abort end the whole program (its sleeping thread too), the status for rc
 	"/tests/cexit 0; if(~ \$status *3) echo cexit-exit ok; if not echo cexit-exit FAIL \$status"
 	# abort: the other procs go, the aborting one stays Broken (for acid), then slay
 	"/tests/cexit 1 >[2]/dev/null & sleep 2; if(~ \`{ps | grep cexit | wc -l} 1 && ps | grep -s 'Broken +cexit') echo cexit-abort ok; if not echo cexit-abort FAIL; slay cexit | rc"
 	"sleep 1; if(ps | grep -s cexit) echo cexit-procs FAIL; if not echo cexit-procs ok"
 )
-"$TOP/tests/guest.sh" -f "$O/nostd" "$O/std1" "$O/std2" "$O/unwind" "$O/overflow" "$O/cmain" "$O/cxxmain" "$O/cexit" "$O/lock" -- "${cmds[@]}" > "$TOP/logs/$LOG" 2>&1
-tests="nostd std1 std2 unwind overflow cmain cxxmain lock lock-any cexit-exit cexit-abort cexit-procs"
+"$TOP/tests/guest.sh" -f "$O/nostd" "$O/std1" "$O/std2" "$O/unwind" "$O/overflow" "$O/cmain" "$O/cxxmain" "$O/cexit" "$O/lock" "$O/nb" -- "${cmds[@]}" > "$TOP/logs/$LOG" 2>&1
+tests="nostd std1 std2 unwind overflow cmain cxxmain lock lock-any nb cexit-exit cexit-abort cexit-procs"
 grep -E "^(${tests// /|})(: FAIL| (ok|FAIL))" "$TOP/logs/$LOG" || { tail -20 "$TOP/logs/$LOG"; exit 1; }
 [ "$(grep -cE "^(${tests// /|}) ok" "$TOP/logs/$LOG")" = "$(echo $tests | wc -w)" ]

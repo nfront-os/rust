@@ -1,0 +1,662 @@
+diff -ruN '--exclude=target' mio-1.2.1/src/io_source.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/io_source.rs
+--- a/src/io_source.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/io_source.rs	2026-10-31 00:53:17.595409607 +0100
+@@ -1,5 +1,5 @@
+ use std::ops::{Deref, DerefMut};
+-#[cfg(any(unix, target_os = "wasi"))]
++#[cfg(any(unix, target_os = "wasi", target_os = "plan9"))]
+ use std::os::fd::AsRawFd;
+ // TODO: once <https://github.com/rust-lang/rust/issues/126198> is fixed this
+ // can use `std::os::fd` and be merged with the above.
+@@ -107,6 +107,7 @@
+ #[cfg(any(
+     unix,
+     target_os = "hermit",
++    target_os = "plan9",
+     all(target_os = "wasi", not(target_env = "p1"))
+ ))]
+ impl<T> event::Source for IoSource<T>
+diff -ruN '--exclude=target' mio-1.2.1/src/net/tcp/listener.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/net/tcp/listener.rs
+--- a/src/net/tcp/listener.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/tcp/listener.rs	2026-10-31 00:53:49.379824611 +0100
+@@ -1,5 +1,5 @@
+ use std::net::{self, SocketAddr};
+-#[cfg(any(unix, target_os = "wasi"))]
++#[cfg(any(unix, target_os = "wasi", target_os = "plan9"))]
+ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
+ // TODO: once <https://github.com/rust-lang/rust/issues/126198> is fixed this
+ // can use `std::os::fd` and be merged with the above.
+@@ -19,7 +19,7 @@
+     all(target_os = "wasi", not(target_env = "p1"))
+ ))]
+ use crate::sys::tcp::set_reuseaddr;
+-#[cfg(not(all(target_os = "wasi", target_env = "p1")))]
++#[cfg(not(any(all(target_os = "wasi", target_env = "p1"), target_os = "plan9")))]
+ use crate::sys::tcp::{bind, listen, new_for_addr};
+ use crate::{event, sys, Interest, Registry, Token};
+ 
+@@ -63,10 +63,16 @@
+     /// 2. Set the `SO_REUSEADDR` option on the socket on Unix.
+     /// 3. Bind the socket to the specified address.
+     /// 4. Calls `listen` on the socket to prepare it to receive new connections.
+-    #[cfg(not(all(target_os = "wasi", target_env = "p1")))]
++    #[cfg(target_os = "plan9")]
++    pub fn bind(addr: SocketAddr) -> io::Result<TcpListener> {
++        // 9front: announce (std), then non-blocking: accepts in std's pump
++        crate::sys::tcp::bind_plan9(addr).map(TcpListener::from_std)
++    }
++
++    #[cfg(not(any(all(target_os = "wasi", target_env = "p1"), target_os = "plan9")))]
+     pub fn bind(addr: SocketAddr) -> io::Result<TcpListener> {
+         let socket = new_for_addr(addr)?;
+-        #[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++        #[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+         let listener = unsafe { TcpListener::from_raw_fd(socket) };
+         #[cfg(windows)]
+         let listener = unsafe { TcpListener::from_raw_socket(socket as _) };
+@@ -183,21 +189,21 @@
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl IntoRawFd for TcpListener {
+     fn into_raw_fd(self) -> RawFd {
+         self.inner.into_inner().into_raw_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl AsRawFd for TcpListener {
+     fn as_raw_fd(&self) -> RawFd {
+         self.inner.as_raw_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl FromRawFd for TcpListener {
+     /// Converts a `RawFd` to a `TcpListener`.
+     ///
+@@ -210,21 +216,21 @@
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl From<TcpListener> for OwnedFd {
+     fn from(tcp_listener: TcpListener) -> Self {
+         tcp_listener.inner.into_inner().into()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl AsFd for TcpListener {
+     fn as_fd(&self) -> BorrowedFd<'_> {
+         self.inner.as_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl From<OwnedFd> for TcpListener {
+     /// Converts a `RawFd` to a `TcpListener`.
+     ///
+@@ -297,7 +303,7 @@
+         // mio::net::TcpListener which ensures that we actually pass in a valid file
+         // descriptor/socket
+         unsafe {
+-            #[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++            #[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+             {
+                 net::TcpListener::from_raw_fd(listener.into_raw_fd())
+             }
+diff -ruN '--exclude=target' mio-1.2.1/src/net/tcp/stream.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/net/tcp/stream.rs
+--- a/src/net/tcp/stream.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/tcp/stream.rs	2026-10-31 00:53:49.379599943 +0100
+@@ -1,7 +1,7 @@
+ use std::fmt;
+ use std::io::{self, IoSlice, IoSliceMut, Read, Write};
+ use std::net::{self, Shutdown, SocketAddr};
+-#[cfg(any(unix, target_os = "wasi"))]
++#[cfg(any(unix, target_os = "wasi", target_os = "plan9"))]
+ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
+ // TODO: once <https://github.com/rust-lang/rust/issues/126198> is fixed this
+ // can use `std::os::fd` and be merged with the above.
+@@ -13,7 +13,7 @@
+ };
+ 
+ use crate::io_source::IoSource;
+-#[cfg(not(all(target_os = "wasi", target_env = "p1")))]
++#[cfg(not(any(all(target_os = "wasi", target_env = "p1"), target_os = "plan9")))]
+ use crate::sys::tcp::{connect, new_for_addr};
+ use crate::{event, Interest, Registry, Token};
+ 
+@@ -87,10 +87,16 @@
+     /// entries in the routing cache.
+     ///
+     /// [write interest]: Interest::WRITABLE
+-    #[cfg(not(all(target_os = "wasi", target_env = "p1")))]
++    #[cfg(target_os = "plan9")]
++    pub fn connect(addr: SocketAddr) -> io::Result<TcpStream> {
++        // 9front: no socket before its connect; std connects in the background
++        crate::sys::tcp::connect_plan9(addr).map(TcpStream::from_std)
++    }
++
++    #[cfg(not(any(all(target_os = "wasi", target_env = "p1"), target_os = "plan9")))]
+     pub fn connect(addr: SocketAddr) -> io::Result<TcpStream> {
+         let socket = new_for_addr(addr)?;
+-        #[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++        #[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+         let stream = unsafe { TcpStream::from_raw_fd(socket) };
+         #[cfg(windows)]
+         let stream = unsafe { TcpStream::from_raw_socket(socket as _) };
+@@ -354,21 +360,21 @@
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl IntoRawFd for TcpStream {
+     fn into_raw_fd(self) -> RawFd {
+         self.inner.into_inner().into_raw_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl AsRawFd for TcpStream {
+     fn as_raw_fd(&self) -> RawFd {
+         self.inner.as_raw_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl FromRawFd for TcpStream {
+     /// Converts a `RawFd` to a `TcpStream`.
+     ///
+@@ -381,21 +387,21 @@
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl From<TcpStream> for OwnedFd {
+     fn from(tcp_stream: TcpStream) -> Self {
+         tcp_stream.inner.into_inner().into()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl AsFd for TcpStream {
+     fn as_fd(&self) -> BorrowedFd<'_> {
+         self.inner.as_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl From<OwnedFd> for TcpStream {
+     /// Converts a `RawFd` to a `TcpStream`.
+     ///
+@@ -468,7 +474,7 @@
+         // mio::net::TcpStream which ensures that we actually pass in a valid file
+         // descriptor/socket
+         unsafe {
+-            #[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++            #[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+             {
+                 net::TcpStream::from_raw_fd(stream.into_raw_fd())
+             }
+diff -ruN '--exclude=target' mio-1.2.1/src/net/udp.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/net/udp.rs
+--- a/src/net/udp.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/udp.rs	2026-10-31 00:53:49.375741238 +0100
+@@ -8,7 +8,7 @@
+ //! [portability guidelines]: ../struct.Poll.html#portability
+ 
+ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+-#[cfg(any(unix, target_os = "wasi"))]
++#[cfg(any(unix, target_os = "wasi", target_os = "plan9"))]
+ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
+ // TODO: once <https://github.com/rust-lang/rust/issues/126198> is fixed this
+ // can use `std::os::fd` and be merged with the above.
+@@ -652,21 +652,21 @@
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl IntoRawFd for UdpSocket {
+     fn into_raw_fd(self) -> RawFd {
+         self.inner.into_inner().into_raw_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl AsRawFd for UdpSocket {
+     fn as_raw_fd(&self) -> RawFd {
+         self.inner.as_raw_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl FromRawFd for UdpSocket {
+     /// Converts a `RawFd` to a `UdpSocket`.
+     ///
+@@ -679,21 +679,21 @@
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl From<UdpSocket> for OwnedFd {
+     fn from(udp_socket: UdpSocket) -> Self {
+         udp_socket.inner.into_inner().into()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl AsFd for UdpSocket {
+     fn as_fd(&self) -> BorrowedFd<'_> {
+         self.inner.as_fd()
+     }
+ }
+ 
+-#[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++#[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+ impl From<OwnedFd> for UdpSocket {
+     /// Converts a `RawFd` to a `UdpSocket`.
+     ///
+@@ -766,7 +766,7 @@
+         // mio::net::UdpSocket which ensures that we actually pass in a valid file
+         // descriptor/socket
+         unsafe {
+-            #[cfg(any(unix, target_os = "hermit", target_os = "wasi"))]
++            #[cfg(any(unix, target_os = "hermit", target_os = "wasi", target_os = "plan9"))]
+             {
+                 net::UdpSocket::from_raw_fd(socket.into_raw_fd())
+             }
+diff -ruN '--exclude=target' mio-1.2.1/src/sys/mod.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/sys/mod.rs
+--- a/src/sys/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/sys/mod.rs	2026-10-31 00:53:17.591319704 +0100
+@@ -67,6 +67,13 @@
+     pub use self::windows::*;
+ }
+ 
++// 9front (Plan 9): readiness from std's non-blocking sockets (sys/plan9)
++#[cfg(target_os = "plan9")]
++cfg_os_poll! {
++    mod plan9;
++    pub(crate) use self::plan9::*;
++}
++
+ #[cfg(all(target_os = "wasi", target_env = "p1"))]
+ cfg_os_poll! {
+     mod wasip1;
+diff -ruN '--exclude=target' mio-1.2.1/src/sys/plan9/mod.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/sys/plan9/mod.rs
+--- a/src/sys/plan9/mod.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/sys/plan9/mod.rs	2026-10-31 00:54:27.073277245 +0100
+@@ -0,0 +1,356 @@
++//! 9front (Plan 9): readiness from std's non-blocking sockets.
++//!
++//! Plan 9 has no epoll, kqueue or poll(2): it only blocks. std gives a socket set
++//! non-blocking a pump, procs that do the blocking calls into buffers, and tells of its
++//! readiness (`std::os::plan9::net`): a hook, called whenever the socket may have become
++//! readable or writable, and `readiness`. The selector keeps the registered descriptors;
++//! a source's hook puts its descriptor on the selector's list and wakes it, `select` makes an
++//! event of each listed source that is ready for what it is registered for (edge-triggered:
++//! a source is listed again only when its state changes). A waker puts its token on the list.
++
++use std::collections::HashMap;
++use std::fmt;
++use std::io;
++use std::net::{self, SocketAddr};
++use std::os::plan9::io::RawFd;
++use std::os::plan9::net::{readiness, set_ready_hook};
++#[cfg(debug_assertions)]
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::{Arc, Condvar, Mutex, MutexGuard};
++use std::time::{Duration, Instant};
++
++use crate::{Interest, Token};
++
++#[derive(Clone, Copy, Debug)]
++pub(crate) struct Event {
++    token: Token,
++    readable: bool,
++    writable: bool,
++    error: bool,
++    read_closed: bool,
++    write_closed: bool,
++}
++
++pub(crate) type Events = Vec<Event>;
++
++pub(crate) mod event {
++    use std::fmt;
++
++    use crate::sys::Event;
++    use crate::Token;
++
++    pub(crate) fn token(e: &Event) -> Token {
++        e.token
++    }
++    pub(crate) fn is_readable(e: &Event) -> bool {
++        e.readable
++    }
++    pub(crate) fn is_writable(e: &Event) -> bool {
++        e.writable
++    }
++    pub(crate) fn is_error(e: &Event) -> bool {
++        e.error
++    }
++    pub(crate) fn is_read_closed(e: &Event) -> bool {
++        e.read_closed
++    }
++    pub(crate) fn is_write_closed(e: &Event) -> bool {
++        e.write_closed
++    }
++    pub(crate) fn is_priority(_: &Event) -> bool {
++        false
++    }
++    pub(crate) fn is_aio(_: &Event) -> bool {
++        false
++    }
++    pub(crate) fn is_lio(_: &Event) -> bool {
++        false
++    }
++    pub(crate) fn debug_details(f: &mut fmt::Formatter<'_>, e: &Event) -> fmt::Result {
++        fmt::Debug::fmt(e, f)
++    }
++}
++
++/// What is waiting for `select`.
++#[derive(Default)]
++struct Pending {
++    /// sources whose state changed
++    fds: Vec<RawFd>,
++    /// wakers' tokens
++    wakes: Vec<Token>,
++}
++
++struct Reg {
++    token: Token,
++    interests: Interest,
++}
++
++struct Inner {
++    regs: Mutex<HashMap<RawFd, Reg>>,
++    pending: Mutex<Pending>,
++    cv: Condvar,
++}
++
++fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
++    m.lock().unwrap_or_else(|e| e.into_inner())
++}
++
++impl Inner {
++    fn changed(&self, fd: RawFd) {
++        let mut p = lock(&self.pending);
++        if !p.fds.contains(&fd) {
++            p.fds.push(fd);
++        }
++        drop(p);
++        self.cv.notify_all();
++    }
++
++    fn wake(&self, token: Token) {
++        let mut p = lock(&self.pending);
++        if !p.wakes.contains(&token) {
++            p.wakes.push(token);
++        }
++        drop(p);
++        self.cv.notify_all();
++    }
++}
++
++#[cfg(debug_assertions)]
++static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
++
++pub(crate) struct Selector {
++    #[cfg(debug_assertions)]
++    id: usize,
++    inner: Arc<Inner>,
++}
++
++impl fmt::Debug for Selector {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("Selector").finish()
++    }
++}
++
++impl Selector {
++    pub(crate) fn new() -> io::Result<Selector> {
++        Ok(Selector {
++            #[cfg(debug_assertions)]
++            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
++            inner: Arc::new(Inner {
++                regs: Mutex::new(HashMap::new()),
++                pending: Mutex::new(Pending::default()),
++                cv: Condvar::new(),
++            }),
++        })
++    }
++
++    #[cfg(debug_assertions)]
++    pub(crate) fn id(&self) -> usize {
++        self.id
++    }
++
++    pub(crate) fn try_clone(&self) -> io::Result<Selector> {
++        Ok(Selector {
++            #[cfg(debug_assertions)]
++            id: self.id,
++            inner: self.inner.clone(),
++        })
++    }
++
++    pub(crate) fn select(&self, events: &mut Events, timeout: Option<Duration>) -> io::Result<()> {
++        events.clear();
++        let deadline = timeout.map(|t| Instant::now() + t);
++        loop {
++            let (fds, wakes) = {
++                let mut p = lock(&self.inner.pending);
++                loop {
++                    if !p.fds.is_empty() || !p.wakes.is_empty() {
++                        break;
++                    }
++                    match deadline {
++                        None => p = self.inner.cv.wait(p).unwrap_or_else(|e| e.into_inner()),
++                        Some(d) => {
++                            let now = Instant::now();
++                            if now >= d {
++                                return Ok(());
++                            }
++                            p = self.inner.cv.wait_timeout(p, d - now).unwrap_or_else(|e| e.into_inner()).0;
++                        }
++                    }
++                }
++                (std::mem::take(&mut p.fds), std::mem::take(&mut p.wakes))
++            };
++            for token in wakes {
++                events.push(Event {
++                    token,
++                    readable: true,
++                    writable: false,
++                    error: false,
++                    read_closed: false,
++                    write_closed: false,
++                });
++            }
++            let regs = lock(&self.inner.regs);
++            for fd in fds {
++                let Some(reg) = regs.get(&fd) else { continue };
++                let r = readiness(fd);
++                let readable = reg.interests.is_readable() && r.readable;
++                let writable = reg.interests.is_writable() && (r.writable || r.error);
++                if readable || writable || r.error {
++                    events.push(Event {
++                        token: reg.token,
++                        readable,
++                        writable,
++                        error: r.error,
++                        read_closed: r.read_closed,
++                        write_closed: r.write_closed,
++                    });
++                }
++            }
++            drop(regs);
++            // only sources not ready for what they are registered for: wait again (or
++            // return at the deadline)
++            if !events.is_empty() || timeout == Some(Duration::ZERO) {
++                return Ok(());
++            }
++        }
++    }
++
++    pub(crate) fn register(&self, fd: RawFd, token: Token, interests: Interest) -> io::Result<()> {
++        lock(&self.inner.regs).insert(fd, Reg { token, interests });
++        let inner = Arc::downgrade(&self.inner);
++        let r = set_ready_hook(
++            fd,
++            Some(Arc::new(move || {
++                if let Some(i) = inner.upgrade() {
++                    i.changed(fd);
++                }
++            })),
++        );
++        if r.is_err() {
++            lock(&self.inner.regs).remove(&fd);
++        }
++        r
++    }
++
++    pub(crate) fn reregister(&self, fd: RawFd, token: Token, interests: Interest) -> io::Result<()> {
++        match lock(&self.inner.regs).get_mut(&fd) {
++            Some(r) => {
++                r.token = token;
++                r.interests = interests;
++            }
++            None => return Err(io::Error::from(io::ErrorKind::NotFound)),
++        }
++        // its state for the new interests
++        self.inner.changed(fd);
++        Ok(())
++    }
++
++    pub(crate) fn deregister(&self, fd: RawFd) -> io::Result<()> {
++        if lock(&self.inner.regs).remove(&fd).is_none() {
++            return Err(io::Error::from(io::ErrorKind::NotFound));
++        }
++        // the socket may be closed already: then it has no hook to clear
++        let _ = set_ready_hook(fd, None);
++        Ok(())
++    }
++}
++
++pub(crate) struct Waker {
++    inner: Arc<Inner>,
++    token: Token,
++}
++
++impl fmt::Debug for Waker {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("Waker").field("token", &self.token).finish()
++    }
++}
++
++impl Waker {
++    pub(crate) fn new(selector: &Selector, token: Token) -> io::Result<Waker> {
++        Ok(Waker { inner: selector.inner.clone(), token })
++    }
++
++    pub(crate) fn wake(&self) -> io::Result<()> {
++        self.inner.wake(self.token);
++        Ok(())
++    }
++}
++
++cfg_io_source! {
++    pub(crate) struct IoSourceState;
++
++    impl IoSourceState {
++        pub(crate) fn new() -> IoSourceState {
++            IoSourceState
++        }
++
++        pub(crate) fn do_io<T, F, R>(&self, f: F, io: &T) -> io::Result<R>
++        where
++            F: FnOnce(&T) -> io::Result<R>,
++        {
++            f(io)
++        }
++
++        pub(crate) fn register(
++            &mut self,
++            registry: &crate::Registry,
++            token: Token,
++            interests: Interest,
++            fd: RawFd,
++        ) -> io::Result<()> {
++            registry.selector().register(fd, token, interests)
++        }
++
++        pub(crate) fn reregister(
++            &mut self,
++            registry: &crate::Registry,
++            token: Token,
++            interests: Interest,
++            fd: RawFd,
++        ) -> io::Result<()> {
++            registry.selector().reregister(fd, token, interests)
++        }
++
++        pub(crate) fn deregister(&mut self, registry: &crate::Registry, fd: RawFd) -> io::Result<()> {
++            registry.selector().deregister(fd)
++        }
++    }
++}
++
++cfg_net! {
++    pub(crate) mod tcp {
++        use super::*;
++
++        /// A non-blocking connect: std connects in the background.
++        pub(crate) fn connect_plan9(addr: SocketAddr) -> io::Result<net::TcpStream> {
++            std::os::plan9::net::connect_nonblocking(&addr)
++        }
++
++        pub(crate) fn bind_plan9(addr: SocketAddr) -> io::Result<net::TcpListener> {
++            let l = net::TcpListener::bind(addr)?;
++            l.set_nonblocking(true)?;
++            Ok(l)
++        }
++
++        pub(crate) fn accept(listener: &net::TcpListener) -> io::Result<(net::TcpStream, SocketAddr)> {
++            let (s, a) = listener.accept()?;
++            s.set_nonblocking(true)?;
++            Ok((s, a))
++        }
++    }
++
++    pub(crate) mod udp {
++        use super::*;
++
++        pub(crate) fn bind(addr: SocketAddr) -> io::Result<net::UdpSocket> {
++            let s = net::UdpSocket::bind(addr)?;
++            s.set_nonblocking(true)?;
++            Ok(s)
++        }
++
++        pub(crate) fn only_v6(_: &net::UdpSocket) -> io::Result<bool> {
++            Ok(false)
++        }
++    }
++}
