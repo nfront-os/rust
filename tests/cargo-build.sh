@@ -2,7 +2,8 @@
 # cargo build on 9front with rustc on 9front (tests/rustc.sh's install, the native gcc):
 # a new package built and run, a crates.io dependency (itoa), one with a build script
 # (serde without derive: the build script built and run on 9front), --release, and proc
-# macros (programs on 9front): derive, attribute and bang of our own, serde's derive.
+# macros (programs on 9front): derive, attribute and bang of our own, nested ones
+# (expand_expr), serde's derive.
 # Needs the network (crates.io); the guest's CA roots are the host's.
 # Prints "name ok" or "name FAIL ...". Log: logs/cargo-build-guest.log.
 # env: as tests/rustc.sh (GCC9OUT, PLAN9, MEM), SMP (guest processors, 4)
@@ -105,6 +106,57 @@ EOF2
 cargo build >[2=1] | tail -5
 ./target/debug/pmapp | grep -s '^hello from Thing 42$'
 t procmacro
+# nested proc macros: expand_expr of a macro of the same crate runs it in another instance of
+# the program while this one waits (nest!: four at once); a builtin macro through expand_expr
+cd /tmp
+cargo new --lib nestmacro >[2]/dev/null
+cd nestmacro
+echo '[lib]' >> Cargo.toml
+echo 'proc-macro = true' >> Cargo.toml
+cat > src/lib.rs <<'EOF2'
+#![feature(proc_macro_expand)]
+use proc_macro::TokenStream;
+
+#[proc_macro]
+pub fn answer(_input: TokenStream) -> TokenStream {
+    "42".parse().unwrap()
+}
+
+#[proc_macro]
+pub fn twice(input: TokenStream) -> TokenStream {
+    let e = input.expand_expr().expect("expand_expr");
+    let n: i64 = e.to_string().parse().expect("a number");
+    (n * 2).to_string().parse().unwrap()
+}
+
+#[proc_macro]
+pub fn nest(_input: TokenStream) -> TokenStream {
+    let t: TokenStream =
+        "::nestmacro::twice!(::nestmacro::twice!(::nestmacro::answer!()))".parse().unwrap();
+    t.expand_expr().expect("expand_expr")
+}
+
+#[proc_macro]
+pub fn shout(input: TokenStream) -> TokenStream {
+    let e = input.expand_expr().expect("expand_expr");
+    let s = e.to_string();
+    format!("{:?}", s.trim_matches('"').to_uppercase()).parse().unwrap()
+}
+EOF2
+cd /tmp
+cargo new nestapp >[2]/dev/null
+cd nestapp
+echo 'nestmacro = { path = "../nestmacro" }' >> Cargo.toml
+cat > src/main.rs <<'EOF2'
+use nestmacro::{answer, nest, shout, twice};
+
+fn main() {
+    println!("{} {} {} {}", answer!(), twice!(answer!()), nest!(), shout!(concat!("plan", 9)));
+}
+EOF2
+cargo build >[2=1] | tail -8
+./target/debug/nestapp | grep -s '^42 84 168 PLAN9$'
+t expandexpr
 # serde's derive (syn, quote, proc-macro2) and serde_json
 cd /tmp
 cargo new sd >[2]/dev/null
@@ -139,6 +191,6 @@ SMP=${SMP:-4} MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-3300} GUEST_TIMEOUT=${GUEST_TI
 	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -D "/sys/include=$PLAN9/sys/include" \
 	-x /sys/lib/tls/ca.pem=/etc/ssl/certs/ca-certificates.crt \
 	-f "$T/t.rc" -- "rc /tests/t.rc" > logs/cargo-build-guest.log 2>&1
-tests="build run dep deprun buildscript release procmacro serdederive"
+tests="build run dep deprun buildscript release procmacro expandexpr serdederive"
 grep -E "^(${tests// /|}) (ok|FAIL)" logs/cargo-build-guest.log || { tail -30 logs/cargo-build-guest.log; exit 1; }
-[ "$(grep -cE "^(${tests// /|}) ok" logs/cargo-build-guest.log)" = 8 ]
+[ "$(grep -cE "^(${tests// /|}) ok" logs/cargo-build-guest.log)" = 9 ]

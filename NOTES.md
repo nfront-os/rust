@@ -274,8 +274,10 @@ Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/brid
   `rustc_metadata` lädt mit `remote::load`. `Client` hat auf plan9 ein Feld `remote`.
 - Beim Cross-Bau von rustc baut bootstrap Proc-Macros auch fürs Ziel (dual proc macros): die
   sind jetzt diese Programme (nur ihre Metadaten werden gebraucht).
-- `tests/cargo-build.sh` 8/8: eigenes derive/attribute/bang-Makro, serde-derive + serde_json
-  (~5 min, 4 CPUs).
+- `tests/cargo-build.sh` 9/9: eigenes derive/attribute/bang-Makro, verschachtelte Makros
+  (`expandexpr`: `TokenStream::expand_expr` auf einen Makro desselben Crates, drei Ebenen tief,
+  also vier Instanzen des Programms gleichzeitig; ein eingebauter Makro `concat!` darüber),
+  serde-derive + serde_json (~5 min, 4 CPUs). Auf Linux dieselben Makros: gleiche Ausgabe.
 
 ## Tests
 
