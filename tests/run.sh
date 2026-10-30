@@ -40,7 +40,8 @@ cmds=(
 	"$(run cxxmain /tests/cxxmain)"
 	# C's exit and abort end the whole program (its sleeping thread too), the status for rc
 	"/tests/cexit 0; if(~ \$status *3) echo cexit-exit ok; if not echo cexit-exit FAIL \$status"
-	"/tests/cexit 1; if(~ \$status *abort*) echo cexit-abort ok; if not echo cexit-abort FAIL \$status"
+	# abort: the other procs go, the aborting one stays Broken (for acid), then slay
+	"/tests/cexit 1 >[2]/dev/null & sleep 2; if(~ \`{ps | grep cexit | wc -l} 1 && ps | grep -s 'Broken +cexit') echo cexit-abort ok; if not echo cexit-abort FAIL; slay cexit | rc"
 	"sleep 1; if(ps | grep -s cexit) echo cexit-procs FAIL; if not echo cexit-procs ok"
 )
 "$TOP/tests/guest.sh" -f "$O/nostd" "$O/std1" "$O/std2" "$O/unwind" "$O/overflow" "$O/cmain" "$O/cxxmain" "$O/cexit" -- "${cmds[@]}" > "$TOP/logs/guest-tests.log" 2>&1

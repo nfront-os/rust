@@ -226,8 +226,10 @@ das `/` → Test setzt `RUSTC=/amd64/rust/bin/rustc` (offen: dauerhafte Lösung)
   Procs sind APEs Kopier-Procs der curl-Verbindungen. Eher sehr langsam als Deadlock: messen
   (Zeit für serde im Gast, `-Z time-passes`), Allokator (alles über mallocalign 16?) prüfen.
   Log: `logs/cargo-dbg-serde-hang.log`.
-- Uncommittet und ungetestet (auf Wunsch später): `__plan9_abort` in std (andere Procs gehen,
-  der abbrechende bleibt Broken für acid), APE `gen/abort.c`, Test in `tests/run.sh`.
+- `abort` aus C: `__plan9_abort` in std beendet die anderen Procs, der abbrechende endet mit
+  `ud2` und bleibt Broken (APE `gen/abort.c`). Getestet (`cexit-abort`). acid liest die
+  ELF-Symbole des gcc-Ports nicht ("no symbol information"): PC aus `/proc/N/status`/acid,
+  auf dem Host `addr2line -e binary PC`.
 
 ## Tests
 
