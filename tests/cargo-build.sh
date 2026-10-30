@@ -47,6 +47,7 @@ cargo build >[2=1] | tail -5
 t dep
 ./target/debug/hello | grep -s '^itoa: -12345$'
 t deprun
+cp ./target/debug/hello /tmp/hello-dep
 echo 'serde = "1"' >> Cargo.toml
 cargo build -v >[2=1] | grep -E 'build-script|error|warning: unused' | sed 10q
 cargo build >[2=1] | tail -3

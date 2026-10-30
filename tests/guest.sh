@@ -5,6 +5,7 @@
 # trees); -D puts a directory on an ext4 disk instead (mkfs.ext4 -d, as the tree's
 # build-self.sh; 9front's ext4srv), bound at /guest/dir before the commands, with room
 # for builds in /tmp (/n/disk/work; DISKMB more megabytes, 4096). SMP: processors (1).
+# KEEPDISK=file: the disk image is kept there (debugfs -R 'dump /work/x x' file).
 # usage: tests/guest.sh [-x /guest/path=hostfile]... [-d /guest/dir=hostdir]...
 #        [-D /guest/dir=hostdir]... -f file... -- cmd...
 set -e
@@ -36,9 +37,11 @@ if [ $nd -gt 0 ]; then
 		-E root_owner=$(id -u):$(id -g) -d "$T/disk" "$IMG" ${mb}M
 	rm -rf "$T/disk"
 	disk=(-drive "file=$IMG,format=raw,if=virtio,cache=unsafe")
+	# ext4srv keeps writes in its cache: sync at the end (KEEPDISK reads the image)
 	set -- "ext4srv -S -n disk; mount -c /srv/disk /n/disk /dev/sdF0/data; bind -c /n/disk/work /tmp" \
-		"${binds[@]}" "$@"
+		"${binds[@]}" "$@" "echo sync >> /srv/disk.cmd; sleep 2"
 fi
+[ -z "$KEEPDISK" ] || [ $nd -eq 0 ] || trap 'mv "$IMG" "$KEEPDISK"; rm -rf "$T"' EXIT
 cd "$PLAN9"
 UFS_EXTRA=$T/extra QEMU_EXTRA="-smp ${SMP:-1} ${disk[*]} $QEMU_EXTRA" timeout ${GUEST_TIMEOUT:-600} \
 	bash scripts/guest/boot-cli.sh "$@" > "$T/log" 2>&1 || true
