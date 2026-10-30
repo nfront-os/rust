@@ -366,6 +366,12 @@ zurück (`STDTEST_LOG`: alle Gastprotokolle).
   Nagle; NUL in Umgebungswerten (rc-Listen). Testseitig: Pfadtrenner `/`, rwlock-Grenze wie
   futex, `$path` statt `PATH`, `env` = `rc -c 'cd /env; for(v in *) whatis $v'`, Shell
   `/bin/ape/sh`.
+- **Ergebnisse** (2026-10-31): std amd64: Unit 343 ok, 39 ignoriert, 2 fehlgeschlagen
+  (`multiple_connect_interleaved_*`, TCP unter Last), alle 29 Integrationsprogramme ok;
+  std 386: Unit 345 ok, 38 ignoriert, 0 fehlgeschlagen (die beiden ext4srv-Tests erst mit
+  dem neu gebauten 386-ext4srv), 29 ok. `./x test library/coretests library/alloctests`:
+  amd64 und 386 ohne Fehler, ohne Anpassung (core 2970 bzw. 2969, 2 ignoriert wie upstream;
+  alloc 339/1494/643 bzw. 338/1495/643, die beiden alloc_error-Programme).
 - **Hänger der Tests unter Last: libgccs Unwinder ohne Sperren.** pstack zeigte einen Broken
   Proc in `__plan9_abort` ← `_Unwind_RaiseException_Phase2` (Panic in einem Test-Thread):
   gthr-posix prüft per schwachem Verweis auf `pthread_cancel`, ob Threads da sind; der zieht
@@ -406,4 +412,4 @@ zurück (`STDTEST_LOG`: alle Gastprotokolle).
   `libc`: das crates.io-libc kennt plan9 nicht → `[patch.crates-io] libc = { path = …/libc }`.
 - cargo nativ: rustc + LLVM nativ (g++ von 9front-gcc), dann cargos Abhängigkeiten (curl+TLS,
   git2/gix, sqlite, flock-Ersatz, jobserver ohne cfg(unix)).
-- TCP halb schließen (Kernel); std-Tests für 386; core/alloc-Tests; `peek`, nonblocking.
+- TCP halb schließen (Kernel); TCP unter Last; `/net/cs` unter Last; `peek`, nonblocking.
