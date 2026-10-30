@@ -239,9 +239,10 @@ das `/` → auf plan9 Rückfall auf `/$cputype/rust` (rustc_session::filesearch)
     hjfs `EXCLDUR` 300 s, danach scheitern dort sogar Lesen/Schreiben des Halters; gefs zählt
     nur Referenzen). Wie upas' `trylock` liest ein Thread des Locks jede Minute ein Byte;
     Drop beendet ihn (Condvar) und schließt dann die Datei (Hinweis eines Nebenagenten).
-  - ext4srv kennt DMEXCL nicht (Bit bleibt nicht): nach einem wstat-Versuch gibt `lock_file`
-    die Datei ohne Sperre zurück (wie upas: „live without the lock“), kein Hänger. Die Gäste der
-    cargo-Tests laufen auf ext4srv: dort ist nichts gesperrt. Offen: DMEXCL in ext4srv.
+  - ext4srv von 9front kennt DMEXCL nicht (Bit bleibt nicht): nach einem wstat-Versuch gibt
+    `lock_file` die Datei ohne Sperre zurück (wie upas: „live without the lock“), kein Hänger.
+    Im gcc-Branch (9front-gccwt) hält ext4srv DMEXCL jetzt (Inode-Flag UNRM, ein Öffnen zur
+    Zeit, „file is locked“): die cargo-Gäste (`PLAN9=../9front-gccwt`) sperren wirklich.
   - std's `File::lock*` bleiben `Unsupported` (ein Lock braucht hier das Öffnen selbst).
   - cargo (`util/flock.rs`, `mod plan9`): nur cargos eigene Sperrdateien (`.cargo-lock`,
     `.cargo-build-lock`, `.cargo-artifact-lock`, `.package-cache`, `.package-cache-mutate`,
@@ -252,7 +253,7 @@ das `/` → auf plan9 Rückfall auf `/$cputype/rust` (rustc_session::filesearch)
     sonst. Nicht beschreibbar → ohne Sperre.
   - rustc (`flock/plan9.rs`): die vorher geöffnete Datei zu, dann `lock_file(p, false)`.
   - Test: `tests/lock.rs` in `tests/run.sh` (ramfs: exklusiv, Warten bis Drop, alte Datei wird
-    DMEXCL, Drop sofort; `/tmp`: wie der Server es hat); von Hand auf ext4srv: ok ohne Sperre.
+    DMEXCL, Drop sofort; `/tmp`: wie der Server es hat); von Hand auf ext4srv (gcc-Branch): exklusiv wie ramfs, e2fsck ok.
 - `abort` aus C: `__plan9_abort` in std beendet die anderen Procs, der abbrechende endet mit
   `ud2` und bleibt Broken (APE `gen/abort.c`). Getestet (`cexit-abort`). acid liest die
   ELF-Symbole des gcc-Ports nicht ("no symbol information"): PC aus `/proc/N/status`/acid,
@@ -286,8 +287,7 @@ Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/brid
 
 ## Offen
 
-- cargo nativ braucht rustc nativ (LLVM über 9front-gccs g++). Offen bei cargo: DMEXCL in
-  ext4srv (Locks dort wirkungslos), Kopier-Procs-Puffer nach `close` mit laufendem read bleiben stehen (Leck).
+- cargo nativ braucht rustc nativ (LLVM über 9front-gccs g++). Offen bei cargo: Kopier-Procs-Puffer nach `close` mit laufendem read bleiben stehen (Leck).
 - cargo (Linux, cross): host-cargo + `RUSTC=rust/build/host/stage1/bin/rustc`, Linux-std im Stage-1
   (`./x build --stage 1 library --target x86_64-unknown-linux-gnu`), `.cargo/config.toml` mit
   `linker`. `tests/crates` (regex, serde, serde_json) noch nicht gebaut. Crates von crates.io mit
