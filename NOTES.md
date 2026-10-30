@@ -230,13 +230,29 @@ das `/` → auf plan9 Rückfall auf `/$cputype/rust` (rustc_session::filesearch)
   Procs sind APEs Kopier-Procs der curl-Verbindungen. Eher sehr langsam als Deadlock: messen
   (Zeit für serde im Gast, `-Z time-passes`), Allokator (alles über mallocalign 16?) prüfen.
   Log: `logs/cargo-dbg-serde-hang.log`.
-- **Keine echten Datei-Locks** (Hinweis eines Nebenagenten): cargo (ganz) und rustc (inkrementell)
-  tun auf plan9 so, als sei gesperrt. Ein `cargo build` ist sicher (cargo baut ein Crate nie
-  zweimal gleichzeitig); zwei gleichzeitige `cargo build`/`cargo fetch` im selben Projekt oder
-  `~/.cargo` können sich die Ergebnisse überschreiben. Plan: Sperrdatei mit `DMEXCL` offen
-  halten (zweites Öffnen: "file in use" → blockiert/wiederholen), in std's `File::lock*` für
-  plan9, damit cargo und rustc es ohne eigene Wege nutzen; braucht ein Dateisystem, das DMEXCL
-  achtet (cwfs, hjfs; ramfs/ext4srv prüfen).
+- **Datei-Locks mit DMEXCL** (2026-10-30): `std::os::plan9::fs::lock_file(path, wait)` gibt
+  einen `FileLock`: die Datei allein offen als exklusiv benutzbare (DMEXCL) Datei; ein zweites
+  Öffnen scheitert („file is locked“ gefs/cwfs/ramfs, „file locked“ hjfs → `WouldBlock`),
+  `wait` wiederholt alle 100 ms. Neue Sperrdateien entstehen mit DMEXCL (create), alte bekommen
+  es per dirfwstat und werden neu geöffnet. Keine geteilten Locks (geteilt = exklusiv).
+  - open(5): der Server darf die Sperre einer unbenutzten Datei brechen (cwfs `TLOCK` 5 min,
+    hjfs `EXCLDUR` 300 s, danach scheitern dort sogar Lesen/Schreiben des Halters; gefs zählt
+    nur Referenzen). Wie upas' `trylock` liest ein Thread des Locks jede Minute ein Byte;
+    Drop beendet ihn (Condvar) und schließt dann die Datei (Hinweis eines Nebenagenten).
+  - ext4srv kennt DMEXCL nicht (Bit bleibt nicht): nach einem wstat-Versuch gibt `lock_file`
+    die Datei ohne Sperre zurück (wie upas: „live without the lock“), kein Hänger. Die Gäste der
+    cargo-Tests laufen auf ext4srv: dort ist nichts gesperrt. Offen: DMEXCL in ext4srv.
+  - std's `File::lock*` bleiben `Unsupported` (ein Lock braucht hier das Öffnen selbst).
+  - cargo (`util/flock.rs`, `mod plan9`): nur cargos eigene Sperrdateien (`.cargo-lock`,
+    `.cargo-build-lock`, `.cargo-artifact-lock`, `.package-cache`, `.package-cache-mutate`,
+    `.lock` der Bau-Einheiten) bekommen DMEXCL; Datendateien (`Cargo.lock`,
+    `credentials.toml`, `.crates.toml`, Pakete) nicht: DMEXCL bliebe an ihnen, und cargo öffnet
+    `Cargo.lock` im selben Prozess zweimal. Ein Prozess teilt seine Locks einer Datei (eine
+    Tabelle `HELD`), sonst sperrte er sich selbst; warten außerhalb der Tabelle, „Blocking“ wie
+    sonst. Nicht beschreibbar → ohne Sperre.
+  - rustc (`flock/plan9.rs`): die vorher geöffnete Datei zu, dann `lock_file(p, false)`.
+  - Test: `tests/lock.rs` in `tests/run.sh` (ramfs: exklusiv, Warten bis Drop, alte Datei wird
+    DMEXCL, Drop sofort; `/tmp`: wie der Server es hat); von Hand auf ext4srv: ok ohne Sperre.
 - `abort` aus C: `__plan9_abort` in std beendet die anderen Procs, der abbrechende endet mit
   `ud2` und bleibt Broken (APE `gen/abort.c`). Getestet (`cexit-abort`). acid liest die
   ELF-Symbole des gcc-Ports nicht ("no symbol information"): PC aus `/proc/N/status`/acid,
@@ -270,12 +286,12 @@ Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/brid
 
 ## Offen
 
-- cargo nativ braucht rustc nativ (LLVM über 9front-gccs g++). Offen bei cargo: Datei-Locks
-  (DMEXCL?), Kopier-Procs-Puffer nach `close` mit laufendem read bleiben stehen (Leck).
+- cargo nativ braucht rustc nativ (LLVM über 9front-gccs g++). Offen bei cargo: DMEXCL in
+  ext4srv (Locks dort wirkungslos), Kopier-Procs-Puffer nach `close` mit laufendem read bleiben stehen (Leck).
 - cargo (Linux, cross): host-cargo + `RUSTC=rust/build/host/stage1/bin/rustc`, Linux-std im Stage-1
   (`./x build --stage 1 library --target x86_64-unknown-linux-gnu`), `.cargo/config.toml` mit
   `linker`. `tests/crates` (regex, serde, serde_json) noch nicht gebaut. Crates von crates.io mit
   `libc`: das crates.io-libc kennt plan9 nicht → `[patch.crates-io] libc = { path = …/libc }`.
 - cargo nativ: rustc + LLVM nativ (g++ von 9front-gcc), dann cargos Abhängigkeiten (curl+TLS,
   git2/gix, sqlite, flock-Ersatz, jobserver ohne cfg(unix)).
-- 386; std-Testsuite im Gast; Datei-Locks (DMEXCL?); `peek`, nonblocking.
+- 386; std-Testsuite im Gast; `peek`, nonblocking.
