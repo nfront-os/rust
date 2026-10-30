@@ -320,7 +320,17 @@ Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR 
   unter `__plan9__`: der Baum selbst baut mit gcc -m32, dort bleibt int). libgit2 nahm bei
   `SIZE_MAX == UINT_MAX` `__builtin_uadd_overflow` (`unsigned int *`): jetzt die
   typgenerischen `__builtin_add/mul_overflow` (crate-Patch).
-- Noch nicht: rustc nativ für 386 (LLVM über den 386-g++, dann `cargo build` im Gast).
+- **rustc nativ auf 386**: nativer gcc für 386 (`objtype=386 BUILD=… OUTDIR=$PWD/out-gcc
+  PLAN9=../9front-gccwt ./build.sh hostlibs native plan9` in 9front-gcc, der Linker im Gast);
+  LLVM `objtype=386 scripts/build-llvm.sh` (`build/llvm-plan9.386`, `cmake/plan9.cmake` nach
+  `$objtype`), `objtype=386 scripts/llvm-config-plan9.sh`, `llvm-config` im
+  `[target.i686-unknown-plan9]`; dann `./x build --stage 2 --host i686-unknown-plan9 --target
+  i686-unknown-plan9 compiler/rustc` und `library` ebenso: statisch, 32 Bit, 522 MB mit
+  Debug-Infos. Ohne Änderung am Compiler. `objtype=386 tests/rustc.sh` 3/3,
+  `objtype=386 tests/cargo-build.sh` 10/10 (alle Stufen wie amd64, auch Proc-Macros als
+  Programme, verschachtelt und abstürzend; serde-derive 2 min 18 s, 4 CPUs, 3 GB).
+- Nach dem Neubau des stage-1-Compilers (neues Target) fehlte die stage-2-std für amd64: die
+  ganze amd64-Kette (stage 2 rustc für plan9, library) neu bauen.
 
 ## Tests
 
@@ -339,4 +349,4 @@ Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR 
   `libc`: das crates.io-libc kennt plan9 nicht → `[patch.crates-io] libc = { path = …/libc }`.
 - cargo nativ: rustc + LLVM nativ (g++ von 9front-gcc), dann cargos Abhängigkeiten (curl+TLS,
   git2/gix, sqlite, flock-Ersatz, jobserver ohne cfg(unix)).
-- 386: rustc nativ; std-Testsuite im Gast; `peek`, nonblocking.
+- std-Testsuite im Gast; `peek`, nonblocking.

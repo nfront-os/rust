@@ -4,10 +4,16 @@
 # tablegens for Linux from the same sources (build/llvm-native-tools, made first). Out: build/llvm-plan9 (bin/llvm-config
 # is a 9front program: scripts/llvm-config-plan9 answers for it on Linux).
 # The threads are APE's, in libap: CMake's FindThreads is told so (its probes cannot link).
-# usage: scripts/build-llvm.sh [ninja targets]
+# objtype=386: for 9front 386 (i686-unknown-plan9), out build/llvm-plan9.386.
+# usage: [objtype=386] scripts/build-llvm.sh [ninja targets]
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-B=$TOP/build/llvm-plan9
+case ${objtype:=amd64} in
+amd64)	B=$TOP/build/llvm-plan9 T=x86_64-unknown-plan9 L= ;;
+386)	B=$TOP/build/llvm-plan9.386 T=i686-unknown-plan9 L=.386 ;;
+*)	echo "build-llvm.sh: objtype=$objtype: no target" >&2; exit 1 ;;
+esac
+export objtype
 N=$TOP/build/llvm-native-tools
 if [ ! -x "$N/bin/llvm-tblgen" ]; then
 	mkdir -p "$N"
@@ -22,8 +28,8 @@ cmake -G Ninja "$TOP/rust/src/llvm-project/llvm" \
 	-DCMAKE_TOOLCHAIN_FILE="$TOP/cmake/plan9.cmake" \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DLLVM_TARGETS_TO_BUILD=X86 \
-	-DLLVM_HOST_TRIPLE=x86_64-unknown-plan9 \
-	-DLLVM_DEFAULT_TARGET_TRIPLE=x86_64-unknown-plan9 \
+	-DLLVM_HOST_TRIPLE=$T \
+	-DLLVM_DEFAULT_TARGET_TRIPLE=$T \
 	-DLLVM_ENABLE_THREADS=ON \
 	-DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF \
 	-DLLVM_ENABLE_LIBEDIT=OFF -DLLVM_ENABLE_LIBPFM=OFF -DLLVM_ENABLE_BINDINGS=OFF \
@@ -35,5 +41,5 @@ cmake -G Ninja "$TOP/rust/src/llvm-project/llvm" \
 	-DLLVM_ENABLE_ONDISK_CAS=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Backtrace=ON \
 	-DCMAKE_THREAD_LIBS_INIT= -DCMAKE_HAVE_THREADS_LIBRARY=1 -DCMAKE_USE_PTHREADS_INIT=1 \
 	-DThreads_FOUND=TRUE -DCMAKE_HAVE_LIBC_PTHREAD=1 \
-	> "$TOP/logs/llvm-cmake.log" 2>&1
-ninja -k 0 "$@" > "$TOP/logs/llvm-build.log" 2>&1
+	> "$TOP/logs/llvm-cmake$L.log" 2>&1
+ninja -k 0 "$@" > "$TOP/logs/llvm-build$L.log" 2>&1

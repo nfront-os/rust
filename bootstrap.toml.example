@@ -36,3 +36,5 @@ cxx = "$GCC9/build-gcc/386/cross/bin/i686-pc-plan9-g++"
 ar = "$GCC9/build-gcc/386/cross/bin/i686-pc-plan9-ar"
 ranlib = "$GCC9/build-gcc/386/cross/bin/i686-pc-plan9-ranlib"
 linker = "$GCC9/build-gcc/386/cross/bin/i686-pc-plan9-gcc"
+# rustc for 9front 386: its LLVM (objtype=386 scripts/build-llvm.sh, llvm-config-plan9.sh)
+llvm-config = "/home/stefan/Devel/9front-rust/build/llvm-plan9.386/bin/llvm-config"

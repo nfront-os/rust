@@ -12,25 +12,33 @@ export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
 GCC9=${GCC9:-$TOP/../9front-gcc}
 GCC9OUT=${GCC9OUT:-$GCC9/out-gcc}
 GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
-X=$GCC9BUILD/amd64/cross/bin/x86_64-pc-plan9
+# objtype=386: i686-unknown-plan9's rustc in a 9pc guest (logs/rustc-guest.386.log)
+case ${objtype:=amd64} in
+amd64)	TG=x86_64-unknown-plan9 XT=x86_64-pc-plan9 L= ;;
+386)	TG=i686-unknown-plan9 XT=i686-pc-plan9 L=.386 ;;
+*)	echo "$0: objtype=$objtype: no target" >&2; exit 1 ;;
+esac
+export objtype
+A=$objtype
+X=$GCC9BUILD/$A/cross/bin/$XT
 R=$TOP/rust/build
-I=$TOP/build/rustc-plan9
+I=$TOP/build/rustc-plan9$L
 rm -rf "$I"
-mkdir -p "$I/bin" "$I/lib/rustlib/x86_64-unknown-plan9/lib"
-"$X-strip" -o "$I/bin/rustc" "$R/x86_64-unknown-plan9/stage2/bin/rustc"
-cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/x86_64-unknown-plan9/lib/*.r{lib,meta} \
-	"$I/lib/rustlib/x86_64-unknown-plan9/lib/"
+mkdir -p "$I/bin" "$I/lib/rustlib/$TG/lib"
+"$X-strip" -o "$I/bin/rustc" "$R/$TG/stage2/bin/rustc"
+cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/$TG/lib/*.r{lib,meta} \
+	"$I/lib/rustlib/$TG/lib/"
 # rustc, the native gcc, and what it links with, on an ext4 disk (tests/guest.sh -D: the
 # guest's root is the host's over 9P, slow for these); the root has no headers and archives
-args=(-D "/amd64/rust=$I" -D "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu"
-	-D "/amd64/include=$PLAN9/amd64/include" -D "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc"
-	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -D "/sys/include=$PLAN9/sys/include")
+args=(-D "/$A/rust=$I" -D "/$A/gnu=$GCC9OUT/$A/$A/gnu"
+	-D "/$A/include=$PLAN9/$A/include" -D "/$A/lib.gcc=$PLAN9/$A/lib.gcc"
+	-x "/$A/plan9.ld=$PLAN9/$A/plan9.ld" -D "/sys/include=$PLAN9/sys/include")
 cmds=(
-	"bind -b /amd64/gnu/bin /bin; bind -b /amd64/rust/bin /bin"
+	"bind -b /$A/gnu/bin /bin; bind -b /$A/rust/bin /bin"
 	"rustc --version; if(~ \$status '') echo version ok; if not echo version FAIL \$status"
 	"cd /tmp; rustc --edition 2024 -O /tests/std1.rs -o std1 >[2=1] | sed 20q; if(test -x std1) echo compile ok; if not echo compile FAIL"
 	"/tmp/std1 'a b' ü; if(~ \$status '') echo run ok; if not echo run FAIL \$status"
 )
 MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-1800} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3000} "$TOP/tests/guest.sh" "${args[@]}" -f "$TOP/tests/std1.rs" -- "${cmds[@]}" \
-	> "$TOP/logs/rustc-guest.log" 2>&1
-grep -E '^(version|compile|run) (ok|FAIL)' "$TOP/logs/rustc-guest.log" || { tail -30 "$TOP/logs/rustc-guest.log"; exit 1; }
+	> "$TOP/logs/rustc-guest$L.log" 2>&1
+grep -E '^(version|compile|run) (ok|FAIL)' "$TOP/logs/rustc-guest$L.log" || { tail -30 "$TOP/logs/rustc-guest$L.log"; exit 1; }

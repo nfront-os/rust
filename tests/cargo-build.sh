@@ -13,17 +13,25 @@ export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
 GCC9=${GCC9:-$TOP/../9front-gcc}
 GCC9OUT=${GCC9OUT:-$GCC9/out-gcc}
 GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
-X=$GCC9BUILD/amd64/cross/bin/x86_64-pc-plan9
+# objtype=386: i686-unknown-plan9's rustc in a 9pc guest (logs/cargo-build-guest.386.log)
+case ${objtype:=amd64} in
+amd64)	TG=x86_64-unknown-plan9 XT=x86_64-pc-plan9 L= ;;
+386)	TG=i686-unknown-plan9 XT=i686-pc-plan9 L=.386 ;;
+*)	echo "$0: objtype=$objtype: no target" >&2; exit 1 ;;
+esac
+export objtype
+A=$objtype
+X=$GCC9BUILD/$A/cross/bin/$XT
 R=$TOP/rust/build
-I=$TOP/build/rustc-plan9
+I=$TOP/build/rustc-plan9$L
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 rm -rf "$I"
-mkdir -p "$I/bin" "$I/lib/rustlib/x86_64-unknown-plan9/lib"
-"$X-strip" -o "$I/bin/rustc" "$R/x86_64-unknown-plan9/stage2/bin/rustc"
-"$X-strip" -o "$I/bin/cargo" "$TOP/tests/out/cargo-port/x86_64-unknown-plan9/release/cargo"
-cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/x86_64-unknown-plan9/lib/*.r{lib,meta} \
-	"$I/lib/rustlib/x86_64-unknown-plan9/lib/"
+mkdir -p "$I/bin" "$I/lib/rustlib/$TG/lib"
+"$X-strip" -o "$I/bin/rustc" "$R/$TG/stage2/bin/rustc"
+"$X-strip" -o "$I/bin/cargo" "$TOP/tests/out/cargo-port/$TG/release/cargo"
+cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/$TG/lib/*.r{lib,meta} \
+	"$I/lib/rustlib/$TG/lib/"
 cat > "$T/t.rc" <<'RC'
 #!/bin/rc
 fn t { if(~ $status '') echo $1 ok; if not echo $1 FAIL $status }
@@ -249,13 +257,15 @@ cargo build >[2=1] | tail -5
 ./target/debug/sd | grep -s '^{"x":1,"name":"plan9"}$'
 t serdederive
 RC
+# the guest's paths are its objtype's
+sed -i "s|/amd64/|/$A/|g" "$T/t.rc"
 cd "$TOP"
 SMP=${SMP:-4} MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-3300} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3600} tests/guest.sh \
-	-D "/amd64/rust=$I" -D "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu" \
-	-D "/amd64/include=$PLAN9/amd64/include" -D "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc" \
-	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -D "/sys/include=$PLAN9/sys/include" \
+	-D "/$A/rust=$I" -D "/$A/gnu=$GCC9OUT/$A/$A/gnu" \
+	-D "/$A/include=$PLAN9/$A/include" -D "/$A/lib.gcc=$PLAN9/$A/lib.gcc" \
+	-x "/$A/plan9.ld=$PLAN9/$A/plan9.ld" -D "/sys/include=$PLAN9/sys/include" \
 	-x /sys/lib/tls/ca.pem=/etc/ssl/certs/ca-certificates.crt \
-	-f "$T/t.rc" -- "rc /tests/t.rc" > logs/cargo-build-guest.log 2>&1
+	-f "$T/t.rc" -- "rc /tests/t.rc" > logs/cargo-build-guest$L.log 2>&1
 tests="build run dep deprun buildscript release procmacro expandexpr macrocrash serdederive"
-grep -E "^(${tests// /|}) (ok|FAIL)" logs/cargo-build-guest.log || { tail -30 logs/cargo-build-guest.log; exit 1; }
-[ "$(grep -cE "^(${tests// /|}) ok" logs/cargo-build-guest.log)" = 10 ]
+grep -E "^(${tests// /|}) (ok|FAIL)" logs/cargo-build-guest$L.log || { tail -30 logs/cargo-build-guest$L.log; exit 1; }
+[ "$(grep -cE "^(${tests// /|}) ok" logs/cargo-build-guest$L.log)" = 10 ]
