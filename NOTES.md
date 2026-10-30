@@ -331,6 +331,10 @@ Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR 
   Programme, verschachtelt und abstürzend; serde-derive 2 min 18 s, 4 CPUs, 3 GB).
 - Nach dem Neubau des stage-1-Compilers (neues Target) fehlte die stage-2-std für amd64: die
   ganze amd64-Kette (stage 2 rustc für plan9, library) neu bauen.
+- `./x build --stage 2 library --host T --target T` entfernt die stage-2-std (und den stage-1-
+  Sysroot) der anderen plan9-Targets: vor `tests/rustc.sh`/`cargo-build.sh` einer Architektur
+  ihre stage-2-library bauen, danach `./x build --stage 1 library --target …` für alle (sonst
+  E0463 bei `run.sh` und cargo).
 
 ## std-Testsuite im Gast (Teil 9, 2026-10-30)
 

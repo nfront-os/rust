@@ -94,7 +94,8 @@ fn processes() {
     check("kill", !st.success() && t.elapsed().as_secs() < 5);
     let c = Command::new("rc").args(["-c", "exit oops"]).spawn().unwrap();
     let st = thread::spawn(move || { let mut c = c; c.wait().unwrap() }).join().unwrap();
-    check("wait in a thread", st.msg().ends_with(b"oops") && st.code().is_none());
+    // a message is a failure: code 1, as APE's wait has it (a note would be none)
+    check("wait in a thread", st.msg().ends_with(b"oops") && st.code() == Some(1));
     check("not found", Command::new("/bin/nonexistent").spawn().unwrap_err().kind() == std::io::ErrorKind::NotFound);
     let o = Command::new("rc").args(["-c", "echo $#rusttestvar"]).env_clear().output().unwrap();
     check("env_clear", o.stdout == b"0\n");
