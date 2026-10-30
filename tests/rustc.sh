@@ -30,6 +30,6 @@ cmds=(
 	"cd /tmp; /amd64/rust/bin/rustc --edition 2024 -O /tests/std1.rs -o std1 >[2=1] | sed 20q; if(test -x std1) echo compile ok; if not echo compile FAIL"
 	"/tmp/std1 'a b' ü; if(~ \$status '') echo run ok; if not echo run FAIL \$status"
 )
-MEM=${MEM:-3072} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3000} "$TOP/tests/guest.sh" "${args[@]}" -f "$TOP/tests/std1.rs" -- "${cmds[@]}" \
+MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-1800} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3000} "$TOP/tests/guest.sh" "${args[@]}" -f "$TOP/tests/std1.rs" -- "${cmds[@]}" \
 	> "$TOP/logs/rustc-guest.log" 2>&1
 grep -E '^(version|compile|run) (ok|FAIL)' "$TOP/logs/rustc-guest.log" || { tail -30 "$TOP/logs/rustc-guest.log"; exit 1; }

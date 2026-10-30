@@ -1,0 +1,29 @@
+diff -ruN '--exclude=target' jobserver-0.1.34/src/lib.rs /home/stefan/Devel/9front-rust/crates/jobserver-0.1.34/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-30 08:20:35.937081724 +0100
+@@ -381,6 +381,12 @@
+     ///
+     /// On platforms other than Unix and Windows this panics.
+     pub fn configure(&self, cmd: &mut Command) {
++        // 9front: a jobserver within the process only (wasm.rs): the child runs without one
++        #[cfg(target_os = "plan9")]
++        {
++            let _ = cmd;
++            return;
++        }
+         cmd.env("CARGO_MAKEFLAGS", &self.mflags_env());
+         self.inner.configure(cmd);
+     }
+@@ -404,6 +410,12 @@
+     ///
+     /// On platforms other than Unix and Windows this panics.
+     pub fn configure_make(&self, cmd: &mut Command) {
++        // 9front: a jobserver within the process only (wasm.rs): the child runs without one
++        #[cfg(target_os = "plan9")]
++        {
++            let _ = cmd;
++            return;
++        }
+         let value = self.mflags_env();
+         cmd.env("CARGO_MAKEFLAGS", &value);
+         cmd.env("MAKEFLAGS", &value);
