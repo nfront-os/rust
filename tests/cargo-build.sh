@@ -27,8 +27,6 @@ cat > "$T/t.rc" <<'RC'
 fn t { if(~ $status '') echo $1 ok; if not echo $1 FAIL $status }
 bind -b /amd64/rust/bin /bin
 bind -b /amd64/gnu/bin /bin
-# rustc finds its sysroot from its own path: /bin/rustc (the bind) would be /
-RUSTC=/amd64/rust/bin/rustc
 cd /tmp
 cargo new hello >[2]/dev/null
 cd hello
@@ -49,7 +47,7 @@ t dep
 t deprun
 cp ./target/debug/hello /tmp/hello-dep
 echo 'serde = "1"' >> Cargo.toml
-cargo build -v >[2=1] | grep -E 'build-script|error|warning: unused' | sed 10q
+cargo build -v >[2=1] | grep 'build-script|error|warning: unused' | sed 10q
 cargo build >[2=1] | tail -3
 t buildscript
 cargo build --release >[2=1] | tail -3

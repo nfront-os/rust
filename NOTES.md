@@ -220,9 +220,13 @@ baut rustc für 9front: statisch, LLVM (build/llvm-plan9) eingebaut, 575 MB mit 
 → Panik) → Jobserver nur im Prozess; 9fronts Kernel prüft die Pufferadresse auch bei 0 Bytes
 (leerer Slice: 0x1) → std `buf_ptr`; rustc inkrementell braucht Locks → plan9: ohne Sperre
 (wie cargo); rustc findet seine Sysroot über den eigenen Pfad: als `/bin/rustc` (bind) wäre
-das `/` → Test setzt `RUSTC=/amd64/rust/bin/rustc` (offen: dauerhafte Lösung).
-- **Offen: serde** (Build-Skript läuft, `serde_core` baut) bleibt danach lange beim Übersetzen
-  von `serde` stehen; im zweiten Diagnoselauf war rustc `Ready` (rechnet), cargos `PREAD`-
+das `/` → auf plan9 Rückfall auf `/$cputype/rust` (rustc_session::filesearch).
+- serde (Build-Skript), Release-Bau: grün (`tests/cargo-build.sh` 6/6, 4 CPUs, ext4-Image,
+  ~2 min). Gefunden auf dem Weg: libstdc++ ohne TLS → `call_once` verklemmt mit mehreren CPUs
+  (LLVMs Pass-Initialisierung; 9front-gcc: HAVE_TLS über emutls); ext4srv `truncate` auf gleiche
+  Länge und `qid.vers` ohne Änderung bei Schreibzugriffen (der Kernel startete neu gebaute
+  Programme mit altem Text: invalid opcode) — beides im 9front-Branch gcc behoben; Gäste mit
+  4 CPUs (`SMP`), Bäume auf einem ext4-Image (`guest.sh -D`). Früher: im zweiten Diagnoselauf war rustc `Ready` (rechnet), cargos `PREAD`-
   Procs sind APEs Kopier-Procs der curl-Verbindungen. Eher sehr langsam als Deadlock: messen
   (Zeit für serde im Gast, `-Z time-passes`), Allokator (alles über mallocalign 16?) prüfen.
   Log: `logs/cargo-dbg-serde-hang.log`.

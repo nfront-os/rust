@@ -2,6 +2,7 @@
 # rustc on 9front: the stage-2 rustc for x86_64-unknown-plan9 (static, its LLVM inside) as
 # /amd64/rust/bin/rustc with std in /amd64/rust/lib/rustlib, and 9front-gcc's native gcc
 # (/amd64/gnu, the linker) in the guest; compiles and runs tests/std1.rs there.
+# rustc is called as /bin/rustc (bind), its sysroot /amd64/rust (rustc's fallback on plan9).
 # Prints "name ok" or "name FAIL ...". Log: logs/rustc-guest.log.
 # env: GCC9OUT (the native toolchain, default ../9front-gcc/out-gcc), MEM (guest MB, 3072),
 # PLAN9 (the system booted: its APE and libp9.a link the program; default ../9front-gccwt)
@@ -25,9 +26,9 @@ args=(-D "/amd64/rust=$I" -D "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu"
 	-D "/amd64/include=$PLAN9/amd64/include" -D "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc"
 	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -D "/sys/include=$PLAN9/sys/include")
 cmds=(
-	"bind -b /amd64/gnu/bin /bin"
-	"/amd64/rust/bin/rustc --version; if(~ \$status '') echo version ok; if not echo version FAIL \$status"
-	"cd /tmp; /amd64/rust/bin/rustc --edition 2024 -O /tests/std1.rs -o std1 >[2=1] | sed 20q; if(test -x std1) echo compile ok; if not echo compile FAIL"
+	"bind -b /amd64/gnu/bin /bin; bind -b /amd64/rust/bin /bin"
+	"rustc --version; if(~ \$status '') echo version ok; if not echo version FAIL \$status"
+	"cd /tmp; rustc --edition 2024 -O /tests/std1.rs -o std1 >[2=1] | sed 20q; if(test -x std1) echo compile ok; if not echo compile FAIL"
 	"/tmp/std1 'a b' ü; if(~ \$status '') echo run ok; if not echo run FAIL \$status"
 )
 MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-1800} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3000} "$TOP/tests/guest.sh" "${args[@]}" -f "$TOP/tests/std1.rs" -- "${cmds[@]}" \

@@ -4,7 +4,7 @@
 # -x and -d add a file or a directory to the root (ufs, the host's over 9P: slow for big
 # trees); -D puts a directory on an ext4 disk instead (mkfs.ext4 -d, as the tree's
 # build-self.sh; 9front's ext4srv), bound at /guest/dir before the commands, with room
-# for builds in /tmp (/n/disk/work; DISKMB more megabytes, 4096). SMP: processors (1).
+# for builds in /tmp (/n/disk/work; DISKMB more megabytes, 4096). SMP: processors (4).
 # KEEPDISK=file: the disk image is kept there (debugfs -R 'dump /work/x x' file).
 # usage: tests/guest.sh [-x /guest/path=hostfile]... [-d /guest/dir=hostdir]...
 #        [-D /guest/dir=hostdir]... -f file... -- cmd...
@@ -43,6 +43,14 @@ if [ $nd -gt 0 ]; then
 fi
 [ -z "$KEEPDISK" ] || [ $nd -eq 0 ] || trap 'mv "$IMG" "$KEEPDISK"; rm -rf "$T"' EXIT
 cd "$PLAN9"
-UFS_EXTRA=$T/extra QEMU_EXTRA="-smp ${SMP:-1} ${disk[*]} $QEMU_EXTRA" timeout ${GUEST_TIMEOUT:-600} \
-	bash scripts/guest/boot-cli.sh "$@" > "$T/log" 2>&1 || true
+# -smp through QEMU_EXTRA: any tree's boot-cli.sh takes that (SMP= keeps one that knows
+# SMP from adding its own)
+smp=${SMP:-4}
+# its own process group: if this script ends early (an outer timeout's TERM), the guest
+# (QEMU, ufs) goes with it, or it keeps the ports and the next guest fails
+SMP= UFS_EXTRA=$T/extra QEMU_EXTRA="-smp $smp ${disk[*]} $QEMU_EXTRA" setsid timeout ${GUEST_TIMEOUT:-600} \
+	bash scripts/guest/boot-cli.sh "$@" > "$T/log" 2>&1 &
+guest=$!
+trap 'kill -TERM -- -$guest 2>/dev/null; exit 1' TERM INT
+wait $guest || true
 tr -d '\r' < "$T/log" | sed -n '/^init: starting/,$p'
