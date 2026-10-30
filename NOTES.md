@@ -403,11 +403,19 @@ zurück (`STDTEST_LOG`: alle Gastprotokolle).
 
 ## Offen
 
-- cargo nativ braucht rustc nativ (LLVM über 9front-gccs g++). Offen bei cargo: Kopier-Procs-Puffer nach `close` mit laufendem read bleiben stehen (Leck).
-- cargo (Linux, cross): host-cargo + `RUSTC=rust/build/host/stage1/bin/rustc`, Linux-std im Stage-1
-  (`./x build --stage 1 library --target x86_64-unknown-linux-gnu`), `.cargo/config.toml` mit
-  `linker`. `tests/crates` (regex, serde, serde_json) noch nicht gebaut. Crates von crates.io mit
-  `libc`: das crates.io-libc kennt plan9 nicht → `[patch.crates-io] libc = { path = …/libc }`.
-- cargo nativ: rustc + LLVM nativ (g++ von 9front-gcc), dann cargos Abhängigkeiten (curl+TLS,
-  git2/gix, sqlite, flock-Ersatz, jobserver ohne cfg(unix)).
-- TCP halb schließen (Kernel); TCP unter Last; `/net/cs` unter Last; `peek`, nonblocking.
+Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
+Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unter Last.
+- **async**: std hat auf plan9 kein nonblocking (`set_nonblocking`) und kein `peek`; mio hat
+  kein plan9-Backend, tokio und alles darauf läuft nicht. Plan 9 hat kein epoll/kqueue.
+- **9front-Kernel** (nicht vom Port, 9front-gccwt MEMORY.md): TCP-`connect` über Loopback hängt
+  unter Last (`tools/csstress`, auch mit kencc-Kernel); kein halbes Schließen
+  (`shutdown(Write)` schließt beide Richtungen, eine Antwort geht verloren).
+- **arm64**: kein `aarch64-unknown-plan9` (Toolchain, Target, `proc.rs`-Assembler, LLVM, rustc
+  wie bei 386).
+- **Werkzeuge, Verteilung**: rustdoc, rustfmt, clippy nicht für 9front gebaut, Doc-Tests nie
+  gelaufen (`--no-doc`); keine Installation für ein 9front-System (`/$objtype/rust`, Install-CD
+  wie 9front-gccs `/$objtype/gnu`): die Tests legen rustc und std nur in den Gast.
+- APEs Kopier-Procs: nach `close` mit laufendem read bleibt ihr Puffer stehen (Leck, cargo).
+- acid liest die ELF-Symbole des gcc-Ports nicht (tools/pstack + addr2line statt dessen).
+- Was Plan 9 nicht hat (bleibt so, Tests `ignore` mit Grund): Symlinks, Hardlinks, atime
+  setzen, TTL/keepalive zurücklesen, linger.
