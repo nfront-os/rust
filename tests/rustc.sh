@@ -17,18 +17,18 @@ I=$TOP/build/rustc-plan9
 rm -rf "$I"
 mkdir -p "$I/bin" "$I/lib/rustlib/x86_64-unknown-plan9/lib"
 "$X-strip" -o "$I/bin/rustc" "$R/x86_64-unknown-plan9/stage2/bin/rustc"
-cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/x86_64-unknown-plan9/lib/*.rlib \
+cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/x86_64-unknown-plan9/lib/*.r{lib,meta} \
 	"$I/lib/rustlib/x86_64-unknown-plan9/lib/"
-args=()
-for f in $(cd "$I" && find . -type f); do args+=(-x "/amd64/rust/${f#./}=$I/$f"); done
-for f in $(cd "$GCC9OUT/amd64/amd64/gnu" && find . -type f); do
-	args+=(-x "/amd64/gnu/${f#./}=$GCC9OUT/amd64/amd64/gnu/$f")
-done
+# rustc, the native gcc, and what it links with: the guest's root has no headers and
+# archives (9front-gcc's tests/native.sh brings them the same way)
+args=(-d "/amd64/rust=$I" -d "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu"
+	-d "/amd64/include=$PLAN9/amd64/include" -d "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc"
+	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -d "/sys/include=$PLAN9/sys/include")
 cmds=(
 	"bind -b /amd64/gnu/bin /bin"
 	"/amd64/rust/bin/rustc --version; if(~ \$status '') echo version ok; if not echo version FAIL \$status"
-	"cd /tmp; /amd64/rust/bin/rustc --edition 2024 -O -C linker=gcc /tests/std1.rs -o std1 >[2=1] | sed 20q; if(test -x std1) echo compile ok; if not echo compile FAIL"
-	"/tmp/std1 a b; if(~ \$status '') echo run ok; if not echo run FAIL \$status"
+	"cd /tmp; /amd64/rust/bin/rustc --edition 2024 -O /tests/std1.rs -o std1 >[2=1] | sed 20q; if(test -x std1) echo compile ok; if not echo compile FAIL"
+	"/tmp/std1 'a b' ü; if(~ \$status '') echo run ok; if not echo run FAIL \$status"
 )
 MEM=${MEM:-3072} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3000} "$TOP/tests/guest.sh" "${args[@]}" -f "$TOP/tests/std1.rs" -- "${cmds[@]}" \
 	> "$TOP/logs/rustc-guest.log" 2>&1

@@ -190,6 +190,28 @@ Der Nutzer wollte, dass C aus Crates ohne ape9-Umbenennung linkt. Umgekehrt gel�
 - Tests: `tests/run.sh` 7/7 (neu `cmain`, `cxxmain`: C und C++ aus `tests/c`), `tests/cargo.sh`
   5/5 (version, new, search, fetch, refetch).
 
+## rustc auf 9front (Teil 5, 2026-10-30)
+
+`./x build --stage 2 --host x86_64-unknown-plan9 --target x86_64-unknown-plan9 compiler/rustc`
+baut rustc für 9front: statisch, LLVM (build/llvm-plan9) eingebaut, 575 MB mit Debug-Infos.
+- LLVM gegen das neue APE: `SIGTRAP` fehlte in APE; CMakes FindThreads riet `-lpthreads`
+  (seine Proben können nicht linken): Threads in libap gesagt. bootstrap hatte das Submodul
+  llvm-project auf Rusts Commit zurückgesetzt (`submodules = false`, Gitlink auf plan9).
+- bootstrap: ein Target mit eigenem `llvm-config`, das auf dem Bauhost läuft
+  (`scripts/llvm-config-plan9.sh`), gibt `rustc_llvm` dieses statt des Hosts.
+- Compiler: `rustc-main` nimmt `rustc_driver_impl` direkt (keine dylib); `dll_path` ist das
+  Programm selbst (`current_exe`); memmap liest die Datei (wie wasm); kein ctrlc;
+  `path_to_c_string` über `os::plan9`; libc, libloading (keine dylibs: Öffnen scheitert),
+  getrandom 0.3.3 aus `crates/` per `[patch.crates-io]`.
+- **Keine Proc-Macros** in einem rustc auf 9front (dylibs). Plan: Proc-Macro-Crates als kleine
+  Programme, die Brücke (`Buffer`-Nachrichten wie bei `cross-thread`) über eine Pipe.
+- Linker auf 9front: der native gcc von 9front-gcc (`out-gcc`, `x86_64-pc-plan9-gcc`), dazu
+  `/amd64/include`, `/amd64/lib.gcc` (mit `libp9.a`), `/amd64/plan9.ld`, `/sys/include` des
+  Baums mit dem neuen APE. Beim nativen gcc fehlte `getpagesize` (libbacktrace nimmt jetzt
+  mmap), in eigener Objektdatei (libiberty hat ein eigenes).
+- `tests/rustc.sh`: rustc --version, übersetzt `tests/std1.rs` im Gast und führt es aus:
+  alle ok (MEM=3072). `tests/guest.sh -d /gast/dir=hostdir` kopiert Verzeichnisse.
+
 ## Tests
 
 - `tests/run.sh`: baut `tests/*.rs` und `tests/c`, läuft im Gast, eine Zeile pro Test; Stand: alle 7 ok.
