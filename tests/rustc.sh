@@ -19,11 +19,11 @@ mkdir -p "$I/bin" "$I/lib/rustlib/x86_64-unknown-plan9/lib"
 "$X-strip" -o "$I/bin/rustc" "$R/x86_64-unknown-plan9/stage2/bin/rustc"
 cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/x86_64-unknown-plan9/lib/*.r{lib,meta} \
 	"$I/lib/rustlib/x86_64-unknown-plan9/lib/"
-# rustc, the native gcc, and what it links with: the guest's root has no headers and
-# archives (9front-gcc's tests/native.sh brings them the same way)
-args=(-d "/amd64/rust=$I" -d "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu"
-	-d "/amd64/include=$PLAN9/amd64/include" -d "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc"
-	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -d "/sys/include=$PLAN9/sys/include")
+# rustc, the native gcc, and what it links with, on an ext4 disk (tests/guest.sh -D: the
+# guest's root is the host's over 9P, slow for these); the root has no headers and archives
+args=(-D "/amd64/rust=$I" -D "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu"
+	-D "/amd64/include=$PLAN9/amd64/include" -D "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc"
+	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -D "/sys/include=$PLAN9/sys/include")
 cmds=(
 	"bind -b /amd64/gnu/bin /bin"
 	"/amd64/rust/bin/rustc --version; if(~ \$status '') echo version ok; if not echo version FAIL \$status"

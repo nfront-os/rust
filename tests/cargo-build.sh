@@ -4,7 +4,7 @@
 # (serde without derive: the build script built and run on 9front), and --release.
 # Needs the network (crates.io); the guest's CA roots are the host's.
 # Prints "name ok" or "name FAIL ...". Log: logs/cargo-build-guest.log.
-# env: as tests/rustc.sh (GCC9OUT, PLAN9, MEM)
+# env: as tests/rustc.sh (GCC9OUT, PLAN9, MEM), SMP (guest processors, 4)
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
@@ -56,10 +56,10 @@ cargo build --release >[2=1] | tail -3
 t release
 RC
 cd "$TOP"
-MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-3300} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3600} tests/guest.sh \
-	-d "/amd64/rust=$I" -d "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu" \
-	-d "/amd64/include=$PLAN9/amd64/include" -d "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc" \
-	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -d "/sys/include=$PLAN9/sys/include" \
+SMP=${SMP:-4} MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-3300} GUEST_TIMEOUT=${GUEST_TIMEOUT:-3600} tests/guest.sh \
+	-D "/amd64/rust=$I" -D "/amd64/gnu=$GCC9OUT/amd64/amd64/gnu" \
+	-D "/amd64/include=$PLAN9/amd64/include" -D "/amd64/lib.gcc=$PLAN9/amd64/lib.gcc" \
+	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -D "/sys/include=$PLAN9/sys/include" \
 	-x /sys/lib/tls/ca.pem=/etc/ssl/certs/ca-certificates.crt \
 	-f "$T/t.rc" -- "rc /tests/t.rc" > logs/cargo-build-guest.log 2>&1
 tests="build run dep deprun buildscript release"
