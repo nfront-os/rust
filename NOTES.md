@@ -278,6 +278,10 @@ Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/brid
   (`expandexpr`: `TokenStream::expand_expr` auf einen Makro desselben Crates, drei Ebenen tief,
   also vier Instanzen des Programms gleichzeitig; ein eingebauter Makro `concat!` darüber),
   serde-derive + serde_json (~5 min, 4 CPUs). Auf Linux dieselben Makros: gleiche Ausgabe.
+  `macrocrash` (10/10): ein innerer Makro, der panict (wie auf Linux: ein Fehler „proc macro
+  panicked“, „message: boom inside“, die Instanz läuft weiter) und einer, der mit `exit`
+  endet (Fehler „proc-macro program failed“; die tote Instanz kommt nicht in den Vorrat, der
+  nächste Lauf bekommt eine neue); die Makros danach expandieren richtig (`assert!`s halten).
 
 ## Tests
 

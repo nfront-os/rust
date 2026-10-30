@@ -3,7 +3,7 @@
 # a new package built and run, a crates.io dependency (itoa), one with a build script
 # (serde without derive: the build script built and run on 9front), --release, and proc
 # macros (programs on 9front): derive, attribute and bang of our own, nested ones
-# (expand_expr), serde's derive.
+# (expand_expr), failing inner ones, serde's derive.
 # Needs the network (crates.io); the guest's CA roots are the host's.
 # Prints "name ok" or "name FAIL ...". Log: logs/cargo-build-guest.log.
 # env: as tests/rustc.sh (GCC9OUT, PLAN9, MEM), SMP (guest processors, 4)
@@ -157,6 +157,71 @@ EOF2
 cargo build >[2=1] | tail -8
 ./target/debug/nestapp | grep -s '^42 84 168 PLAN9$'
 t expandexpr
+# a macro that fails in an inner level: a panic (as on Linux: one error, the program goes
+# on) and an exit (its instance is gone: an error, the next run gets a new one); the macros
+# after them still expand (the asserts hold)
+cd /tmp
+cargo new --lib crashmacro >[2]/dev/null
+cd crashmacro
+echo '[lib]' >> Cargo.toml
+echo 'proc-macro = true' >> Cargo.toml
+cat > src/lib.rs <<'EOF2'
+#![feature(proc_macro_expand)]
+use proc_macro::TokenStream;
+
+#[proc_macro]
+pub fn answer(_input: TokenStream) -> TokenStream {
+    "42".parse().unwrap()
+}
+
+// the expansion of its input times two; 0 if that expansion fails (rustc reports it)
+#[proc_macro]
+pub fn twice(input: TokenStream) -> TokenStream {
+    match input.expand_expr() {
+        Ok(e) => (e.to_string().parse::<i64>().expect("a number") * 2).to_string().parse().unwrap(),
+        Err(_) => "0".parse().unwrap(),
+    }
+}
+
+#[proc_macro]
+pub fn nest(_input: TokenStream) -> TokenStream {
+    "::crashmacro::twice!(::crashmacro::twice!(::crashmacro::answer!()))"
+        .parse::<TokenStream>()
+        .unwrap()
+        .expand_expr()
+        .expect("expand_expr")
+}
+
+#[proc_macro]
+pub fn boom(_input: TokenStream) -> TokenStream {
+    panic!("boom inside")
+}
+
+#[proc_macro]
+pub fn die(_input: TokenStream) -> TokenStream {
+    std::process::exit(3)
+}
+EOF2
+cd /tmp
+cargo new crashapp >[2]/dev/null
+cd crashapp
+echo 'crashmacro = { path = "../crashmacro" }' >> Cargo.toml
+cat > src/main.rs <<'EOF2'
+use crashmacro::{answer, boom, die, nest, twice};
+
+const A: i64 = twice!(boom!());
+const B: i64 = twice!(die!());
+const C: () = assert!(twice!(answer!()) == 84);
+const D: () = assert!(nest!() == 168);
+
+fn main() {
+    println!("{A} {B}");
+}
+EOF2
+cargo build >/tmp/crash.log >[2=1]
+if(grep -s 'message: boom inside' /tmp/crash.log && grep -s 'message: proc-macro program failed' /tmp/crash.log && ~ `{grep -c '^error: proc macro panicked' /tmp/crash.log} 2 && ! grep -s 'assert|evaluat|^error\[' /tmp/crash.log) test 1 -eq 1
+if not { sed 60q /tmp/crash.log; test 1 -eq 0 }
+t macrocrash
 # serde's derive (syn, quote, proc-macro2) and serde_json
 cd /tmp
 cargo new sd >[2]/dev/null
@@ -191,6 +256,6 @@ SMP=${SMP:-4} MEM=${MEM:-3072} CMDWAIT=${CMDWAIT:-3300} GUEST_TIMEOUT=${GUEST_TI
 	-x "/amd64/plan9.ld=$PLAN9/amd64/plan9.ld" -D "/sys/include=$PLAN9/sys/include" \
 	-x /sys/lib/tls/ca.pem=/etc/ssl/certs/ca-certificates.crt \
 	-f "$T/t.rc" -- "rc /tests/t.rc" > logs/cargo-build-guest.log 2>&1
-tests="build run dep deprun buildscript release procmacro expandexpr serdederive"
+tests="build run dep deprun buildscript release procmacro expandexpr macrocrash serdederive"
 grep -E "^(${tests// /|}) (ok|FAIL)" logs/cargo-build-guest.log || { tail -30 logs/cargo-build-guest.log; exit 1; }
-[ "$(grep -cE "^(${tests// /|}) ok" logs/cargo-build-guest.log)" = 9 ]
+[ "$(grep -cE "^(${tests// /|}) ok" logs/cargo-build-guest.log)" = 10 ]
