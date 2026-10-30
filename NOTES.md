@@ -304,7 +304,23 @@ Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR 
   ab 0x80000000 abwärts). libc-Crate: `usize_` = `c_ulong`, `jmp_buf` 6 Wörter auf 32 Bit.
 - `objtype=386 tests/run.sh`: alle 12 ok im 9pc-Gast (qemu-system-i386, 4 CPUs), auf Anhieb;
   Ausgaben in `tests/out/$objtype`, Log `logs/guest-tests.386.log`.
-- Noch nicht: cargo/rustc für 386 (cargo cross mit C-Crates, nativ: LLVM über 386-g++).
+- Stack: 9front-Programme auf 386 starten mit nur 4 Byte Ausrichtung (Kernel, Notes; der
+  Baum `-mincoming-stack-boundary=2`). LLVM nimmt für i686 mit unbekanntem OS ohnehin 4 an
+  (16 nur für Linux, Darwin, kFreeBSD, 64 Bit) und richtet Rahmen mit 16-Byte-Daten selbst
+  aus (`andl $-16, %esp`, geprüft); das `S128` im Datenlayout ist nur ein Hinweis (ein
+  anderes als LLVMs wäre für rustc ein Fehler).
+- **cargo für 386** (`objtype=386 scripts/build-cargo.sh`, `objtype=386 tests/cargo.sh`: 5/5
+  im 9pc-Gast: version, new/libgit2, search/curl+rustls, fetch/sqlite, refetch). Zwei
+  C-Fehler, beide `-Wincompatible-pointer-types` (gcc 14+ ein Fehler) aus einer Ursache: gcc
+  für i686-pc-plan9 hatte `size_t` = `unsigned long` (gccs Standard, wie Plan 9s `usize`),
+  aber `uintptr_t` = `unsigned int` (glibc-stdint.h für 32 Bit). curls `rustls.c` nimmt
+  `uintptr_t *` für rustls-ffis `size_t *` (wie bei amd64 vor APEs stdint-Fix). Behoben an
+  der Wurzel: 9front-gcc `i386/plan9-386.h` INTPTR/UINTPTR_TYPE `long` (wie size_t und u.h's
+  `uintptr`; gleiche Größe, keine ABI-Änderung), APEs `inttypes.h` PRI*PTR `l` dafür (nur
+  unter `__plan9__`: der Baum selbst baut mit gcc -m32, dort bleibt int). libgit2 nahm bei
+  `SIZE_MAX == UINT_MAX` `__builtin_uadd_overflow` (`unsigned int *`): jetzt die
+  typgenerischen `__builtin_add/mul_overflow` (crate-Patch).
+- Noch nicht: rustc nativ für 386 (LLVM über den 386-g++, dann `cargo build` im Gast).
 
 ## Tests
 
@@ -323,4 +339,4 @@ Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR 
   `libc`: das crates.io-libc kennt plan9 nicht → `[patch.crates-io] libc = { path = …/libc }`.
 - cargo nativ: rustc + LLVM nativ (g++ von 9front-gcc), dann cargos Abhängigkeiten (curl+TLS,
   git2/gix, sqlite, flock-Ersatz, jobserver ohne cfg(unix)).
-- 386: cargo und rustc (cross gebaut, dann nativ); std-Testsuite im Gast; `peek`, nonblocking.
+- 386: rustc nativ; std-Testsuite im Gast; `peek`, nonblocking.
