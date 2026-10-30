@@ -283,6 +283,29 @@ Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/brid
   endet (Fehler „proc-macro program failed“; die tote Instanz kommt nicht in den Vorrat, der
   nächste Lauf bekommt eine neue); die Makros danach expandieren richtig (`assert!`s halten).
 
+## 386: i686-unknown-plan9 (Teil 8, 2026-10-30)
+
+Cross (Linux → 9front 386), Entscheidung: SSE2 wie Rusts i686-Targets (`cpu = pentium4`); der
+Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR mit 0x1f80
+(SSE-Ausnahmen maskiert), libgccs `__wrap_main` setzt das x87-Steuerwort wie auf amd64.
+- Toolchain: `objtype=386 BUILD=$PWD/build-gcc OUTDIR=$PWD/out-gcc PLAN9=../9front-gccwt
+  ./build.sh cross` in 9front-gcc (gegen den 386-Baum, `CC=gcc ARCH=386 build.exe -D` in
+  9front-gccwt; danach baut dort der nächste amd64-Lauf alles neu: gemeinsame Objekte).
+- Target `rustc_target/.../i686_unknown_plan9.rs`: Datenlayout von i686-unknown-linux-gnu
+  (System V i386: double und long long in Structs 4-Byte-ausgerichtet, wie gccs), sonst
+  `base::plan9`. `bootstrap.toml`: `[target.i686-unknown-plan9]` (Vorlage), nicht in
+  `build.target`: `./x build --stage 1 library --target i686-unknown-plan9` ausdrücklich.
+  Nach jedem Compiler-Neubau std für alle Targets bauen (sonst fehlt eine im Sysroot,
+  E0463): `--target x86_64-unknown-linux-gnu,x86_64-unknown-plan9,i686-unknown-plan9`.
+- std: der Assembler in `pal/plan9/proc.rs` für x86 (`runon`, `rforkthread`, `rforkrun`):
+  Systemaufruf `INT $64`, Nummer in AX, Argumente ab 4(SP); das Kind bekommt auf 386 alle
+  Register des Elternprozesses (forkret: POPAL der kopierten Ureg), AX = 0, also ESI/EDI
+  statt R14/R15. Die Stack-Slots bleiben (nur SEG1–SEG4 frei pro Proc: ≤ 4 Slots à 64 MiB,
+  ab 0x80000000 abwärts). libc-Crate: `usize_` = `c_ulong`, `jmp_buf` 6 Wörter auf 32 Bit.
+- `objtype=386 tests/run.sh`: alle 12 ok im 9pc-Gast (qemu-system-i386, 4 CPUs), auf Anhieb;
+  Ausgaben in `tests/out/$objtype`, Log `logs/guest-tests.386.log`.
+- Noch nicht: cargo/rustc für 386 (cargo cross mit C-Crates, nativ: LLVM über 386-g++).
+
 ## Tests
 
 - `tests/run.sh`: baut `tests/*.rs` und `tests/c`, läuft im Gast, eine Zeile pro Test; Stand: alle 7 ok.
@@ -300,4 +323,4 @@ Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/brid
   `libc`: das crates.io-libc kennt plan9 nicht → `[patch.crates-io] libc = { path = …/libc }`.
 - cargo nativ: rustc + LLVM nativ (g++ von 9front-gcc), dann cargos Abhängigkeiten (curl+TLS,
   git2/gix, sqlite, flock-Ersatz, jobserver ohne cfg(unix)).
-- 386; std-Testsuite im Gast; `peek`, nonblocking.
+- 386: cargo und rustc (cross gebaut, dann nativ); std-Testsuite im Gast; `peek`, nonblocking.
