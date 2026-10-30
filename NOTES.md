@@ -332,6 +332,59 @@ Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR 
 - Nach dem Neubau des stage-1-Compilers (neues Target) fehlte die stage-2-std für amd64: die
   ganze amd64-Kette (stage 2 rustc für plan9, library) neu bauen.
 
+## std-Testsuite im Gast (Teil 9, 2026-10-30)
+
+`./x test library/std --target x86_64-unknown-plan9 --no-doc --no-fail-fast` mit
+`runner = tests/std-runner.sh` im `[target.*-plan9]` von `bootstrap.toml`: cargo ruft ihn mit
+jedem Testprogramm; er bootet je Programm einen Gast seiner Architektur (`file`: 386 oder
+amd64), `/tmp` auf ext4, Loopback `127.1` und `::1`, 900 s Grenze, und gibt Ausgabe und Status
+zurück (`STDTEST_LOG`: alle Gastprotokolle).
+- Zwei Kopien von std im Unit-Testprogramm (die geprüfte und die des Sysroots über libtest):
+  der Assembler sind jetzt naked functions (gemangelt, je Kopie eigen; `threadstart` über
+  `sym`), die C-Exporte (`malloc` &c., `__plan9_*`) haben `no_mangle`/`export_name` nur außer
+  `cfg(test)`, `PRIVTOP`/`MAIN_PID` eine Instanz (sgx' Muster: `export_name` +
+  `linkage = "available_externally"` im Test). `current()` nimmt ThreadData nur mit der
+  eigenen pid: die privaten Slots eines Procs sind eine Kopie der des Elternprocs (rfork).
+- std-Korrekturen: `Instant` vorzeichenbehaftet (Nanosekunden, i64-Sekunden-Bereich wie
+  timespec: `Instant - 10 Jahre` ging nicht); `OpenOptions` prüft wie unix (Meldungen,
+  append+truncate); `set_times` setzt die mtime, atime still übergangen (stat(5): ein wstat
+  ändert sie nicht; Variante „verträglich“, in `os::plan9::fs` beschrieben); `remove_dir_all`
+  wie `rm -r` (ganz lesen, dann löschen: sonst rutschen Einträge nach, 32768 Dateien);
+  `ExitStatus::code` wie APEs wait (Zahl, sonst 1, Note → keiner); NUL im Programmnamen
+  `InvalidInput`; „malformed address“ `InvalidInput`; `read_buf` von Sockets ohne Vorab-
+  Initialisierung; `Socket::as_raw`.
+- ext4srv (gcc-Branch): atime beim Anlegen; wstat-Länge verlängert mit Nullen, kürzt mit
+  genulltem Blockrest; `rwrite` liest die Länge frisch aus dem Inode (ein anderer fid änderte
+  sie: das Auffüllen schrieb sonst über dessen Daten).
+- Tests auf plan9 `ignore` mit Grund: Symlinks/Junctions (14 + 5), Hardlinks, Verzeichnis-
+  Umbenennung über Verzeichnisse, atime setzen (3), TCP: halbes Schließen (`shutdown_smoke`,
+  `close_read_wakes_up`), keepalive/ttl/hop_limit zurücklesen, linger, nonblocking, peek,
+  Nagle; NUL in Umgebungswerten (rc-Listen). Testseitig: Pfadtrenner `/`, rwlock-Grenze wie
+  futex, `$path` statt `PATH`, `env` = `rc -c 'cd /env; for(v in *) whatis $v'`, Shell
+  `/bin/ape/sh`.
+- **Hänger der Tests unter Last: libgccs Unwinder ohne Sperren.** pstack zeigte einen Broken
+  Proc in `__plan9_abort` ← `_Unwind_RaiseException_Phase2` (Panic in einem Test-Thread):
+  gthr-posix prüft per schwachem Verweis auf `pthread_cancel`, ob Threads da sind; der zieht
+  APEs pthread.o nicht ins Rust-Programm, die FDE-Listen blieben ungesperrt. Behoben in
+  9front-gcc (`GTHREAD_USE_WEAK 0` in `gcc/config/plan9.h`). Das `abort` der Testkopie von std
+  beendete nur deren Threads: main (Sysroot-std) wartete ewig.
+- **Offen: TCP unter Last.** Mit 12 Test-Threads scheitern `multiple_connect_interleaved_*`
+  (je 10 Verbindungen vor dem ersten accept): „connection refused“, „i/o on hungup channel“,
+  danach liest die Gegenseite 0 Bytes (`buf[0] == 99`); auch einmal „listen hungup“ in
+  `clone_accept_*`. Mit einem Test-Thread grün (40 Läufe). Nicht die incall-Grenze
+  (`Maxincall` 10, keine Meldung „incall queue full“), keine doppelten Ports (zufällig aus
+  2^15..2^16). Ungeklärt: 9fronts TCP über Loopback unter Last oder std's Netzcode.
+- **Offen, Bug in 9front: `/net/cs` hängt unter Last.** Mit `RUST_TEST_THREADS=12` hingen
+  `clone_while_reading`/`multiple_connect_*` (nicht mit einem Thread, 40 Läufe): tools/pstack
+  zeigte die Clients in `dial` → `csdial` im `pwrite` an `/net/cs`, die Server-Threads im
+  `read` ihrer angenommenen Verbindungen. std wählt numerische Adressen jetzt selbst
+  (`/net/tcp/clone`, `connect a!p` bzw. `announce a!p` ins ctl, dann `data`): ein SocketAddr
+  braucht keine Übersetzung. Die Ursache in cs (oder im mount-Treiber) ist offen; C-Programme
+  und curl wählen weiter über cs (Eintrag in 9front-gccwt MEMORY.md).
+- **Offen: TCP halb schließen.** 9fronts ctl `close` legt auch die Leseseite auf (`tcpclose`:
+  `qhangup(c->rq)`), `shutdown(Write)` beendet also beide Richtungen: eine Antwort der
+  Gegenseite geht still verloren (HTTP-Clients, nc-artige Werkzeuge). Nur im Kernel lösbar.
+
 ## Tests
 
 - `tests/run.sh`: baut `tests/*.rs` und `tests/c`, läuft im Gast, eine Zeile pro Test; Stand: alle 7 ok.
@@ -349,4 +402,4 @@ Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR 
   `libc`: das crates.io-libc kennt plan9 nicht → `[patch.crates-io] libc = { path = …/libc }`.
 - cargo nativ: rustc + LLVM nativ (g++ von 9front-gcc), dann cargos Abhängigkeiten (curl+TLS,
   git2/gix, sqlite, flock-Ersatz, jobserver ohne cfg(unix)).
-- std-Testsuite im Gast; `peek`, nonblocking.
+- TCP halb schließen (Kernel); std-Tests für 386; core/alloc-Tests; `peek`, nonblocking.

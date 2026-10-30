@@ -20,6 +20,8 @@ lld = false
 llvm-tools = false
 
 [target.x86_64-unknown-plan9]
+# ./x test: the test binaries run in a 9front guest
+runner = "/home/stefan/Devel/9front-rust/tests/std-runner.sh"
 cc = "$GCC9/build-gcc/amd64/cross/bin/x86_64-pc-plan9-gcc"
 cxx = "$GCC9/build-gcc/amd64/cross/bin/x86_64-pc-plan9-g++"
 ar = "$GCC9/build-gcc/amd64/cross/bin/x86_64-pc-plan9-ar"
@@ -31,6 +33,8 @@ llvm-config = "/home/stefan/Devel/9front-rust/build/llvm-plan9/bin/llvm-config"
 
 # 386 (cross only): ./x build --stage 1 library --target i686-unknown-plan9
 [target.i686-unknown-plan9]
+# ./x test: the test binaries run in a 9front guest
+runner = "/home/stefan/Devel/9front-rust/tests/std-runner.sh"
 cc = "$GCC9/build-gcc/386/cross/bin/i686-pc-plan9-gcc"
 cxx = "$GCC9/build-gcc/386/cross/bin/i686-pc-plan9-g++"
 ar = "$GCC9/build-gcc/386/cross/bin/i686-pc-plan9-ar"
