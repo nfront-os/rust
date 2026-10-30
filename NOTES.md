@@ -226,6 +226,13 @@ das `/` → Test setzt `RUSTC=/amd64/rust/bin/rustc` (offen: dauerhafte Lösung)
   Procs sind APEs Kopier-Procs der curl-Verbindungen. Eher sehr langsam als Deadlock: messen
   (Zeit für serde im Gast, `-Z time-passes`), Allokator (alles über mallocalign 16?) prüfen.
   Log: `logs/cargo-dbg-serde-hang.log`.
+- **Keine echten Datei-Locks** (Hinweis eines Nebenagenten): cargo (ganz) und rustc (inkrementell)
+  tun auf plan9 so, als sei gesperrt. Ein `cargo build` ist sicher (cargo baut ein Crate nie
+  zweimal gleichzeitig); zwei gleichzeitige `cargo build`/`cargo fetch` im selben Projekt oder
+  `~/.cargo` können sich die Ergebnisse überschreiben. Plan: Sperrdatei mit `DMEXCL` offen
+  halten (zweites Öffnen: "file in use" → blockiert/wiederholen), in std's `File::lock*` für
+  plan9, damit cargo und rustc es ohne eigene Wege nutzen; braucht ein Dateisystem, das DMEXCL
+  achtet (cwfs, hjfs; ramfs/ext4srv prüfen).
 - `abort` aus C: `__plan9_abort` in std beendet die anderen Procs, der abbrechende endet mit
   `ud2` und bleibt Broken (APE `gen/abort.c`). Getestet (`cexit-abort`). acid liest die
   ELF-Symbole des gcc-Ports nicht ("no symbol information"): PC aus `/proc/N/status`/acid,
