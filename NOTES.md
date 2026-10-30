@@ -242,6 +242,24 @@ das `/` → auf plan9 Rückfall auf `/$cputype/rust` (rustc_session::filesearch)
   ELF-Symbole des gcc-Ports nicht ("no symbol information"): PC aus `/proc/N/status`/acid,
   auf dem Host `addr2line -e binary PC`.
 
+## Proc-Macros als Programme (Teil 7, 2026-10-30)
+
+Plan 9 hat keine dylibs; ein proc-macro-Crate für einen plan9-Host wird ein statisches
+Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/bridge/remote.rs`).
+- Die Brücke tauscht ohnehin nur `Buffer` (Handles als Zahlen, Symbole als Strings), wie die
+  cross-thread-Strategie; `RemoteStrategy` schickt sie durch eine Pipe: `R` (Index, Eingabe),
+  das Programm fragt mit `D` zurück (rustc: `Dispatcher::dispatch`, Antwort `r`), Ergebnis `O`.
+  Namen und Arten der Makros stehen in den Metadaten; das Programm meldet nur die Anzahl (`L`).
+  Verschachtelte Läufe (expand_expr) bekommen eine zweite Instanz. stdout des Makros → stderr.
+- Compiler: Harness erzeugt `#[rustc_main] fn main() { serve(_DECLS) }`; `entry_fn` für plan9-
+  proc-macro; Link als `StaticNoPicExe`, keine Exportliste, `--undefined` des Metadaten-Symbols
+  (sonst wirft `--gc-sections` `.rustc` weg); `invalid_output_for_target` erlaubt es;
+  `rustc_metadata` lädt mit `remote::load`. `Client` hat auf plan9 ein Feld `remote`.
+- Beim Cross-Bau von rustc baut bootstrap Proc-Macros auch fürs Ziel (dual proc macros): die
+  sind jetzt diese Programme (nur ihre Metadaten werden gebraucht).
+- `tests/cargo-build.sh` 8/8: eigenes derive/attribute/bang-Makro, serde-derive + serde_json
+  (~5 min, 4 CPUs).
+
 ## Tests
 
 - `tests/run.sh`: baut `tests/*.rs` und `tests/c`, läuft im Gast, eine Zeile pro Test; Stand: alle 7 ok.
