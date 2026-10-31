@@ -31,3 +31,26 @@ Native Plan 9 calls go through the `libc` crate (its functions are bound to `__p
 
     PATH=../9front-gcc/build-gcc/amd64/cross/bin:$PATH
     rust/build/host/stage1/bin/rustc --edition 2024 --target x86_64-unknown-plan9 -O hello.rs
+
+## Install on 9front
+
+`scripts/install.sh` (`objtype=386` for 386) makes the toolchain for an installed 9front
+system, an optional install, as two archives with paths from `/`:
+
+- `out/$objtype/rust-T.tgz`: rustc, cargo, std (T: `x86_64-unknown-plan9`,
+  `i686-unknown-plan9`), about 115 MB;
+- `out/$objtype/rust-tools-T.tgz`: rustdoc, rustfmt, cargo-fmt, clippy-driver,
+  cargo-clippy, about 140 MB.
+
+On 9front, with [9front-gcc](../9front-gcc)'s `/$objtype/gnu` installed (rustc links with
+its gcc):
+
+    cd / && tar xzf rust-x86_64-unknown-plan9.tgz && tar xzf rust-tools-x86_64-unknown-plan9.tgz
+    bind -b /amd64/gnu/bin /bin; bind -b /amd64/rust/bin /bin
+    cargo new hello && cd hello && cargo run
+
+cargo needs the CA roots in `/sys/lib/tls/ca.pem` for crates.io. `tests/tools.sh` unpacks
+the archives in the guest and uses rustc, cargo, rustdoc, rustfmt and clippy there. To put
+the unpacked tree on the install CD instead: `RUST_OUT=../9front-rust/out/amd64` for
+`../9front-gccwt`'s `scripts/guest/mkiso.sh`.
+

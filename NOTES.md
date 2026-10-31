@@ -482,6 +482,34 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   10 ms erneut (kommt sie, bevor er in `listen` ist, verpufft sie), höchstens 5 s. Der Port
   ist frei, wenn close zurückkehrt, wie unter unix.
 
+## Installation und Werkzeuge (Teil 13, 2026-10-31)
+
+- **Rebase** des gcc-Branchs auf front 350266104 (27 Commits von upstream, keine Konflikte;
+  Manifeste neu, `news.c` weg): alle drei Architekturen bauen, run.sh und async.sh auf amd64
+  und 386 grün.
+- **rustdoc, rustfmt, clippy für 9front** (`./x build --stage 2 --host T --target T
+  src/tools/rustdoc src/tools/rustfmt src/tools/clippy`): wie rustc statisch, ohne
+  `rustc_driver`-dylib: `extern crate rustc_driver_impl as rustc_driver` (rustdoc, rustfmt's
+  bin, clippy-driver), wo nur zum Linken gebraucht entfällt es (rustfmt's lib,
+  clippy_utils); cargo-clippy bekommt `EXIT_FAILURE` aus einem kleinen Modul statt des ganzen
+  Compilers. bootstrap legt für plan9 die rlibs der Compiler-Crates in den Sysroot (sonst nur
+  rmeta: auf Linux sind sie in librustc_driver.so). rustdoc: `Os::Plan9` in `clean/cfg.rs`,
+  sein eigenes `flock` nimmt `os::plan9::fs::lock_file` (DMEXCL). Crates: stacker 0.1.21 (ein
+  Stack aus malloc wie wasm/hermit: std findet seine Thread-Daten über `_privates`, nicht über
+  den Stackzeiger), dirs-sys 0.5.0 (`$home`, keine XDG-Verzeichnisse). Die Werkzeuge liegen in
+  `build/x86_64-unknown-linux-gnu/stage2-tools/T/release` (stage2/bin legt bootstrap jedes Mal
+  neu an). Gestrippt: rustdoc 165 MB, clippy-driver 169 MB, rustfmt 49 MB (amd64).
+- **Installation** (`scripts/install.sh`): `out/$objtype/$objtype/rust` (bin, lib/rustlib/T/lib
+  mit rlib und rmeta: bootstrap baut std mit `-Zembed-metadata=no`, ohne die rmeta findet
+  rustc keine Metadaten; README) und zwei Archive zur optionalen Installation,
+  Pfade ab `/`: `rust-T.tgz` (rustc, cargo, std, 117 MB) und `rust-tools-T.tgz` (150 MB).
+  std aus dem stage-1-Sysroot (dieselben Dateien wie stage 2, das bootstrap hochhebt; ein
+  stage-2-Build für ein Target entfernt die std der anderen). Auf die Install-CD nur auf
+  Wunsch: `RUST_OUT` für 9front-gccwt's `stage-dist.sh` (`rustproto`).
+- `tests/tools.sh`: entpackt die Archive mit 9fronts tar im Gast, dann rustc/cargo/rustdoc/
+  rustfmt/clippy --version, cargo build/run, cargo fmt (--check vorher rot, nachher grün),
+  cargo clippy (needless_return), cargo doc, cargo test mit Unit- und Doc-Test.
+
 ## Offen
 
 Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
@@ -492,9 +520,9 @@ Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unte
   unter Last (`tools/csstress`, auch mit kencc-Kernel).
 - **arm64**: kein `aarch64-unknown-plan9` (Toolchain, Target, `proc.rs`-Assembler, LLVM, rustc
   wie bei 386).
-- **Werkzeuge, Verteilung**: rustdoc, rustfmt, clippy nicht für 9front gebaut, Doc-Tests nie
-  gelaufen (`--no-doc`); keine Installation für ein 9front-System (`/$objtype/rust`, Install-CD
-  wie 9front-gccs `/$objtype/gnu`): die Tests legen rustc und std nur in den Gast.
+- **Werkzeuge**: die Doc-Tests der std nie gelaufen (`--no-doc`); rustdoc und clippy-driver
+  enthalten je den ganzen Compiler (zusammen mit rustc ~490 MB; ein Programm für alle drei
+  wäre ~170 MB).
 - APEs Kopier-Procs: nach `close` mit laufendem read bleibt ihr Puffer stehen (Leck, cargo).
 - acid liest die ELF-Symbole des gcc-Ports nicht (tools/pstack + addr2line statt dessen).
 - Was Plan 9 nicht hat (bleibt so, Tests `ignore` mit Grund): Symlinks, Hardlinks, atime

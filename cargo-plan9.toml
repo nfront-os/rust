@@ -26,3 +26,5 @@ jobserver = { package = "jobserver", path = "/home/stefan/Devel/9front-rust/crat
 mio = { package = "mio", path = "/home/stefan/Devel/9front-rust/crates/mio-1.2.1" }
 tokio = { package = "tokio", path = "/home/stefan/Devel/9front-rust/crates/tokio-1.54.1" }
 hyper-util = { package = "hyper-util", path = "/home/stefan/Devel/9front-rust/crates/hyper-util-0.1.21" }
+stacker = { package = "stacker", path = "/home/stefan/Devel/9front-rust/crates/stacker-0.1.21" }
+dirs-sys = { package = "dirs-sys", path = "/home/stefan/Devel/9front-rust/crates/dirs-sys-0.5.0" }

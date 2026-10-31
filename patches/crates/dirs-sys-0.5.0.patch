@@ -1,0 +1,37 @@
+diff -ruN '--exclude=target' dirs-sys-0.5.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/dirs-sys-0.5.0/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-31 11:17:48.836145404 +0100
+@@ -133,6 +133,33 @@
+ #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+ pub use self::target_unix_not_mac::{user_dir, user_dirs};
+ 
++// 9front (Plan 9): the home directory is $home; no XDG user directories
++#[cfg(target_os = "plan9")]
++mod target_plan9 {
++
++use std::collections::HashMap;
++use std::env;
++use std::path::{Path, PathBuf};
++
++use super::is_absolute_path;
++
++pub fn home_dir() -> Option<PathBuf> {
++    env::var_os("home").and_then(is_absolute_path)
++}
++
++pub fn user_dir(_user_dir_name: &str) -> Option<PathBuf> {
++    None
++}
++
++pub fn user_dirs(_home_dir_path: &Path) -> HashMap<String, PathBuf> {
++    HashMap::new()
++}
++
++}
++
++#[cfg(target_os = "plan9")]
++pub use self::target_plan9::{home_dir, user_dir, user_dirs};
++
+ #[cfg(target_os = "windows")]
+ extern crate windows_sys as windows;
+ 
