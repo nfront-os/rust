@@ -2,7 +2,10 @@
 # async on 9front: mio (crates/mio-1.2.1, sys::plan9 over std's non-blocking sockets) and
 # tokio (crates/tokio-1.54.1) cross-built with the stage-1 rustc, run in the guest:
 # tests/crates/mioecho (one poll loop, an echo, a waker), tests/crates/tokioecho (a
-# multi-thread runtime: 20 echo clients with half close, sleep, timeout, a channel, fs).
+# multi-thread runtime: 20 echo clients with half close, sleep, timeout, a channel, fs),
+# tests/crates/httptest (hyper's HTTP/1.1 and HTTP/2 server and clients, hyper-util's client,
+# reqwest), tests/crates/tlsdns (DNS through /net/cs, HTTPS with rustls here and to crates.io:
+# needs the network; the host's roots as /sys/lib/tls/ca.pem).
 # Needs the 9front tree with TCP's half close (gcc branch: ctl "shutdown").
 # Prints "name ok" or "name FAIL ...". Log: logs/async-guest[.386].log.
 # objtype=386: i686-unknown-plan9 in a 9pc guest.
@@ -22,14 +25,14 @@ TV=$(echo $T | tr a-z- A-Z_)
 export CARGO_TARGET_${TV}_LINKER=$X-gcc
 mkdir -p "$TOP/logs"
 bins=()
-for c in mioecho tokioecho; do
+for c in mioecho tokioecho httptest tlsdns; do
 	cargo build --release --target $T --manifest-path "$TOP/tests/crates/$c/Cargo.toml" \
 		--config "$TOP/cargo-plan9.toml" > "$TOP/logs/async-build-$c$L.log" 2>&1 ||
 		{ tail -20 "$TOP/logs/async-build-$c$L.log"; exit 1; }
 	bins+=("$TOP/tests/crates/$c/target/$T/release/$c")
 done
 run() { echo "$2 >[2=1]; if(~ \$status '') echo $1 ok; if not echo $1 FAIL \$status"; }
-"$TOP/tests/guest.sh" -f "${bins[@]}" -- "ip/ipconfig loopback /dev/null 127.1" \
-	"$(run mio /tests/mioecho)" "$(run tokio /tests/tokioecho)" > "$TOP/logs/async-guest$L.log" 2>&1
-grep -E '^(mio|tokio) (ok|FAIL)' "$TOP/logs/async-guest$L.log" || { tail -20 "$TOP/logs/async-guest$L.log"; exit 1; }
-[ "$(grep -cE '^(mio|tokio) ok' "$TOP/logs/async-guest$L.log")" = 2 ]
+"$TOP/tests/guest.sh" -x /sys/lib/tls/ca.pem=/etc/ssl/certs/ca-certificates.crt -f "${bins[@]}" -- "ip/ipconfig loopback /dev/null 127.1" \
+	"$(run mio /tests/mioecho)" "$(run tokio /tests/tokioecho)" "$(run http /tests/httptest)" "$(run tlsdns /tests/tlsdns)" > "$TOP/logs/async-guest$L.log" 2>&1
+grep -E '^(mio|tokio|http|tlsdns) (ok|FAIL)' "$TOP/logs/async-guest$L.log" || { tail -20 "$TOP/logs/async-guest$L.log"; exit 1; }
+[ "$(grep -cE '^(mio|tokio|http|tlsdns) ok' "$TOP/logs/async-guest$L.log")" = 4 ]

@@ -425,11 +425,32 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   bei Loopback legte neue Verbindungen auf (MEMORY.md dort).
 - Kosten: ein bis zwei Procs pro nonblocking Verbindung (9fronts Grenze: conf.nproc).
 
+## HTTP, HTTPS, DNS (Teil 11, 2026-10-31)
+
+- **hyper-util** (`crates/hyper-util-0.1.21`): der `HttpConnector` (client-legacy, von reqwest
+  benutzt) baut seinen Socket mit socket2 und tokios `TcpSocket`; auf plan9 verbindet er über
+  `tokio::net::TcpStream::connect` (std's connect im Hintergrund). Lokale Adresse: Unsupported;
+  keepalive wird nicht gesetzt (TCPs ctl `keepalive` hat std nicht).
+- `tests/crates/httptest`: hyper-Server (HTTP/1.1 und HTTP/2, auto), hyper-Clients (http1,
+  http2 mit 10 Strömen), hyper-utils Client (Pool), reqwest (GET, POST 1 MiB, JSON, chunked,
+  404, timeout, 20 gleichzeitig, HTTP/2).
+- `tests/crates/tlsdns`: DNS über `/net/cs` (std und tokio `lookup_host`, localhost, ein
+  unbekannter Name, 10 gleichzeitig), HTTPS mit rustls (ring) gegen einen lokalen
+  tokio-rustls-Server mit rcgen-Zertifikat (HTTP/1.1, HTTP/2 per ALPN, 1 MiB, unbekannter
+  Aussteller abgelehnt) und zu crates.io mit den Wurzeln aus `/sys/lib/tls/ca.pem`. Braucht das
+  Netz (QEMUs DHCP/DNS).
+- 9front-Fehler gefunden: ndb/cs schnitt Fehlermeldungen auf 63 Zeichen ab (`curerr[64]` in
+  `rwrite`), bei langen Namen fehlte „name does not exist“; im gcc-Branch behoben.
+- `tests/async.sh` läuft alle vier (mio, tokio, http, tlsdns).
+- Einmal (386, nach mioecho im selben Gast) brach tokioecho mit „early eof“ ab; 105
+  Wiederholungen (allein und nach mioecho) liefen fehlerfrei. tokioecho meldet jetzt die Bytes
+  von Client und Server bis zum EOF, falls es wieder auftritt.
+
 ## Offen
 
 Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
 Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unter Last.
-- **async**: tokio::process und tokio::signal nicht portiert; hyper/reqwest ungetestet.
+- **async**: tokio::process und tokio::signal nicht portiert; TCP-keepalive in std fehlt.
 - **9front-Kernel** (nicht vom Port, 9front-gccwt MEMORY.md): TCP-`connect` über Loopback hängt
   unter Last (`tools/csstress`, auch mit kencc-Kernel).
 - **arm64**: kein `aarch64-unknown-plan9` (Toolchain, Target, `proc.rs`-Assembler, LLVM, rustc

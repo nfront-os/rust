@@ -285,8 +285,17 @@ diff -ruN '--exclude=target' mio-1.2.1/src/net/udp.rs /home/stefan/Devel/9front-
              }
 diff -ruN '--exclude=target' mio-1.2.1/src/sys/mod.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/sys/mod.rs
 --- a/src/sys/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/sys/mod.rs	2026-10-31 00:53:17.591319704 +0100
-@@ -67,6 +67,13 @@
++++ b/src/sys/mod.rs	2026-10-31 09:14:33.192262762 +0100
+@@ -14,6 +14,8 @@
+ //! * `Waker`: see [`crate::Waker`].
+ 
+ cfg_os_poll! {
++    // 9front (Plan 9): its events have no flags to list
++    #[cfg_attr(target_os = "plan9", allow(unused_macros))]
+     macro_rules! debug_detail {
+         (
+             $type: ident ($event_type: ty), $test: path,
+@@ -67,6 +69,13 @@
      pub use self::windows::*;
  }
  

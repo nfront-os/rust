@@ -1,0 +1,99 @@
+diff -ruN '--exclude=target' hyper-util-0.1.21/Cargo.toml /home/stefan/Devel/9front-rust/crates/hyper-util-0.1.21/Cargo.toml
+--- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
++++ b/Cargo.toml	2026-10-31 09:03:47.086371785 +0100
+@@ -205,7 +205,8 @@
+ [dependencies.pin-project-lite]
+ version = "0.2.4"
+ 
+-[dependencies.socket2]
++# 9front (Plan 9): no BSD sockets for socket2; the connector connects through tokio
++[target.'cfg(not(target_os = "plan9"))'.dependencies.socket2]
+ version = "0.6"
+ features = ["all"]
+ optional = true
+diff -ruN '--exclude=target' hyper-util-0.1.21/src/client/legacy/connect/http.rs /home/stefan/Devel/9front-rust/crates/hyper-util-0.1.21/src/client/legacy/connect/http.rs
+--- a/src/client/legacy/connect/http.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/client/legacy/connect/http.rs	2026-10-31 09:04:10.440062615 +0100
+@@ -11,8 +11,11 @@
+ use futures_util::future::Either;
+ use http::uri::{Scheme, Uri};
+ use pin_project_lite::pin_project;
++#[cfg(not(target_os = "plan9"))]
+ use socket2::TcpKeepalive;
+-use tokio::net::{TcpSocket, TcpStream};
++#[cfg(not(target_os = "plan9"))]
++use tokio::net::TcpSocket;
++use tokio::net::TcpStream;
+ use tokio::time::Sleep;
+ use tracing::{debug, trace, warn};
+ 
+@@ -100,6 +103,22 @@
+     retries: Option<u32>,
+ }
+ 
++/// 9front (Plan 9): no socket2; keepalive is not set (TCP's ctl "keepalive" is not in std)
++#[cfg(target_os = "plan9")]
++#[derive(Clone, Debug)]
++struct TcpKeepalive;
++
++#[cfg(target_os = "plan9")]
++impl TcpKeepalive {
++    fn new() -> TcpKeepalive {
++        TcpKeepalive
++    }
++
++    fn with_time(self, _: Duration) -> TcpKeepalive {
++        self
++    }
++}
++
+ impl TcpKeepaliveConfig {
+     /// Converts into a `socket2::TcpKeealive` if there is any keep alive configuration.
+     fn into_tcpkeepalive(self) -> Option<TcpKeepalive> {
+@@ -810,6 +829,7 @@
+     }
+ }
+ 
++#[cfg(not(target_os = "plan9"))]
+ fn bind_local_address(
+     socket: &socket2::Socket,
+     dst_addr: &SocketAddr,
+@@ -838,6 +858,38 @@
+     Ok(())
+ }
+ 
++/// 9front (Plan 9): a dial through tokio (std connects in the background); no local
++/// address, interface or socket options.
++#[cfg(target_os = "plan9")]
++fn connect(
++    addr: &SocketAddr,
++    config: &Config,
++    connect_timeout: Option<Duration>,
++) -> Result<impl Future<Output = Result<TcpStream, ConnectError>>, ConnectError> {
++    if config.local_address_ipv4.is_some() || config.local_address_ipv6.is_some() {
++        return Err(ConnectError::new(
++            "tcp bind local error",
++            io::Error::from(io::ErrorKind::Unsupported),
++        ));
++    }
++    if config.tcp_keepalive_config.into_tcpkeepalive().is_some() {
++        debug!("tcp keepalive not supported on plan9");
++    }
++    let connect = TcpStream::connect(*addr);
++    Ok(async move {
++        match connect_timeout {
++            Some(dur) => match tokio::time::timeout(dur, connect).await {
++                Ok(Ok(s)) => Ok(s),
++                Ok(Err(e)) => Err(e),
++                Err(e) => Err(io::Error::new(io::ErrorKind::TimedOut, e)),
++            },
++            None => connect.await,
++        }
++        .map_err(ConnectError::m("tcp connect error"))
++    })
++}
++
++#[cfg(not(target_os = "plan9"))]
+ fn connect(
+     addr: &SocketAddr,
+     config: &Config,

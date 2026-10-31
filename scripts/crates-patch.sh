@@ -30,7 +30,7 @@ diff)
 				if(!skip) print FILENAME ": " n }
 			{skip = 0}' "$p"
 	done | while read -r f n; do
-		echo "$nat" | grep -qx "$n" && echo "warning: ${f%:} declares $n: APE's, not the native libc's (link_name = \"__p9_$n\")" >&2
+		echo "$nat" | grep -qx "$n" && echo "warning: ${f%:} declares $n: APE's, not the native libc's (link_name = \"__p9_$n\")" >&2 || true
 	done
 	;;
 apply)

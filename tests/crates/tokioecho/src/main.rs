@@ -13,7 +13,10 @@ async fn main() {
             let (mut s, _) = listener.accept().await.unwrap();
             tokio::spawn(async move {
                 let (mut r, mut w) = s.split();
-                tokio::io::copy(&mut r, &mut w).await.unwrap();
+                let n = tokio::io::copy(&mut r, &mut w).await.unwrap();
+                if n != 64 * 1024 {
+                    eprintln!("tokioecho: server copied {n} of {}", 64 * 1024);
+                }
             });
         }
     });
@@ -29,8 +32,19 @@ async fn main() {
                 w.shutdown().await.ok();
             };
             let mut back = vec![0u8; data.len()];
-            let read = async { r.read_exact(&mut back).await.unwrap() };
-            tokio::join!(write, read);
+            let read = async {
+                let mut got = 0;
+                while got < back.len() {
+                    match r.read(&mut back[got..]).await {
+                        Ok(0) => break,
+                        Ok(n) => got += n,
+                        Err(e) => panic!("client {i}: read: {e} after {got}"),
+                    }
+                }
+                got
+            };
+            let ((), got) = tokio::join!(write, read);
+            assert!(got == data.len(), "client {i}: eof after {got} of {}", data.len());
             assert_eq!(back, data);
         }));
     }
