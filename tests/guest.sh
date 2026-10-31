@@ -37,8 +37,16 @@ if [ $nd -gt 0 ]; then
 		-E root_owner=$(id -u):$(id -g) -d "$T/disk" "$IMG" ${mb}M
 	rm -rf "$T/disk"
 	disk=(-drive "file=$IMG,format=raw,if=virtio,cache=unsafe")
+	dev=/dev/sdF0/data
+	# arm64: virtio 1.0 only (9front's sdvirtio10.c), as boot-cli.sh's own disks; sdF0 is
+	# its FAT disk (u-boot's), this one the next controller's
+	[ "${objtype:-amd64}" != arm64 ] || {
+		disk=(-drive "file=$IMG,format=raw,if=none,id=ext4,cache=unsafe"
+			-device virtio-blk-pci,drive=ext4,disable-legacy=on)
+		dev=/dev/sdG0/data
+	}
 	# ext4srv keeps writes in its cache: sync at the end (KEEPDISK reads the image)
-	set -- "ext4srv -S -n disk; mount -c /srv/disk /n/disk /dev/sdF0/data; bind -c /n/disk/work /tmp" \
+	set -- "ext4srv -S -n disk; mount -c /srv/disk /n/disk $dev; bind -c /n/disk/work /tmp" \
 		"${binds[@]}" "$@" "echo sync >> /srv/disk.cmd; sleep 2"
 fi
 [ -z "$KEEPDISK" ] || [ $nd -eq 0 ] || trap 'mv "$IMG" "$KEEPDISK"; rm -rf "$T"' EXIT

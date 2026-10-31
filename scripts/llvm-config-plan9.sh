@@ -8,6 +8,7 @@ set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 case ${objtype:-amd64} in
 386)	B=$TOP/build/llvm-plan9.386 ;;
+arm64)	B=$TOP/build/llvm-plan9.arm64 ;;
 *)	B=$TOP/build/llvm-plan9 ;;
 esac
 N=$TOP/build/llvm-native-tools

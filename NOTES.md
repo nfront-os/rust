@@ -510,6 +510,26 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   rustfmt/clippy --version, cargo build/run, cargo fmt (--check vorher rot, nachher grün),
   cargo clippy (needless_return), cargo doc, cargo test mit Unit- und Doc-Test.
 
+## arm64: aarch64-unknown-plan9 (Teil 14, 2026-10-31)
+
+- **Toolchain**: 9front-gcc kann jetzt `aarch64-pc-plan9` (cross und nativ, `/arm64/gnu`; dort
+  NOTES): char vorzeichenbehaftet, keine Outline-Atomics, crt*.o ohne Unwind-Tabellen. Im
+  gcc-Branch: `arm64/plan9.ld` sammelt `.init_array`/`.gcc_except_table`, APEs `fenv.h` hat
+  arm64s Werte.
+- **Target** `aarch64_unknown_plan9.rs`: Datenlayout von aarch64-linux-gnu, `+v8a` ohne
+  `+outline-atomics`, Linker `aarch64-pc-plan9-gcc`. `core::ffi::c_char` ist auf Plan 9 auf jeder
+  Architektur `i8` (7c, jc; gccs DEFAULT_SIGNED_CHAR). libc: `jmp_buf` 22 Wörter.
+- **std**: `proc.rs` runon/rforkthread/rforkrun in AArch64 (Nummer in R0, Argument bei 8(SP),
+  `SVC #0`; das Kind bekommt alle Register, R0 = 0: privtop und Argument in x26/x27 wie APEs
+  pthread.c). Die Stack-Slots passen in arm64s 32-GiB-Adressraum (EVASHIFT 36). Sonst nichts.
+- **Gast**: QEMU virt unter TCG, ein Prozessor (`tests/guest.sh`: 9fronts qemu-Kernel startet
+  keine weiteren, MEMORY.md des Trees); die ext4-Platte als virtio-blk-pci 1.0 (`/dev/sdG0`, sdF0
+  ist u-boots FAT). Falle: der Gast bootet `arm64/9qemu.u`, das nur `build-boot.sh` erneuert —
+  mit dem alten lief tokio ohne TCP-`shutdown` (EOF, unvollständige HTTP-Anfragen).
+- **Ergebnisse**: run.sh 13/13, async.sh 5/5 (mio, tokio, http, tlsdns, proc), cargo.sh 5/5
+  (cargo von Linux aus gebaut), rustc.sh 3/3 (rustc nativ: LLVM mit AArch64-Backend,
+  `objtype=arm64 scripts/build-llvm.sh`, 15 min für rustc und die Werkzeuge).
+
 ## Offen
 
 Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
@@ -518,8 +538,7 @@ Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unte
   (Teil 12).
 - **9front-Kernel** (nicht vom Port, 9front-gccwt MEMORY.md): TCP-`connect` über Loopback hängt
   unter Last (`tools/csstress`, auch mit kencc-Kernel).
-- **arm64**: kein `aarch64-unknown-plan9` (Toolchain, Target, `proc.rs`-Assembler, LLVM, rustc
-  wie bei 386).
+- **arm64** (Teil 14): std-Testsuite nicht gelaufen; der Gast hat nur einen Prozessor.
 - **Werkzeuge**: die Doc-Tests der std nie gelaufen (`--no-doc`); rustdoc und clippy-driver
   enthalten je den ganzen Compiler (zusammen mit rustc ~490 MB; ein Programm für alle drei
   wäre ~170 MB).

@@ -1,6 +1,6 @@
 # Cross toolchain for 9front amd64 (9front-gcc over gcc's APE): C and C++ against APE as
 # any APE program. cmake -DCMAKE_TOOLCHAIN_FILE=.../cmake/plan9.cmake; objtype=386 in the
-# environment: for 9front 386 (i686-pc-plan9).
+# environment: for 9front 386 (i686-pc-plan9); objtype=arm64: arm64 (aarch64-pc-plan9).
 get_filename_component(P9RUST "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 if(NOT DEFINED ENV{GCC9BUILD})
   set(GCC9BUILD "${P9RUST}/../9front-gcc/build-gcc")
@@ -12,6 +12,9 @@ set(CMAKE_SYSTEM_NAME Plan9)
 if("$ENV{objtype}" STREQUAL "386")
   set(CMAKE_SYSTEM_PROCESSOR i686)
   set(X "${GCC9BUILD}/386/cross/bin/i686-pc-plan9")
+elseif("$ENV{objtype}" STREQUAL "arm64")
+  set(CMAKE_SYSTEM_PROCESSOR aarch64)
+  set(X "${GCC9BUILD}/arm64/cross/bin/aarch64-pc-plan9")
 else()
   set(CMAKE_SYSTEM_PROCESSOR x86_64)
   set(X "${GCC9BUILD}/amd64/cross/bin/x86_64-pc-plan9")

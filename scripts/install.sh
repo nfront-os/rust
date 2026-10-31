@@ -15,13 +15,14 @@
 #   README                  how to use it
 # All stripped. rustc finds its sysroot from its own path (/$objtype/rust); it links with
 # 9front-gcc's gcc (/$objtype/gnu), which must be installed too.
-# usage: [objtype=386] scripts/install.sh [outdir]   (default out/$objtype)
+# usage: [objtype=386|arm64] scripts/install.sh [outdir]   (default out/$objtype)
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 GCC9BUILD=${GCC9BUILD:-$TOP/../9front-gcc/build-gcc}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 ;;
+arm64)	T=aarch64-unknown-plan9 X=aarch64-pc-plan9 ;;
 *)	echo "install.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 A=$objtype
@@ -55,8 +56,12 @@ for t in rustdoc:rustdoc-tool-binary rustfmt cargo-fmt clippy-driver cargo-clipp
 	fi
 done
 # rlibs and rmeta: bootstrap builds std with -Zembed-metadata=no, its metadata only in
-# the .rmeta beside each rlib
-cp "$std"/*.rlib "$std"/*.rmeta "$D/lib/rustlib/$T/lib/"
+# the .rmeta beside each rlib. Only std's, as its stamp lists them: after a build of the
+# tools for the host T the sysroot also has the compiler's crates (rustc_private)
+stamp=$R/x86_64-unknown-linux-gnu/stage1-std/$T/dist/.libstd-stamp
+[ -s "$stamp" ] || die "no $stamp: ./x build --stage 1 library --target $T"
+tr '\0' '\n' < "$stamp" | sed -n 's|^t.*/||p' | grep -E '\.(rlib|rmeta)$' |
+	while read -r f; do cp "$std/$f" "$D/lib/rustlib/$T/lib/"; done
 version=$(cd "$TOP/rust" && git log -1 --format='%h %cd' --date=short)
 sed "s/@objtype@/$A/g; s/@target@/$T/g; s/@version@/$version/" > "$D/README" <<'EOF'
 Rust for 9front (@target@), from 9front-rust (rust @version@)

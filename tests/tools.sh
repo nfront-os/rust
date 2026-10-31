@@ -15,12 +15,13 @@ GCC9OUT=${GCC9OUT:-$TOP/../9front-gcc/out-gcc}
 case ${objtype:=amd64} in
 amd64)	L= ;;
 386)	L=.386 ;;
+arm64)	L=.arm64 ;;
 *)	echo "$0: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype
 A=$objtype
 OUT=${OUT:-$TOP/out/$A}
-case $A in amd64) TG=x86_64-unknown-plan9 ;; 386) TG=i686-unknown-plan9 ;; esac
+case $A in amd64) TG=x86_64-unknown-plan9 ;; 386) TG=i686-unknown-plan9 ;; arm64) TG=aarch64-unknown-plan9 ;; esac
 for f in rust-$TG.tgz rust-tools-$TG.tgz; do
 	[ -s "$OUT/$f" ] || { echo "$0: no $OUT/$f: objtype=$A scripts/install.sh" >&2; exit 1; }
 done

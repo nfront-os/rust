@@ -14,6 +14,8 @@ case ${objtype:=amd64} in
 amd64)	TG=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=cargo-guest.log ;;
 386)	TG=i686-unknown-plan9 X=i686-pc-plan9 LOG=cargo-guest.386.log
 	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
+arm64)	TG=aarch64-unknown-plan9 X=aarch64-pc-plan9 LOG=cargo-guest.arm64.log
+	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
 *)	echo "cargo.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype

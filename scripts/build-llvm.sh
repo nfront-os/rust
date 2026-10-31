@@ -4,13 +4,15 @@
 # tablegens for Linux from the same sources (build/llvm-native-tools, made first). Out: build/llvm-plan9 (bin/llvm-config
 # is a 9front program: scripts/llvm-config-plan9 answers for it on Linux).
 # The threads are APE's, in libap: CMake's FindThreads is told so (its probes cannot link).
-# objtype=386: for 9front 386 (i686-unknown-plan9), out build/llvm-plan9.386.
-# usage: [objtype=386] scripts/build-llvm.sh [ninja targets]
+# objtype=386: for 9front 386 (i686-unknown-plan9), out build/llvm-plan9.386; objtype=arm64:
+# arm64 (aarch64-unknown-plan9, the AArch64 backend), out build/llvm-plan9.arm64.
+# usage: [objtype=386|arm64] scripts/build-llvm.sh [ninja targets]
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 case ${objtype:=amd64} in
-amd64)	B=$TOP/build/llvm-plan9 T=x86_64-unknown-plan9 L= ;;
-386)	B=$TOP/build/llvm-plan9.386 T=i686-unknown-plan9 L=.386 ;;
+amd64)	B=$TOP/build/llvm-plan9 T=x86_64-unknown-plan9 L= BACKEND=X86 ;;
+386)	B=$TOP/build/llvm-plan9.386 T=i686-unknown-plan9 L=.386 BACKEND=X86 ;;
+arm64)	B=$TOP/build/llvm-plan9.arm64 T=aarch64-unknown-plan9 L=.arm64 BACKEND=AArch64 ;;
 *)	echo "build-llvm.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype
@@ -27,7 +29,7 @@ cd "$B"
 cmake -G Ninja "$TOP/rust/src/llvm-project/llvm" \
 	-DCMAKE_TOOLCHAIN_FILE="$TOP/cmake/plan9.cmake" \
 	-DCMAKE_BUILD_TYPE=Release \
-	-DLLVM_TARGETS_TO_BUILD=X86 \
+	-DLLVM_TARGETS_TO_BUILD=$BACKEND \
 	-DLLVM_HOST_TRIPLE=$T \
 	-DLLVM_DEFAULT_TARGET_TRIPLE=$T \
 	-DLLVM_ENABLE_THREADS=ON \

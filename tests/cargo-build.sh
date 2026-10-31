@@ -17,6 +17,7 @@ GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
 case ${objtype:=amd64} in
 amd64)	TG=x86_64-unknown-plan9 XT=x86_64-pc-plan9 L= ;;
 386)	TG=i686-unknown-plan9 XT=i686-pc-plan9 L=.386 ;;
+arm64)	TG=aarch64-unknown-plan9 XT=aarch64-pc-plan9 L=.arm64 ;;
 *)	echo "$0: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype
@@ -30,7 +31,7 @@ rm -rf "$I"
 mkdir -p "$I/bin" "$I/lib/rustlib/$TG/lib"
 "$X-strip" -o "$I/bin/rustc" "$R/$TG/stage2/bin/rustc"
 "$X-strip" -o "$I/bin/cargo" "$TOP/tests/out/cargo-port/$TG/release/cargo"
-cp "$R"/x86_64-unknown-linux-gnu/stage2/lib/rustlib/$TG/lib/*.r{lib,meta} \
+cp "$R"/x86_64-unknown-linux-gnu/stage1/lib/rustlib/$TG/lib/*.r{lib,meta} \
 	"$I/lib/rustlib/$TG/lib/"
 cat > "$T/t.rc" <<'RC'
 #!/bin/rc

@@ -3,7 +3,7 @@
 # crates of crates/ (cargo-plan9.toml) and 9front-gcc's cross gcc for the C in it (APE).
 # Result: tests/out/cargo-port/x86_64-unknown-plan9/release/cargo; log: logs/cargo-port.log.
 # objtype=386: for i686-unknown-plan9 (tests/out/cargo-port/i686-unknown-plan9/release/cargo,
-# logs/cargo-port.386.log).
+# logs/cargo-port.386.log); objtype=arm64 likewise for aarch64-unknown-plan9.
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 GCC9=${GCC9:-$TOP/../9front-gcc}
 # its build directory with the toolchain over gcc's APE (9front branch gcc)
@@ -11,6 +11,7 @@ GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=cargo-port.log ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 LOG=cargo-port.386.log ;;
+arm64)	T=aarch64-unknown-plan9 X=aarch64-pc-plan9 LOG=cargo-port.arm64.log ;;
 *)	echo "build-cargo.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 TV=$(echo $T | tr a-z- A-Z_)

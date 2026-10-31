@@ -1,6 +1,7 @@
 # 9front-rust
 
-Rust for 9front (Plan 9): the target `x86_64-unknown-plan9`, with std on 9front's own
+Rust for 9front (Plan 9): the targets `x86_64-unknown-plan9`, `i686-unknown-plan9` and
+`aarch64-unknown-plan9` (arm64), with std on 9front's own
 C library (as `libp9.a`, its names `__p9_*`), cross-compiled on Linux. C and C++ in crates
 are APE programs as any; APE is linked beside the native libc. Programs are linked by
 [9front-gcc](../9front-gcc)'s cross gcc (`build-gcc`) against the gcc-built 9front tree,
@@ -34,7 +35,7 @@ Native Plan 9 calls go through the `libc` crate (its functions are bound to `__p
 
 ## Install on 9front
 
-`scripts/install.sh` (`objtype=386` for 386) makes the toolchain for an installed 9front
+`scripts/install.sh` (`objtype=386`, `objtype=arm64`) makes the toolchain for an installed 9front
 system, an optional install, as two archives with paths from `/`:
 
 - `out/$objtype/rust-T.tgz`: rustc, cargo, std (T: `x86_64-unknown-plan9`,

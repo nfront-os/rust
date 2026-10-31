@@ -9,7 +9,7 @@
 # (tokio::process, tokio::signal over notes; in a note group of its own: it posts to it).
 # Needs the 9front tree with TCP's half close (gcc branch: ctl "shutdown").
 # Prints "name ok" or "name FAIL ...". Log: logs/async-guest[.386].log.
-# objtype=386: i686-unknown-plan9 in a 9pc guest.
+# objtype=386: i686-unknown-plan9 in a 9pc guest; objtype=arm64: aarch64-unknown-plan9 (qemu).
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
@@ -17,6 +17,7 @@ GCC9BUILD=${GCC9BUILD:-$TOP/../9front-gcc/build-gcc}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 L= ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 L=.386 ;;
+arm64)	T=aarch64-unknown-plan9 X=aarch64-pc-plan9 L=.arm64 ;;
 *)	echo "async.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype
