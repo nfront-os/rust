@@ -2,7 +2,8 @@
 # Build the test programs (tests/*.rs) with the stage-1 rustc for x86_64-unknown-plan9 and
 # run them in the 9front guest (../9front's scripts/guest/boot-cli.sh). One line per
 # test: "name ok" or "name FAIL ...". Log: logs/guest-tests.log (386: guest-tests.386.log).
-# objtype=386: i686-unknown-plan9 in a 9pc guest (the 9front tree built for 386: PLAN9).
+# objtype=386: i686-unknown-plan9 in a 9pc guest (the 9front tree built for 386: PLAN9);
+# objtype=arm64: aarch64-unknown-plan9 in a qemu (arm64) guest (emulated: slow).
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 GCC9=${GCC9:-$TOP/../9front-gcc}
@@ -11,6 +12,8 @@ GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=guest-tests.log ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 LOG=guest-tests.386.log
+	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
+arm64)	T=aarch64-unknown-plan9 X=aarch64-pc-plan9 LOG=guest-tests.arm64.log
 	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
 *)	echo "run.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac

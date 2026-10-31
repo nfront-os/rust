@@ -46,6 +46,9 @@ cd "$PLAN9"
 # -smp through QEMU_EXTRA: any tree's boot-cli.sh takes that (SMP= keeps one that knows
 # SMP from adding its own)
 smp=${SMP:-4}
+# arm64: one processor; 9front's qemu kernel does not start more (the others wait in
+# _startup's wfe for an event nobody sends; ../9front-gccwt MEMORY.md, "SMP arm64 offen")
+[ "${objtype:-amd64}" != arm64 ] || smp=${SMP:-1}
 # its own process group: if this script ends early (an outer timeout's TERM), the guest
 # (QEMU, ufs) goes with it, or it keeps the ports and the next guest fails
 SMP= UFS_EXTRA=$T/extra QEMU_EXTRA="-smp $smp ${disk[*]} $QEMU_EXTRA" setsid timeout ${GUEST_TIMEOUT:-600} \
