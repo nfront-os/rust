@@ -24,3 +24,4 @@ getrandom-0_3_3 = { package = "getrandom", path = "/home/stefan/Devel/9front-rus
 libloading = { package = "libloading", path = "/home/stefan/Devel/9front-rust/crates/libloading-0.9.0" }
 jobserver = { package = "jobserver", path = "/home/stefan/Devel/9front-rust/crates/jobserver-0.1.34" }
 mio = { package = "mio", path = "/home/stefan/Devel/9front-rust/crates/mio-1.2.1" }
+tokio = { package = "tokio", path = "/home/stefan/Devel/9front-rust/crates/tokio-1.54.1" }

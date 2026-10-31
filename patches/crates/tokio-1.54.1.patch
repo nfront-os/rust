@@ -1,0 +1,155 @@
+diff -ruN '--exclude=target' tokio-1.54.1/Cargo.toml /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/Cargo.toml
+--- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
++++ b/Cargo.toml	2026-10-31 00:57:34.106770928 +0100
+@@ -978,7 +978,8 @@
+ [target.'cfg(any(not(target_family = "wasm"), target_os = "emscripten"))'.dev-dependencies.tempfile]
+ version = "3.1.0"
+ 
+-[target.'cfg(any(not(target_family = "wasm"), target_os = "emscripten", all(target_os = "wasi", not(target_env = "p1"))))'.dependencies.socket2]
++# 9front (Plan 9): no BSD sockets for socket2; tokio's net without TcpSocket and socket options
++[target.'cfg(all(any(not(target_family = "wasm"), target_os = "emscripten", all(target_os = "wasi", not(target_env = "p1"))), not(target_os = "plan9")))'.dependencies.socket2]
+ version = "0.6.3"
+ features = ["all"]
+ optional = true
+diff -ruN '--exclude=target' tokio-1.54.1/src/net/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/mod.rs
+--- a/src/net/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/mod.rs	2026-10-31 00:59:03.943966746 +0100
+@@ -43,6 +43,7 @@
+     pub use tcp::listener::TcpListener;
+     pub use tcp::stream::TcpStream;
+     cfg_not_wasip1! {
++        #[cfg(not(target_os = "plan9"))]
+         pub use tcp::socket::TcpSocket;
+ 
+         mod udp;
+diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/listener.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/tcp/listener.rs
+--- a/src/net/tcp/listener.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/tcp/listener.rs	2026-10-31 00:59:03.943467894 +0100
+@@ -289,7 +289,7 @@
+                 .map(|raw_socket| unsafe { std::net::TcpListener::from_raw_socket(raw_socket) })
+         }
+ 
+-        #[cfg(target_os = "wasi")]
++        #[cfg(any(target_os = "wasi", target_os = "plan9"))]
+         {
+             use std::os::fd::{FromRawFd, IntoRawFd};
+             self.io
+diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/tcp/mod.rs
+--- a/src/net/tcp/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/tcp/mod.rs	2026-10-31 00:59:03.943899737 +0100
+@@ -3,6 +3,8 @@
+ pub(crate) mod listener;
+ 
+ cfg_not_wasip1! {
++    // 9front (Plan 9): no socket before its connect or announce, no socket options
++    #[cfg(not(target_os = "plan9"))]
+     pub(crate) mod socket;
+ }
+ 
+diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/stream.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/tcp/stream.rs
+--- a/src/net/tcp/stream.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/tcp/stream.rs	2026-10-31 00:59:03.947935157 +0100
+@@ -287,7 +287,7 @@
+                 .map(|raw_socket| unsafe { std::net::TcpStream::from_raw_socket(raw_socket) })
+         }
+ 
+-        #[cfg(target_os = "wasi")]
++        #[cfg(any(target_os = "wasi", target_os = "plan9"))]
+         {
+             use std::os::fd::{FromRawFd, IntoRawFd};
+             self.io
+@@ -1291,6 +1291,9 @@
+         /// # }
+         /// ```
+         pub fn linger(&self) -> io::Result<Option<Duration>> {
++            #[cfg(target_os = "plan9")]
++            return Ok(None);
++            #[cfg(not(target_os = "plan9"))]
+             socket2::SockRef::from(self).linger()
+         }
+ 
+@@ -1333,6 +1336,9 @@
+         /// ```
+         #[deprecated = "`SO_LINGER` causes the socket to block the thread on drop"]
+         pub fn set_linger(&self, dur: Option<Duration>) -> io::Result<()> {
++            #[cfg(target_os = "plan9")]
++            return { let _ = dur; Err(io::Error::from(io::ErrorKind::Unsupported)) };
++            #[cfg(not(target_os = "plan9"))]
+             socket2::SockRef::from(self).set_linger(dur)
+         }
+ 
+@@ -1366,6 +1372,9 @@
+         /// # }
+         /// ```
+         pub fn set_zero_linger(&self) -> io::Result<()> {
++            #[cfg(target_os = "plan9")]
++            return Err(io::Error::from(io::ErrorKind::Unsupported));
++            #[cfg(not(target_os = "plan9"))]
+             socket2::SockRef::from(self).set_linger(Some(Duration::ZERO))
+         }
+     }
+diff -ruN '--exclude=target' tokio-1.54.1/src/net/udp.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/udp.rs
+--- a/src/net/udp.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/net/udp.rs	2026-10-31 00:59:03.949469374 +0100
+@@ -273,10 +273,17 @@
+         }
+     }
+ 
++    #[cfg(not(target_os = "plan9"))]
+     fn as_socket(&self) -> socket2::SockRef<'_> {
+         socket2::SockRef::from(self)
+     }
+ 
++    /// 9front (Plan 9): socket2 has no Plan 9; its options are unsupported there
++    #[cfg(target_os = "plan9")]
++    fn as_socket(&self) -> Plan9Socket<'_> {
++        Plan9Socket(self)
++    }
++
+     /// Returns the local address that this socket is bound to.
+     ///
+     /// # Example
+@@ -1881,6 +1888,14 @@
+     }
+ 
+     #[inline]
++    #[cfg(target_os = "plan9")]
++    fn peek_sender_inner(&self) -> io::Result<SocketAddr> {
++        // std peeks on 9front (its pump): the datagram stays
++        self.io.try_io(|| self.io.peek_from(&mut []).map(|(_, a)| a))
++    }
++
++    #[inline]
++    #[cfg(not(target_os = "plan9"))]
+     fn peek_sender_inner(&self) -> io::Result<SocketAddr> {
+         self.io.try_io(|| {
+             self.as_socket()
+@@ -2356,3 +2371,28 @@
+         }
+     }
+ }
++
++/// 9front (Plan 9): `UdpSocket::as_socket` where socket2 is not: no socket options.
++#[cfg(target_os = "plan9")]
++#[allow(dead_code)]
++struct Plan9Socket<'a>(&'a UdpSocket);
++
++#[cfg(target_os = "plan9")]
++#[allow(dead_code)]
++impl Plan9Socket<'_> {
++    fn unsupported<T>(&self) -> io::Result<T> {
++        Err(io::Error::from(io::ErrorKind::Unsupported))
++    }
++    fn tos_v4(&self) -> io::Result<u32> {
++        self.unsupported()
++    }
++    fn set_tos_v4(&self, _: u32) -> io::Result<()> {
++        self.unsupported()
++    }
++    fn tclass_v6(&self) -> io::Result<u32> {
++        self.unsupported()
++    }
++    fn set_tclass_v6(&self, _: u32) -> io::Result<()> {
++        self.unsupported()
++    }
++}

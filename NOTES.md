@@ -401,15 +401,37 @@ zurück (`STDTEST_LOG`: alle Gastprotokolle).
   sleep, SystemTime, HashMap, Float-Format), `tests/overflow.rs` (Überlauf in main und Thread
   → Broken): laufen im Gast (2026-10-29).
 
+## async: mio und tokio (Teil 10, 2026-10-31)
+
+Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
+- **std** (`sys/net/connection/plan9/pump.rs`): ein Socket, der nonblocking geschaltet oder
+  gepeekt wird, bekommt eine Pumpe: ein Lese-Proc in einen Puffer (Strom 64 KiB, Datagramme,
+  angenommene Rufe eines Listeners), ein Schreib-Proc aus einem Puffer (erst mit dem ersten
+  write: ein nur lesender Socket kostet einen Proc). read/peek/recv/accept daraus oder
+  WouldBlock, write hinein; eigener fd (dup), beim Schließen des letzten fds wird der Leser per
+  Note (`rust: interrupt`) unterbrochen, der Schreiber schreibt aus. `shutdown(Write)` erst nach
+  dem Gepufferten, über das beim Aufruf geöffnete ctl (ein späteres Öffnen per Name fand die
+  Nummer schon an eine andere Verbindung vergeben). `os::plan9::net`: `readiness`,
+  `set_ready_hook`, `connect_nonblocking` (ctl angelegt, data gleich offen, connect im Proc).
+  Peek geht jetzt auch blockierend. `tests/nb.rs` (in run.sh).
+- **mio** (`crates/mio-1.2.1`, `sys/plan9`): Selector = Liste geänderter fds + Condvar, die
+  Hooks tragen ein; `select` liest `readiness`. Waker, connect/bind über std (kein Socket vor
+  dem connect). `tests/crates/mioecho`.
+- **tokio** (`crates/tokio-1.54.1`): ohne socket2 auf plan9 (keine BSD-Sockets): kein
+  `TcpSocket`, linger/UDP-Optionen Unsupported, `peek_sender` über std's peek_from.
+  `tests/crates/tokioecho`: multi-thread runtime, 20 Echo-Clients mit halbem Schließen, sleep,
+  timeout, Kanal, fs. `tests/async.sh` (beide Architekturen).
+- **Kernel** (9front-gccwt): TCP halb schließen (ctl `shutdown`), ein veralteter bypass-Zeiger
+  bei Loopback legte neue Verbindungen auf (MEMORY.md dort).
+- Kosten: ein bis zwei Procs pro nonblocking Verbindung (9fronts Grenze: conf.nproc).
+
 ## Offen
 
 Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
 Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unter Last.
-- **async**: std hat auf plan9 kein nonblocking (`set_nonblocking`) und kein `peek`; mio hat
-  kein plan9-Backend, tokio und alles darauf läuft nicht. Plan 9 hat kein epoll/kqueue.
+- **async**: tokio::process und tokio::signal nicht portiert; hyper/reqwest ungetestet.
 - **9front-Kernel** (nicht vom Port, 9front-gccwt MEMORY.md): TCP-`connect` über Loopback hängt
-  unter Last (`tools/csstress`, auch mit kencc-Kernel); kein halbes Schließen
-  (`shutdown(Write)` schließt beide Richtungen, eine Antwort geht verloren).
+  unter Last (`tools/csstress`, auch mit kencc-Kernel).
 - **arm64**: kein `aarch64-unknown-plan9` (Toolchain, Target, `proc.rs`-Assembler, LLVM, rustc
   wie bei 386).
 - **Werkzeuge, Verteilung**: rustdoc, rustfmt, clippy nicht für 9front gebaut, Doc-Tests nie
