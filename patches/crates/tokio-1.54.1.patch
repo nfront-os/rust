@@ -11,6 +11,30 @@ diff -ruN '--exclude=target' tokio-1.54.1/Cargo.toml /home/stefan/Devel/9front-r
  version = "0.6.3"
  features = ["all"]
  optional = true
+diff -ruN '--exclude=target' tokio-1.54.1/src/lib.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-10-31 09:45:18.653417809 +0100
+@@ -584,6 +584,8 @@
+     feature = "io-std",
+     feature = "net",
+     all(windows, feature = "process"),
++    // 9front (Plan 9): the pipes of a child (process/plan9.rs)
++    all(target_os = "plan9", feature = "process"),
+ ))]
+ mod blocking;
+ 
+diff -ruN '--exclude=target' tokio-1.54.1/src/macros/cfg.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/macros/cfg.rs
+--- a/src/macros/cfg.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/macros/cfg.rs	2026-10-31 09:43:25.071931864 +0100
+@@ -142,6 +142,8 @@
+                 feature = "io-std",
+                 feature = "fs",
+                 all(windows, feature = "process"),
++                // 9front (Plan 9): the pipes of a child (process/plan9.rs)
++                all(target_os = "plan9", feature = "process"),
+         ))] $item )*
+     }
+ }
 diff -ruN '--exclude=target' tokio-1.54.1/src/net/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/mod.rs
 --- a/src/net/mod.rs	2006-07-24 03:21:28.000000000 +0200
 +++ b/src/net/mod.rs	2026-10-31 00:59:03.943966746 +0100
@@ -152,4 +176,481 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/net/udp.rs /home/stefan/Devel/9fro
 +    fn set_tclass_v6(&self, _: u32) -> io::Result<()> {
 +        self.unsupported()
 +    }
++}
+diff -ruN '--exclude=target' tokio-1.54.1/src/process/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/process/mod.rs
+--- a/src/process/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/process/mod.rs	2026-10-31 09:45:49.222166066 +0100
+@@ -239,6 +239,11 @@
+ #[cfg(windows)]
+ mod imp;
+ 
++// 9front (Plan 9): a waiter thread per child, blocking pipes (process/plan9.rs)
++#[path = "plan9.rs"]
++#[cfg(target_os = "plan9")]
++mod imp;
++
+ mod kill;
+ 
+ use crate::io::{AsyncRead, AsyncWrite, ReadBuf};
+@@ -862,8 +867,17 @@
+     #[inline]
+     pub fn spawn(&mut self) -> io::Result<Child> {
+         // On two lines to circumvent a mutable borrow check failure.
+-        let child = self.std.spawn()?;
+-        self.build_child(child)
++        // 9front (Plan 9): a child's end goes to the proc that forks it: its waiter does
++        #[cfg(target_os = "plan9")]
++        {
++            let spawned = imp::spawn(&mut self.std)?;
++            self.wrap_child(spawned)
++        }
++        #[cfg(not(target_os = "plan9"))]
++        {
++            let child = self.std.spawn()?;
++            self.build_child(child)
++        }
+     }
+ 
+     /// Executes the command as a child process with a custom spawning function,
+@@ -947,8 +961,13 @@
+     /// it is behind `tokio_unstable`. It also serves as a way to reduce
+     /// monomorphization bloat by taking in an already-spawned child process
+     /// instead of a command and custom spawn function.
++    // 9front (Plan 9): only spawn_with (tokio_unstable) builds from a std Child
++    #[cfg_attr(all(target_os = "plan9", not(tokio_unstable)), allow(dead_code))]
+     fn build_child(&self, child: StdChild) -> io::Result<Child> {
+-        let spawned_child = imp::build_child(child)?;
++        self.wrap_child(imp::build_child(child)?)
++    }
++
++    fn wrap_child(&self, spawned_child: SpawnedChild) -> io::Result<Child> {
+ 
+         Ok(Child {
+             child: FusedChild::Child(ChildDropGuard {
+diff -ruN '--exclude=target' tokio-1.54.1/src/process/plan9.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/process/plan9.rs
+--- a/src/process/plan9.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/process/plan9.rs	2026-10-31 09:45:49.222327635 +0100
+@@ -0,0 +1,309 @@
++//! 9front (Plan 9) asynchronous process handling.
++//!
++//! Plan 9 tells a child's end (its Waitmsg) only to the proc that forked it, and has no
++//! SIGCHLD. A thread of its own forks each child and waits for it (std's `Child::wait`),
++//! then completes a oneshot: it lives as long as the child, so the child's end has someone
++//! to go to. A child that is dropped without being waited for is still waited for (no
++//! orphan queue needed).
++//!
++//! The pipes are read and written as on Windows: blocking, in the blocking pool
++//! (`Blocking`), since Plan 9 pipes cannot be polled. A note the program catches
++//! (tokio::signal) interrupts a blocked read or write: it is tried again.
++
++use crate::io::{blocking::Blocking, AsyncRead, AsyncWrite, ReadBuf};
++use crate::process::kill::Kill;
++use crate::process::SpawnedChild;
++use crate::sync::oneshot;
++
++use std::fmt;
++use std::fs::File as StdFile;
++use std::future::Future;
++use std::io;
++use std::os::plan9::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
++use std::pin::Pin;
++use std::process::{
++    Child as StdChild, ChildStderr as StdChildStderr, ChildStdin as StdChildStdin,
++    ChildStdout as StdChildStdout, Command, ExitStatus, Stdio,
++};
++use std::sync::Arc;
++use std::task::{Context, Poll};
++
++/// Stack of a waiter thread: it only waits.
++const WAITER_STACK: usize = 256 * 1024;
++
++#[must_use = "futures do nothing unless polled"]
++pub(crate) struct Child {
++    pid: u32,
++    rx: oneshot::Receiver<io::Result<ExitStatus>>,
++    status: Option<ExitStatus>,
++    /// the wait failed (its error was given)
++    failed: bool,
++}
++
++impl fmt::Debug for Child {
++    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
++        fmt.debug_struct("Child")
++            .field("pid", &self.pid)
++            .field("status", &self.status)
++            .finish()
++    }
++}
++
++type Pipes = (
++    u32,
++    Option<StdChildStdin>,
++    Option<StdChildStdout>,
++    Option<StdChildStderr>,
++);
++
++/// The command borrowed by the waiter thread while `spawn` waits for it.
++struct CommandPtr(*mut Command);
++
++// SAFETY: `spawn` does not return before the thread is done with the command.
++unsafe impl Send for CommandPtr {}
++
++/// Command::spawn: the child is forked by its waiter thread.
++pub(crate) fn spawn(cmd: &mut Command) -> io::Result<SpawnedChild> {
++    let cmd = CommandPtr(cmd);
++    let (spawned_tx, spawned_rx) = std::sync::mpsc::sync_channel::<io::Result<Pipes>>(1);
++    let (tx, rx) = oneshot::channel();
++    std::thread::Builder::new()
++        .name("tokio-process".into())
++        .stack_size(WAITER_STACK)
++        .spawn(move || {
++            let cmd = cmd;
++            // SAFETY: CommandPtr
++            let r = unsafe { (*cmd.0).spawn() };
++            let mut child = match r {
++                Ok(c) => c,
++                Err(e) => {
++                    let _ = spawned_tx.send(Err(e));
++                    return;
++                }
++            };
++            let pipes = (
++                child.id(),
++                child.stdin.take(),
++                child.stdout.take(),
++                child.stderr.take(),
++            );
++            let _ = spawned_tx.send(Ok(pipes));
++            let _ = tx.send(child.wait());
++        })?;
++    let (pid, stdin, stdout, stderr) = spawned_rx
++        .recv()
++        .map_err(|_| io::Error::other("process waiter thread ended"))??;
++    Ok(SpawnedChild {
++        child: Child {
++            pid,
++            rx,
++            status: None,
++            failed: false,
++        },
++        stdin: stdin.map(stdio).transpose()?,
++        stdout: stdout.map(stdio).transpose()?,
++        stderr: stderr.map(stdio).transpose()?,
++    })
++}
++
++/// A child spawned by std (Command::spawn_with): waited for by a thread; its end goes to
++/// the proc that forked it, which must still be there.
++// 9front (Plan 9): only spawn_with (tokio_unstable) builds from a std Child
++#[cfg_attr(all(target_os = "plan9", not(tokio_unstable)), allow(dead_code))]
++pub(crate) fn build_child(mut child: StdChild) -> io::Result<SpawnedChild> {
++    let stdin = child.stdin.take().map(stdio).transpose()?;
++    let stdout = child.stdout.take().map(stdio).transpose()?;
++    let stderr = child.stderr.take().map(stdio).transpose()?;
++    let pid = child.id();
++    let (tx, rx) = oneshot::channel();
++    std::thread::Builder::new()
++        .name("tokio-process".into())
++        .stack_size(WAITER_STACK)
++        .spawn(move || {
++            let _ = tx.send(child.wait());
++        })?;
++    Ok(SpawnedChild {
++        child: Child {
++            pid,
++            rx,
++            status: None,
++            failed: false,
++        },
++        stdin,
++        stdout,
++        stderr,
++    })
++}
++
++impl Child {
++    pub(crate) fn id(&self) -> u32 {
++        self.pid
++    }
++
++    fn done(&mut self, r: Result<io::Result<ExitStatus>, ()>) -> io::Result<ExitStatus> {
++        match r {
++            Ok(Ok(s)) => {
++                self.status = Some(s);
++                Ok(s)
++            }
++            Ok(Err(e)) => {
++                self.failed = true;
++                Err(e)
++            }
++            Err(()) => {
++                self.failed = true;
++                Err(io::Error::other("process waiter thread ended"))
++            }
++        }
++    }
++
++    pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
++        if let Some(s) = self.status {
++            return Ok(Some(s));
++        }
++        if self.failed {
++            return Err(io::Error::other("waiting for the process failed"));
++        }
++        match self.rx.try_recv() {
++            Ok(r) => self.done(Ok(r)).map(Some),
++            Err(oneshot::error::TryRecvError::Empty) => Ok(None),
++            Err(oneshot::error::TryRecvError::Closed) => self.done(Err(())).map(Some),
++        }
++    }
++}
++
++impl Kill for Child {
++    /// proc(3)'s ctl "kill", as std's; a child that has ended is no error.
++    fn kill(&mut self) -> io::Result<()> {
++        if self.status.is_some() {
++            return Ok(());
++        }
++        match std::fs::OpenOptions::new()
++            .write(true)
++            .open(format!("/proc/{}/ctl", self.pid))
++            .and_then(|mut f| io::Write::write_all(&mut f, b"kill"))
++        {
++            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
++            _ => Ok(()),
++        }
++    }
++}
++
++impl Future for Child {
++    type Output = io::Result<ExitStatus>;
++
++    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
++        let inner = Pin::get_mut(self);
++        if let Some(s) = inner.status {
++            return Poll::Ready(Ok(s));
++        }
++        if inner.failed {
++            return Poll::Ready(Err(io::Error::other("waiting for the process failed")));
++        }
++        match Pin::new(&mut inner.rx).poll(cx) {
++            Poll::Ready(r) => Poll::Ready(inner.done(r.map_err(|_| ()))),
++            Poll::Pending => Poll::Pending,
++        }
++    }
++}
++
++#[derive(Debug)]
++struct ArcFile(Arc<StdFile>);
++
++impl io::Read for ArcFile {
++    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
++        loop {
++            match (&*self.0).read(bytes) {
++                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
++                r => return r,
++            }
++        }
++    }
++}
++
++impl io::Write for ArcFile {
++    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
++        loop {
++            match (&*self.0).write(bytes) {
++                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
++                r => return r,
++            }
++        }
++    }
++
++    fn flush(&mut self) -> io::Result<()> {
++        (&*self.0).flush()
++    }
++}
++
++#[derive(Debug)]
++pub(crate) struct ChildStdio {
++    // Used for accessing the raw fd, even if the io version is busy
++    raw: Arc<StdFile>,
++    // For doing I/O operations asynchronously
++    io: Blocking<ArcFile>,
++}
++
++pub(crate) type ChildStdin = ChildStdio;
++pub(crate) type ChildStdout = ChildStdio;
++pub(crate) type ChildStderr = ChildStdio;
++
++impl ChildStdio {
++    pub(super) fn into_stdio(self) -> io::Result<Stdio> {
++        convert_to_file(self).map(Stdio::from)
++    }
++}
++
++impl AsRawFd for ChildStdio {
++    fn as_raw_fd(&self) -> RawFd {
++        self.raw.as_raw_fd()
++    }
++}
++
++impl AsyncRead for ChildStdio {
++    fn poll_read(
++        mut self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &mut ReadBuf<'_>,
++    ) -> Poll<io::Result<()>> {
++        Pin::new(&mut self.io).poll_read(cx, buf)
++    }
++}
++
++impl AsyncWrite for ChildStdio {
++    fn poll_write(
++        mut self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &[u8],
++    ) -> Poll<io::Result<usize>> {
++        Pin::new(&mut self.io).poll_write(cx, buf)
++    }
++
++    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        Pin::new(&mut self.io).poll_flush(cx)
++    }
++
++    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        Pin::new(&mut self.io).poll_shutdown(cx)
++    }
++}
++
++pub(super) fn stdio<T>(io: T) -> io::Result<ChildStdio>
++where
++    T: IntoRawFd,
++{
++    let raw = Arc::new(unsafe { StdFile::from_raw_fd(io.into_raw_fd()) });
++    let io = ArcFile(raw.clone());
++    // SAFETY: the `Read` implementation of `io` does not
++    // read from the buffer it is borrowing and correctly
++    // reports the length of the data written into the buffer.
++    let io = unsafe { Blocking::new(io) };
++    Ok(ChildStdio { raw, io })
++}
++
++fn convert_to_file(child_stdio: ChildStdio) -> io::Result<StdFile> {
++    let ChildStdio { raw, io } = child_stdio;
++    drop(io); // Try to drop the Arc count here
++
++    Arc::try_unwrap(raw).or_else(|raw| raw.try_clone())
++}
+diff -ruN '--exclude=target' tokio-1.54.1/src/signal/ctrl_c.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/signal/ctrl_c.rs
+--- a/src/signal/ctrl_c.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/signal/ctrl_c.rs	2026-10-31 09:43:25.072111952 +0100
+@@ -2,6 +2,8 @@
+ use super::unix::{self as os_impl};
+ #[cfg(windows)]
+ use super::windows::{self as os_impl};
++#[cfg(target_os = "plan9")]
++use super::plan9::{self as os_impl};
+ 
+ use std::io;
+ 
+diff -ruN '--exclude=target' tokio-1.54.1/src/signal/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/signal/mod.rs
+--- a/src/signal/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/signal/mod.rs	2026-10-31 09:43:25.072045783 +0100
+@@ -55,6 +55,9 @@
+ 
+ pub mod unix;
+ pub mod windows;
++// 9front (Plan 9): notes, not signals
++#[cfg(target_os = "plan9")]
++pub mod plan9;
+ 
+ mod reusable_box;
+ use self::reusable_box::ReusableBoxFuture;
+diff -ruN '--exclude=target' tokio-1.54.1/src/signal/plan9.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/signal/plan9.rs
+--- a/src/signal/plan9.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/signal/plan9.rs	2026-10-31 09:43:41.648600878 +0100
+@@ -0,0 +1,85 @@
++//! 9front (Plan 9) specific types for signal handling: notes.
++//!
++//! Plan 9 has notes (notify(2)) where unix has signals: `interrupt` (the console's Delete,
++//! [`ctrl_c`](crate::signal::ctrl_c)), `hangup`, or any other a program is sent. Listening
++//! for a note catches it (`std::os::plan9::note::catch`): from then on the program no
++//! longer ends of it, for the rest of the program, as with unix signals here. A thread
++//! waits for each note caught and wakes its listeners; notes that come before a listener
++//! looks are coalesced, as signals.
++//!
++//! A caught note interrupts the system calls blocked in every proc of the program
++//! ("interrupted"): std's own calls and tokio's try again, a program's own blocking reads
++//! may see `ErrorKind::Interrupted`.
++
++#![cfg(target_os = "plan9")]
++#![cfg_attr(docsrs, doc(cfg(all(target_os = "plan9", feature = "signal"))))]
++
++use crate::signal::RxFuture;
++use crate::sync::watch;
++
++use std::io;
++use std::sync::{Arc, Mutex};
++use std::task::{Context, Poll};
++
++/// Stack of a thread that waits for a note.
++const WAITER_STACK: usize = 128 * 1024;
++
++/// The notes caught: one sender each, fed by its thread.
++static NOTES: Mutex<Vec<(String, Arc<watch::Sender<()>>)>> = Mutex::new(Vec::new());
++
++fn receiver(name: &str) -> io::Result<watch::Receiver<()>> {
++    let mut notes = NOTES.lock().unwrap_or_else(|e| e.into_inner());
++    if let Some((_, tx)) = notes.iter().find(|(n, _)| n == name) {
++        return Ok(tx.subscribe());
++    }
++    let note = std::os::plan9::note::catch(name)?;
++    let (tx, rx) = watch::channel(());
++    let tx = Arc::new(tx);
++    let sender = tx.clone();
++    std::thread::Builder::new()
++        .name("tokio-note".into())
++        .stack_size(WAITER_STACK)
++        .spawn(move || loop {
++            note.wait();
++            sender.send_replace(());
++        })?;
++    notes.push((name.to_string(), tx));
++    Ok(rx)
++}
++
++/// A listener for the note `name` (exactly, e.g. `"interrupt"` or `"hangup"`).
++///
++/// # Errors
++///
++/// For notes that cannot be caught: traps (`sys: ...`) and std's own (`alarm`,
++/// `rust: ...`); or when no more notes can be caught.
++pub fn note(name: &str) -> io::Result<Note> {
++    Ok(Note {
++        inner: RxFuture::new(receiver(name)?),
++    })
++}
++
++/// Receives the notes of one name, from [`note`].
++#[must_use = "streams do nothing unless polled"]
++#[derive(Debug)]
++pub struct Note {
++    inner: RxFuture,
++}
++
++impl Note {
++    /// Receives the next note. Always `Some` (`Option` as unix's `Signal::recv`).
++    pub async fn recv(&mut self) -> Option<()> {
++        self.inner.recv().await;
++        Some(())
++    }
++
++    /// Polls to receive the next note.
++    pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<()>> {
++        self.inner.poll_recv(cx).map(Some)
++    }
++}
++
++/// `interrupt`: the console's Delete.
++pub(super) fn ctrl_c() -> io::Result<RxFuture> {
++    Ok(RxFuture::new(receiver("interrupt")?))
 +}

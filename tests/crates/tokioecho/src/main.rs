@@ -1,5 +1,5 @@
 // tokio on 9front: a multi-thread runtime, an echo server and 20 clients at once, sleep,
-// timeout, a channel, tokio::fs.
+// timeout, a channel, tokio::fs; 30 clients of a slow listener (a full queue of calls).
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -52,6 +52,46 @@ async fn main() {
         t.await.unwrap();
     }
     println!("tokioecho: 20 clients echoed");
+
+    // a listener that takes no calls for a second (std's, blocking: no pump takes them),
+    // 30 connects meanwhile: the kernel's queue of calls (9front's Maxincall, 10) fills;
+    // the others must wait (in limbo), not be hung up after their connect was done
+    let slow = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let saddr = slow.local_addr().unwrap();
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        std::thread::sleep(Duration::from_secs(1));
+        for _ in 0..30 {
+            let (mut s, _) = slow.accept().unwrap();
+            std::thread::spawn(move || {
+                let mut b = [0u8; 1];
+                if s.read_exact(&mut b).is_ok() {
+                    let _ = s.write_all(&b);
+                }
+            });
+        }
+    });
+    let mut v = Vec::new();
+    for i in 0..30u8 {
+        v.push(tokio::spawn(async move {
+            let mut c = TcpStream::connect(saddr).await.unwrap();
+            c.write_all(&[i]).await.unwrap();
+            let mut b = [0u8; 1];
+            match tokio::time::timeout(Duration::from_secs(20), c.read(&mut b)).await {
+                Ok(Ok(1)) if b[0] == i => true,
+                r => {
+                    eprintln!("tokioecho: slow listener client {i}: {r:?}");
+                    false
+                }
+            }
+        }));
+    }
+    let mut ok = 0;
+    for t in v {
+        ok += t.await.unwrap() as usize;
+    }
+    assert!(ok == 30, "slow listener: {ok} of 30 echoed");
+    println!("tokioecho: 30 clients of a slow listener echoed");
 
     let t = Instant::now();
     tokio::time::sleep(Duration::from_millis(300)).await;

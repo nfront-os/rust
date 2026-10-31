@@ -442,15 +442,52 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
 - 9front-Fehler gefunden: ndb/cs schnitt Fehlermeldungen auf 63 Zeichen ab (`curerr[64]` in
   `rwrite`), bei langen Namen fehlte „name does not exist“; im gcc-Branch behoben.
 - `tests/async.sh` läuft alle vier (mio, tokio, http, tlsdns).
-- Einmal (386, nach mioecho im selben Gast) brach tokioecho mit „early eof“ ab; 105
-  Wiederholungen (allein und nach mioecho) liefen fehlerfrei. tokioecho meldet jetzt die Bytes
-  von Client und Server bis zum EOF, falls es wieder auftritt.
+- Sporadisch „early eof“ in tokioecho (20 Clients auf einmal): 9fronts Kernel legte bei voller
+  Anrufschlange (`Maxincall` 10) einen Anruf mit Reset auf, den der Client schon als
+  verbunden hatte (sein connect war fertig): er las sofort EOF („eof after 0“, mit
+  `Fsnewcall: incall queue full`). Im gcc-Branch behoben (9front-gccwt MEMORY.md): der Anruf
+  bleibt im Limbo wie bei BSD/Linux mit vollem Backlog. tokioecho prüft es gezielt: ein
+  std-Listener nimmt eine Sekunde lang nichts an, 30 Clients verbinden sich (alter Kernel: 20
+  lesen EOF).
+
+## tokio::process und tokio::signal (Teil 12, 2026-10-31)
+
+- **std** `os::plan9::note`: `catch(name)` fängt eine Note (genau dieser Name; nicht `sys: …`,
+  `alarm`, `rust: …`): das Programm stirbt nicht mehr daran, `Note::wait`/`take` zählen sie
+  (Semaphor, `semrelease` im Note-Handler: kein Lock, keine Allokation). Eine Note an die
+  Gruppe (Delete, `notepg`) erreicht jeden Proc des Programms; gezählt wird sie nur im Proc
+  von `main` (`proc::main_pid`), die anderen machen weiter. Der Kernel lässt den Absender
+  einer `notepg` aus (`postnotepg`: `p == up`): wer aus main an die eigene Gruppe postet,
+  erreicht main nicht. Dazu fd-Traits für `ChildStdin/Stdout/Stderr` (wie unix).
+- **Einschränkung**: eine gefangene Note unterbricht blockierte Systemaufrufe in allen Procs
+  („interrupted“, `ErrorKind::Interrupted`). Unix startet sie meist neu (SA_RESTART), Plan 9
+  nicht: std's eigene Stellen (Pumpe, Parken, wait, read_exact/read_to_end) und tokios
+  Kind-Pipes wiederholen, ein einzelnes `read` eines Programms kann den Fehler sehen.
+- **tokio::signal** (`signal/plan9.rs`): `ctrl_c()` = Note `interrupt`,
+  `tokio::signal::plan9::note(name)`; ein Thread pro Note wartet am Semaphor und weckt einen
+  watch-Kanal (wie tokios Registry unter unix; Noten vor dem Hinsehen fallen zusammen).
+- **tokio::process** (`process/plan9.rs`, nach windows.rs): ein Waiter-Thread pro Kind forkt
+  es selbst und wartet (std's `wait`): das Waitmsg geht an den forkenden Proc, der so lebt,
+  bis das Kind endet (auch ein fallengelassenes Kind wird abgeholt). Pipes blockierend im
+  Blocking-Pool (`Blocking`, Plan-9-Pipes sind nicht pollbar), Wiederholung bei
+  „interrupted“. kill über `/proc/<pid>/ctl`. Kosten: ein Proc pro laufendem Kind.
+- `tests/crates/tokioproc` in `tests/async.sh` (in eigener Note-Gruppe: `rfork s`, exec):
+  output, Exit-Status, 1 MiB durch cat, kill, kill_on_drop, try_wait, 10 gleichzeitig, nicht
+  gefunden, std-Zählung (einmal für die Gruppe), ctrl_c, eine Pipe über die Note hinweg,
+  plan9::note.
+- **Listener schließen synchron** (gefunden: `nb` „refused“ auf 386, seit Teil 10 rot): der
+  Leser einer Pumpe blockiert in `listen` und hält die Ankündigung; `drop` gab nur die Note
+  und kehrte zurück, ein gleich folgendes connect wurde noch angenommen und dann geschlossen
+  (EOF statt „refused“). Jetzt wartet das Schließen auf das Ende des Lesers; die Note geht alle
+  10 ms erneut (kommt sie, bevor er in `listen` ist, verpufft sie), höchstens 5 s. Der Port
+  ist frei, wenn close zurückkehrt, wie unter unix.
 
 ## Offen
 
 Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
 Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unter Last.
-- **async**: tokio::process und tokio::signal nicht portiert; TCP-keepalive in std fehlt.
+- **async**: TCP-keepalive in std fehlt; eine gefangene Note unterbricht blockierte Aufrufe
+  (Teil 12).
 - **9front-Kernel** (nicht vom Port, 9front-gccwt MEMORY.md): TCP-`connect` über Loopback hängt
   unter Last (`tools/csstress`, auch mit kencc-Kernel).
 - **arm64**: kein `aarch64-unknown-plan9` (Toolchain, Target, `proc.rs`-Assembler, LLVM, rustc

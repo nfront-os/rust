@@ -5,7 +5,8 @@
 # multi-thread runtime: 20 echo clients with half close, sleep, timeout, a channel, fs),
 # tests/crates/httptest (hyper's HTTP/1.1 and HTTP/2 server and clients, hyper-util's client,
 # reqwest), tests/crates/tlsdns (DNS through /net/cs, HTTPS with rustls here and to crates.io:
-# needs the network; the host's roots as /sys/lib/tls/ca.pem).
+# needs the network; the host's roots as /sys/lib/tls/ca.pem), tests/crates/tokioproc
+# (tokio::process, tokio::signal over notes; in a note group of its own: it posts to it).
 # Needs the 9front tree with TCP's half close (gcc branch: ctl "shutdown").
 # Prints "name ok" or "name FAIL ...". Log: logs/async-guest[.386].log.
 # objtype=386: i686-unknown-plan9 in a 9pc guest.
@@ -25,7 +26,7 @@ TV=$(echo $T | tr a-z- A-Z_)
 export CARGO_TARGET_${TV}_LINKER=$X-gcc
 mkdir -p "$TOP/logs"
 bins=()
-for c in mioecho tokioecho httptest tlsdns; do
+for c in mioecho tokioecho httptest tlsdns tokioproc; do
 	cargo build --release --target $T --manifest-path "$TOP/tests/crates/$c/Cargo.toml" \
 		--config "$TOP/cargo-plan9.toml" > "$TOP/logs/async-build-$c$L.log" 2>&1 ||
 		{ tail -20 "$TOP/logs/async-build-$c$L.log"; exit 1; }
@@ -33,6 +34,7 @@ for c in mioecho tokioecho httptest tlsdns; do
 done
 run() { echo "$2 >[2=1]; if(~ \$status '') echo $1 ok; if not echo $1 FAIL \$status"; }
 "$TOP/tests/guest.sh" -x /sys/lib/tls/ca.pem=/etc/ssl/certs/ca-certificates.crt -f "${bins[@]}" -- "ip/ipconfig loopback /dev/null 127.1" \
-	"$(run mio /tests/mioecho)" "$(run tokio /tests/tokioecho)" "$(run http /tests/httptest)" "$(run tlsdns /tests/tlsdns)" > "$TOP/logs/async-guest$L.log" 2>&1
-grep -E '^(mio|tokio|http|tlsdns) (ok|FAIL)' "$TOP/logs/async-guest$L.log" || { tail -20 "$TOP/logs/async-guest$L.log"; exit 1; }
-[ "$(grep -cE '^(mio|tokio|http|tlsdns) ok' "$TOP/logs/async-guest$L.log")" = 4 ]
+	"$(run mio /tests/mioecho)" "$(run tokio /tests/tokioecho)" "$(run http /tests/httptest)" "$(run tlsdns /tests/tlsdns)" \
+	"$(run proc '@{rfork s; exec /tests/tokioproc}')" > "$TOP/logs/async-guest$L.log" 2>&1
+grep -E '^(mio|tokio|http|tlsdns|proc) (ok|FAIL)' "$TOP/logs/async-guest$L.log" || { tail -20 "$TOP/logs/async-guest$L.log"; exit 1; }
+[ "$(grep -cE '^(mio|tokio|http|tlsdns|proc) ok' "$TOP/logs/async-guest$L.log")" = 5 ]
