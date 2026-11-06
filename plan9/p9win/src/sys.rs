@@ -27,6 +27,12 @@ unsafe extern "C" {
     fn p9pread(fd: c_int, buf: *mut c_void, n: c_long, off: i64) -> c_long;
     #[link_name = "__p9_rerrstr"]
     fn p9rerrstr(buf: *mut c_char, n: c_uint);
+    #[link_name = "__p9_pipe"]
+    fn p9pipe(fd: *mut c_int) -> c_int;
+    #[link_name = "__p9_create"]
+    fn p9create(file: *const c_char, mode: c_int, perm: c_uint) -> c_int;
+    #[link_name = "__p9_remove"]
+    fn p9remove(file: *const c_char) -> c_int;
 }
 
 /// the process's error string as an io::Error
@@ -89,4 +95,35 @@ impl Drop for Fd {
     fn drop(&mut self) {
         unsafe { p9close(self.0) };
     }
+}
+
+/// a pipe: its two ends (close on exec: through dup(3) again, pipe(2) has none)
+pub fn pipe() -> io::Result<(Fd, Fd)> {
+    let mut p = [0 as c_int; 2];
+    if unsafe { p9pipe(p.as_mut_ptr()) } < 0 {
+        return Err(err());
+    }
+    let (a, b) = (Fd(p[0]), Fd(p[1]));
+    Ok((Fd::open(&format!("#d/{}", a.0), ORDWR)?, Fd::open(&format!("#d/{}", b.0), ORDWR)?))
+}
+
+/// fd posted as /srv/name (srv(3)) for others to mount; the entry goes when
+/// the returned descriptor is closed (ORCLOSE): with the process, however it
+/// ends (a window's program gets a note when the window is deleted)
+pub fn post(name: &str, fd: &Fd) -> io::Result<Fd> {
+    const ORCLOSE: c_int = 64;
+    let path = format!("/srv/{name}");
+    let cs = CString::new(path).map_err(|_| io::Error::other("nul in name"))?;
+    let f = unsafe { p9create(cs.as_ptr(), OWRITE | ORCLOSE, 0o600) };
+    if f < 0 {
+        return Err(err());
+    }
+    let f = Fd(f);
+    f.write1(fd.0.to_string().as_bytes())?;
+    Ok(f)
+}
+
+pub fn remove(name: &str) -> io::Result<()> {
+    let cs = CString::new(name).map_err(|_| io::Error::other("nul in name"))?;
+    if unsafe { p9remove(cs.as_ptr()) } < 0 { Err(err()) } else { Ok(()) }
 }

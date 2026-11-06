@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# eframetest: eframe (egui's framework) on wgpu's Vulkan on 9front: the crates
+# with plan9 backends (winit, raw-window-handle, wgpu-*) from cargo-plan9.toml
+# (cargo --config), the rest from crates.io. 9front's tests/gpu/build-vktest.sh
+# builds it, tests/gpu/amdeframe.rc runs it on a GPU.
+[package]
+name = "eframetest"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts"] }
+log = "0.4"
+
+[workspace]
