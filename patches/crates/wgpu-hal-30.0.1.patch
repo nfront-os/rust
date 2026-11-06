@@ -1,0 +1,139 @@
+diff -ruN '--exclude=target' wgpu-hal-30.0.1/Cargo.toml /home/stefan/Devel/9front-rust/crates/wgpu-hal-30.0.1/Cargo.toml
+--- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
++++ b/Cargo.toml	2026-11-06 22:24:52.718500417 +0100
+@@ -325,10 +325,18 @@
+ ]
+ default-features = false
+ 
+-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.ash]
++[target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "plan9")))'.dependencies.ash]
+ version = "0.38"
+ optional = true
+ 
++# 9front: no dlopen (ash's "loaded"); the loader is the static libvulkan.a,
++# its vkGetInstanceProcAddr given to Entry::from_static_fn (src/vulkan/instance.rs)
++[target.'cfg(target_os = "plan9")'.dependencies.ash]
++version = "0.38"
++optional = true
++default-features = false
++features = ["std", "debug"]
++
+ [target.'cfg(not(target_arch = "wasm32"))'.dependencies.gpu-allocator]
+ version = "0.28"
+ features = ["hashbrown"]
+diff -ruN '--exclude=target' wgpu-hal-30.0.1/src/vulkan/instance.rs /home/stefan/Devel/9front-rust/crates/wgpu-hal-30.0.1/src/vulkan/instance.rs
+--- a/src/vulkan/instance.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/vulkan/instance.rs	2026-11-06 22:24:52.727723195 +0100
+@@ -11,6 +11,10 @@
+ use ash::{ext, khr, vk};
+ use parking_lot::RwLock;
+ 
++/// 9front: VK_PLAN9_surface (vulkan/vulkan_plan9.h)
++#[allow(dead_code)]
++const PLAN9_SURFACE_NAME: &CStr = c"VK_PLAN9_surface";
++
+ unsafe extern "system" fn debug_utils_messenger_callback(
+     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
+@@ -258,6 +262,10 @@
+             // VK_KHR_win32_surface
+             extensions.push(khr::win32_surface::NAME);
+         }
++        if cfg!(target_os = "plan9") {
++            // 9front: VK_PLAN9_surface (vulkan_plan9.h)
++            extensions.push(PLAN9_SURFACE_NAME);
++        }
+         if cfg!(target_os = "macos") {
+             // VK_EXT_metal_surface
+             extensions.push(ext::metal_surface::NAME);
+@@ -384,6 +392,52 @@
+         })
+     }
+ 
++    /// 9front: VK_PLAN9_surface, the process's window of wsys or rio (the screen
++    /// without either): the extension's function by name, its struct by hand
++    /// (ash has no VK_PLAN9_surface)
++    #[cfg(target_os = "plan9")]
++    fn create_surface_plan9(&self) -> Result<super::Surface, crate::InstanceError> {
++        #[repr(C)]
++        struct Plan9SurfaceCreateInfo {
++            s_type: vk::StructureType,
++            p_next: *const c_void,
++            flags: vk::Flags,
++            p_window_name: *const core::ffi::c_char, // null: /dev/winname, else the screen
++        }
++        type CreatePlan9Surface = unsafe extern "system" fn(
++            vk::Instance,
++            *const Plan9SurfaceCreateInfo,
++            *const vk::AllocationCallbacks<'_>,
++            *mut vk::SurfaceKHR,
++        ) -> vk::Result;
++
++        if !self.shared.extensions.contains(&PLAN9_SURFACE_NAME) {
++            return Err(crate::InstanceError::new(String::from(
++                "Vulkan driver does not support VK_PLAN9_surface",
++            )));
++        }
++        let instance = self.shared.raw.handle();
++        let f = unsafe {
++            self.shared
++                .entry
++                .get_instance_proc_addr(instance, c"vkCreatePlan9SurfacePLAN9".as_ptr())
++        }
++        .ok_or_else(|| crate::InstanceError::new(String::from("no vkCreatePlan9SurfacePLAN9")))?;
++        let create: CreatePlan9Surface = unsafe { core::mem::transmute(f) };
++        let info = Plan9SurfaceCreateInfo {
++            s_type: vk::StructureType::from_raw(1008999000),
++            p_next: core::ptr::null(),
++            flags: 0,
++            p_window_name: core::ptr::null(),
++        };
++        let mut surface = vk::SurfaceKHR::null();
++        let r = unsafe { create(instance, &info, core::ptr::null(), &mut surface) };
++        if r != vk::Result::SUCCESS {
++            return Err(crate::InstanceError::new(format!("vkCreatePlan9SurfacePLAN9: {r:?}")));
++        }
++        Ok(self.create_surface_from_vk_surface_khr(surface, None))
++    }
++
+     fn create_surface_from_xlib(
+         &self,
+         dpy: *mut vk::Display,
+@@ -573,6 +627,7 @@
+     ) -> Result<Self, crate::InstanceError> {
+         profiling::scope!("Init Vulkan Backend");
+ 
++        #[cfg(not(target_os = "plan9"))]
+         let entry = unsafe {
+             profiling::scope!("Load vk library");
+             // ohos support is already fixed on ash main, but it's unclear when
+@@ -586,6 +641,20 @@
+         .map_err(|err| {
+             crate::InstanceError::with_source(String::from("missing Vulkan entry points"), err)
+         })?;
++        // 9front: no dlopen; the program links the static libvulkan.a (Mesa's loader)
++        #[cfg(target_os = "plan9")]
++        let entry = unsafe {
++            // after wgpu-hal on the link line: a static library (C++: the
++            // program links -lstdc++, and APE's libdraw for the plan9 WSI)
++            #[link(name = "vulkan")]
++            unsafe extern "system" {
++                fn vkGetInstanceProcAddr(
++                    instance: vk::Instance,
++                    name: *const core::ffi::c_char,
++                ) -> vk::PFN_vkVoidFunction;
++            }
++            ash::Entry::from_static_fn(ash::StaticFn { get_instance_proc_addr: vkGetInstanceProcAddr })
++        };
+         let version = {
+             profiling::scope!("vkEnumerateInstanceVersion");
+             unsafe { entry.try_enumerate_instance_version() }
+@@ -906,6 +975,8 @@
+             (Rwh::Drm(handle), Rdh::Drm(display)) => {
+                 self.create_surface_from_drm_plane(display.fd, handle.plane)
+             }
++            #[cfg(target_os = "plan9")]
++            (Rwh::Plan9(_), _) => self.create_surface_plan9(), // 9front
+             (Rwh::AndroidNdk(handle), _) => {
+                 self.create_surface_android(handle.a_native_window.as_ptr())
+             }

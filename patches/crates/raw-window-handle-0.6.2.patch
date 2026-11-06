@@ -1,0 +1,123 @@
+diff -ruN '--exclude=target' raw-window-handle-0.6.2/src/lib.rs /home/stefan/Devel/9front-rust/crates/raw-window-handle-0.6.2/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-11-06 22:24:52.501609744 +0100
+@@ -38,6 +38,7 @@
+ mod borrowed;
+ mod haiku;
+ mod ohos;
++mod plan9; // 9front
+ mod redox;
+ mod uikit;
+ mod unix;
+@@ -49,6 +50,7 @@
+ pub use borrowed::{DisplayHandle, HasDisplayHandle, HasWindowHandle, WindowHandle};
+ pub use haiku::{HaikuDisplayHandle, HaikuWindowHandle};
+ pub use ohos::{OhosDisplayHandle, OhosNdkWindowHandle};
++pub use plan9::{Plan9DisplayHandle, Plan9WindowHandle}; // 9front
+ pub use redox::{OrbitalDisplayHandle, OrbitalWindowHandle};
+ pub use uikit::{UiKitDisplayHandle, UiKitWindowHandle};
+ pub use unix::{
+@@ -132,6 +134,11 @@
+     /// This variant is used by the Orbital Windowing System in the Redox
+     /// operating system.
+     Orbital(OrbitalWindowHandle),
++    /// A raw window handle for 9front (9front:).
++    ///
++    /// ## Availability Hints
++    /// This variant is used on 9front (`target_os = "plan9"`): rio, wsys.
++    Plan9(Plan9WindowHandle),
+     /// A raw window handle for the OpenHarmony OS NDK
+     ///
+     /// ## Availability Hints
+@@ -285,6 +292,11 @@
+     /// This variant is used by the Orbital Windowing System in the Redox
+     /// operating system.
+     Orbital(OrbitalDisplayHandle),
++    /// A raw display handle for 9front (9front:).
++    ///
++    /// ## Availability Hints
++    /// This variant is used on 9front (`target_os = "plan9"`): draw(3).
++    Plan9(Plan9DisplayHandle),
+     /// A raw display handle for OpenHarmony OS NDK
+     ///
+     /// ## Availability Hints
+@@ -403,6 +415,7 @@
+ from_impl!(RawDisplayHandle, UiKit, UiKitDisplayHandle);
+ from_impl!(RawDisplayHandle, AppKit, AppKitDisplayHandle);
+ from_impl!(RawDisplayHandle, Orbital, OrbitalDisplayHandle);
++from_impl!(RawDisplayHandle, Plan9, Plan9DisplayHandle); // 9front
+ from_impl!(RawDisplayHandle, Ohos, OhosDisplayHandle);
+ from_impl!(RawDisplayHandle, Xlib, XlibDisplayHandle);
+ from_impl!(RawDisplayHandle, Xcb, XcbDisplayHandle);
+@@ -417,6 +430,7 @@
+ from_impl!(RawWindowHandle, UiKit, UiKitWindowHandle);
+ from_impl!(RawWindowHandle, AppKit, AppKitWindowHandle);
+ from_impl!(RawWindowHandle, Orbital, OrbitalWindowHandle);
++from_impl!(RawWindowHandle, Plan9, Plan9WindowHandle); // 9front
+ from_impl!(RawWindowHandle, OhosNdk, OhosNdkWindowHandle);
+ from_impl!(RawWindowHandle, Xlib, XlibWindowHandle);
+ from_impl!(RawWindowHandle, Xcb, XcbWindowHandle);
+diff -ruN '--exclude=target' raw-window-handle-0.6.2/src/plan9.rs /home/stefan/Devel/9front-rust/crates/raw-window-handle-0.6.2/src/plan9.rs
+--- a/src/plan9.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/plan9.rs	2026-11-06 22:24:52.501913560 +0100
+@@ -0,0 +1,60 @@
++// 9front: handles for 9front's window systems (rio, wsys) and draw(3).
++// SPDX-License-Identifier: MIT OR Apache-2.0 OR Zlib (as the crate)
++
++use super::DisplayHandle;
++
++/// Raw display handle for 9front: draw(3) of the process's name space.
++///
++/// It names nothing: a process has one display, the draw(3) device its name
++/// space has.
++#[non_exhaustive]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub struct Plan9DisplayHandle {}
++
++impl Plan9DisplayHandle {
++    /// Create a new display handle.
++    ///
++    /// # Example
++    ///
++    /// ```
++    /// # use raw_window_handle::Plan9DisplayHandle;
++    /// let handle = Plan9DisplayHandle::new();
++    /// ```
++    pub fn new() -> Self {
++        Self {}
++    }
++}
++
++impl DisplayHandle<'static> {
++    /// Create a 9front display handle.
++    ///
++    /// As no data is borrowed by this handle, it is completely safe to create.
++    pub fn plan9() -> Self {
++        // SAFETY: No data is borrowed.
++        unsafe { Self::borrow_raw(Plan9DisplayHandle::new().into()) }
++    }
++}
++
++/// Raw window handle for 9front: the process's window.
++///
++/// A process of rio or wsys has one window, the one its name space's
++/// `/dev/winname` names (the screen without a window system); the handle
++/// stands for it. Vulkan's `VK_PLAN9_surface` and EGL's plan9 platform take
++/// the same window.
++#[non_exhaustive]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
++pub struct Plan9WindowHandle {}
++
++impl Plan9WindowHandle {
++    /// Create a new handle to the process's window.
++    ///
++    /// # Example
++    ///
++    /// ```
++    /// # use raw_window_handle::Plan9WindowHandle;
++    /// let handle = Plan9WindowHandle::new();
++    /// ```
++    pub fn new() -> Self {
++        Self {}
++    }
++}

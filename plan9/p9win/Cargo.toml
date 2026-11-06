@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+# p9win: the process's window of wsys or rio (the screen without either) for
+# Rust: draw(3), /dev/mouse, /dev/kbd, /dev/wctl, /dev/cursor, /dev/label,
+# /dev/snarf. Under winit's and softbuffer's plan9 backends
+# (crates/winit-*, crates/softbuffer-*: patches/crates). Only std: no crates.
+[package]
+name = "p9win"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
