@@ -44,9 +44,12 @@ snarf). Their changes are patches like the other crates' (`patches/crates`,
   plan9 (ash without dlopen, the static libvulkan.a's `vkGetInstanceProcAddr`,
   `VK_PLAN9_surface`); programs link `-l draw -l 9 -l fmt -l utf -l stdc++`.
 
-9front's `tests/winit` (winittest, eguitest: egui on the processor, eframetest:
-eframe on wgpu's Vulkan) uses them; its `scripts/rust/vendor.sh` vendors the
-rest. Not yet: glutin (egui's GL), several windows a process, IME.
+9front's tree keeps a copy with full sources in `sys/src/rust` (it builds
+offline and on 9front itself, where this repository is not): after a change
+here (`scripts/crates-patch.sh diff`), 9front's `scripts/rust/crates.sh`
+copies them over; its tests/static compares. 9front's `tests/winit`
+(winittest, eguitest: egui on the processor, eframetest: eframe on wgpu's
+Vulkan) uses that copy; its `scripts/rust/vendor.sh` vendors the rest. Not yet: glutin (egui's GL), several windows a process, IME.
 
 ## Build
 
