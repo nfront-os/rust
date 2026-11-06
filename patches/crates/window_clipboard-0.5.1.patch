@@ -1,0 +1,62 @@
+diff -ruN '--exclude=target' window_clipboard-0.5.1/src/lib.rs /home/stefan/Devel/9front-rust/crates/window_clipboard-0.5.1/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-11-06 22:42:24.682202196 +0100
+@@ -27,6 +27,11 @@
+ #[path = "platform/android.rs"]
+ mod platform;
+ 
++// 9front: /dev/snarf
++#[cfg(target_os = "plan9")]
++#[path = "platform/plan9.rs"]
++mod platform;
++
+ #[cfg(not(any(
+     all(
+         unix,
+@@ -41,7 +46,8 @@
+     target_os = "windows",
+     target_os = "macos",
+     target_os = "ios",
+-    target_os = "android"
++    target_os = "android",
++    target_os = "plan9" // 9front
+ )))]
+ #[path = "platform/dummy.rs"]
+ mod platform;
+diff -ruN '--exclude=target' window_clipboard-0.5.1/src/platform/plan9.rs /home/stefan/Devel/9front-rust/crates/window_clipboard-0.5.1/src/platform/plan9.rs
+--- a/src/platform/plan9.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/platform/plan9.rs	2026-11-06 22:42:24.663975201 +0100
+@@ -0,0 +1,33 @@
++//! 9front: the snarf buffer of rio and wsys (/dev/snarf), shared with the
++//! other windows, as the clipboard.
++use crate::ClipboardProvider;
++
++use raw_window_handle::HasDisplayHandle;
++use std::io::Write;
++
++struct Snarf;
++
++pub fn connect<W: HasDisplayHandle>(
++    _window: &W,
++) -> Result<Box<dyn ClipboardProvider>, Box<dyn std::error::Error>> {
++    Ok(Box::new(Snarf))
++}
++
++impl ClipboardProvider for Snarf {
++    fn read(&self) -> Result<String, Box<dyn std::error::Error>> {
++        Ok(String::from_utf8_lossy(&std::fs::read("/dev/snarf")?).into_owned())
++    }
++
++    fn write(
++        &mut self,
++        contents: String,
++    ) -> Result<(), Box<dyn std::error::Error>> {
++        // the window system's file: opened, not created
++        let mut f = std::fs::OpenOptions::new()
++            .write(true)
++            .truncate(true)
++            .open("/dev/snarf")?;
++        f.write_all(contents.as_bytes())?;
++        Ok(())
++    }
++}

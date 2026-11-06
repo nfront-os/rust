@@ -34,3 +34,5 @@ softbuffer = { package = "softbuffer", path = "/home/stefan/Devel/9front-rust/cr
 wgpu = { package = "wgpu", path = "/home/stefan/Devel/9front-rust/crates/wgpu-30.0.1" }
 wgpu-core = { package = "wgpu-core", path = "/home/stefan/Devel/9front-rust/crates/wgpu-core-30.0.1" }
 wgpu-hal = { package = "wgpu-hal", path = "/home/stefan/Devel/9front-rust/crates/wgpu-hal-30.0.1" }
+window_clipboard = { package = "window_clipboard", path = "/home/stefan/Devel/9front-rust/crates/window_clipboard-0.5.1" }
+iced_graphics = { package = "iced_graphics", path = "/home/stefan/Devel/9front-rust/crates/iced_graphics-0.14.0" }

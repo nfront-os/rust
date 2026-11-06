@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# icedtest: iced on 9front (tiny-skia on the processor, window_clipboard on
+# /dev/snarf, iced_graphics' Fira Sans as the default font): the crates with
+# plan9 backends from cargo-plan9.toml (cargo --config), the rest from
+# crates.io. 9front's tests/winit/run.sh builds and runs it in wsys.
+[package]
+name = "icedtest"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "thread-pool", "fira-sans"] }
+
+[workspace]
