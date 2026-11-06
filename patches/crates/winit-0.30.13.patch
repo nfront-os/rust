@@ -1,6 +1,6 @@
 diff -ruN '--exclude=target' winit-0.30.13/build.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/build.rs
 --- a/build.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/build.rs	2026-11-06 22:24:52.537481867 +0100
++++ b/build.rs	2026-11-06 22:28:23.715007093 +0100
 @@ -20,6 +20,8 @@
          x11_platform: { all(feature = "x11", free_unix, not(redox)) },
          wayland_platform: { all(feature = "wayland", free_unix, not(redox)) },
@@ -12,7 +12,7 @@ diff -ruN '--exclude=target' winit-0.30.13/build.rs /home/stefan/Devel/9front-ru
      // Winit defined cfgs.
 diff -ruN '--exclude=target' winit-0.30.13/Cargo.toml /home/stefan/Devel/9front-rust/crates/winit-0.30.13/Cargo.toml
 --- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-11-06 22:25:01.612957558 +0100
++++ b/Cargo.toml	2026-11-06 22:28:23.715131301 +0100
 @@ -551,3 +551,7 @@
      "Win32_UI_TextServices",
      "Win32_UI_WindowsAndMessaging",
@@ -23,7 +23,7 @@ diff -ruN '--exclude=target' winit-0.30.13/Cargo.toml /home/stefan/Devel/9front-
 +path = "../../plan9/p9win"
 diff -ruN '--exclude=target' winit-0.30.13/src/event.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/event.rs
 --- a/src/event.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/event.rs	2026-11-06 22:24:52.540139985 +0100
++++ b/src/event.rs	2026-11-06 22:28:23.715292529 +0100
 @@ -982,7 +982,7 @@
  }
  
@@ -35,7 +35,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/event.rs /home/stefan/Devel/9fron
      }
 diff -ruN '--exclude=target' winit-0.30.13/src/platform/mod.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform/mod.rs
 --- a/src/platform/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/platform/mod.rs	2026-11-06 22:24:52.540562590 +0100
++++ b/src/platform/mod.rs	2026-11-06 22:28:23.715446847 +0100
 @@ -27,6 +27,7 @@
      android_platform,
      x11_platform,
@@ -62,7 +62,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform/mod.rs /home/stefan/Deve
  pub mod modifier_supplement;
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/mod.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/mod.rs
 --- a/src/platform_impl/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/platform_impl/mod.rs	2026-11-06 22:24:52.546373579 +0100
++++ b/src/platform_impl/mod.rs	2026-11-06 22:28:23.715566466 +0100
 @@ -11,6 +11,8 @@
  mod macos;
  #[cfg(orbital_platform)]
@@ -90,8 +90,8 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/mod.rs /home/stefan
  compile_error!("The platform you're compiling for is not supported by winit");
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 --- a/src/platform_impl/plan9/event_loop.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/event_loop.rs	2026-11-06 22:24:52.549193655 +0100
-@@ -0,0 +1,785 @@
++++ b/src/platform_impl/plan9/event_loop.rs	2026-11-07 00:27:43.810412118 +0100
+@@ -0,0 +1,790 @@
 +//! 9front: the event loop of winit's plan9 backend. The readers of p9win
 +//! (threads) put what they read into a queue; the loop takes it out and makes
 +//! winit's events of it, and waits on the queue (a condition variable) for
@@ -597,6 +597,11 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +                            is_synthetic: false,
 +                        });
 +                    }
++                } else if keycode(c).1.is_some() {
++                    // a key's character without the key (written to /dev/kbdin:
++                    // vncs, a test): Enter, Tab, Backspace, ... pressed and let go
++                    key_event(h, c, true, Some(c), false);
++                    key_event(h, c, false, None, false);
 +                }
 +            },
 +            Input::Wctl(line) => {
@@ -879,7 +884,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +}
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/mod.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/mod.rs
 --- a/src/platform_impl/plan9/mod.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/mod.rs	2026-11-06 22:25:10.650078813 +0100
++++ b/src/platform_impl/plan9/mod.rs	2026-11-06 22:28:23.715872512 +0100
 @@ -0,0 +1,159 @@
 +//! 9front: winit's plan9 backend (target_os = "plan9"): the process's window
 +//! of wsys or rio, the screen without either, through p9win
@@ -1042,7 +1047,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/mod.rs /home/
 +}
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/window.rs
 --- a/src/platform_impl/plan9/window.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/window.rs	2026-11-06 22:24:52.549163426 +0100
++++ b/src/platform_impl/plan9/window.rs	2026-11-06 22:28:23.715942681 +0100
 @@ -0,0 +1,484 @@
 +//! 9front: the window of winit's plan9 backend, the process's window of wsys
 +//! or rio (the screen without either). Size, place and hiding go to
