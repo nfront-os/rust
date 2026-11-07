@@ -43,6 +43,9 @@ snarf). Their changes are patches like the other crates' (`patches/crates`,
 - `wgpu-30.0.1`, `wgpu-core-30.0.1`, `wgpu-hal-30.0.1`: the Vulkan backend on
   plan9 (ash without dlopen, the static libvulkan.a's `vkGetInstanceProcAddr`,
   `VK_PLAN9_surface`); programs link `-l draw -l 9 -l fmt -l utf -l stdc++`.
+- `wgpu-28.0.0`, `wgpu-core-28.0.1`, `wgpu-hal-28.0.1`: the same for wgpu 28
+  (Masonry's git revision, 9front's ui); wgpu-hal names what libvulkan.a needs
+  after it (`draw 9 fmt utf stdc++`): no `-l` flags in the program.
 - `eframe-0.37.0`: egui's framework with or without a GPU: the feature
   `software` (`src/native/painter.rs`) paints on the processor
   (hdrshot-egui-backend, egui_software_backend for egui 0.37) into softbuffer.
