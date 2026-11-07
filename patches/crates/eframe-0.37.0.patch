@@ -1,0 +1,897 @@
+diff -ruN '--exclude=target' eframe-0.37.0/Cargo.toml /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/Cargo.toml
+--- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
++++ b/Cargo.toml	2026-11-07 07:34:11.350439762 +0100
+@@ -90,6 +90,12 @@
+     "serde",
+ ]
+ system_fonts = ["dep:egui_system_font_provider"]
++# 9front: egui on the processor (egui_software_backend into softbuffer) when
++# wgpu finds no adapter, or EFRAME_RENDERER=software (src/native/painter.rs)
++software = [
++    "dep:softbuffer",
++    "dep:hdrshot-egui-backend",
++]
+ wayland = [
+     "egui-winit/wayland",
+     "egui-wgpu?/wayland",
+@@ -182,6 +188,15 @@
+ [dependencies.static_assertions]
+ version = "1.1"
+ 
++[dependencies.softbuffer]
++version = "0.4.8"
++optional = true
++default-features = false
++
++[dependencies.hdrshot-egui-backend]
++version = "0.2.0"
++optional = true
++
+ [dependencies.web-time]
+ version = "1.1"
+ 
+diff -ruN '--exclude=target' eframe-0.37.0/src/epi.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/epi.rs
+--- a/src/epi.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/epi.rs	2026-11-07 07:34:11.350794697 +0100
+@@ -10,7 +10,7 @@
+ use core::any::Any;
+ 
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub use crate::native::winit_integration::UserEvent;
+ 
+ #[cfg(not(target_arch = "wasm32"))]
+@@ -22,7 +22,7 @@
+ use static_assertions::assert_not_impl_any;
+ 
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub use winit::{event_loop::EventLoopBuilder, window::WindowAttributes};
+ 
+ /// Hook into the building of an event loop before it is run
+@@ -30,7 +30,7 @@
+ /// You can configure any platform specific details required on top of the default configuration
+ /// done by `EFrame`.
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub type EventLoopBuilderHook = Box<dyn FnOnce(&mut EventLoopBuilder<UserEvent>)>;
+ 
+ /// Hook into the building of a the native window.
+@@ -38,7 +38,7 @@
+ /// You can configure any platform specific details required on top of the default configuration
+ /// done by `eframe`.
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub type WindowBuilderHook = Box<dyn FnOnce(egui::ViewportBuilder) -> egui::ViewportBuilder>;
+ 
+ type DynError = Box<dyn core::error::Error + Send + Sync>;
+@@ -327,7 +327,7 @@
+     pub stencil_buffer: u8,
+ 
+     /// What rendering backend to use.
+-    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+     pub renderer: Renderer,
+ 
+     /// This controls what happens when you close the main eframe window.
+@@ -350,7 +350,7 @@
+     /// event loop before it is run.
+     ///
+     /// Note: A [`NativeOptions`] clone will not include any `event_loop_builder` hook.
+-    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+     pub event_loop_builder: Option<EventLoopBuilderHook>,
+ 
+     /// Hook into the building of a window.
+@@ -359,7 +359,7 @@
+     /// window appearance.
+     ///
+     /// Note: A [`NativeOptions`] clone will not include any `window_builder` hook.
+-    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+     pub window_builder: Option<WindowBuilderHook>,
+ 
+     /// On desktop: make the window position to be centered at initialization.
+@@ -439,10 +439,10 @@
+         Self {
+             viewport: self.viewport.clone(),
+ 
+-            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+             event_loop_builder: None, // Skip any builder callbacks if cloning
+ 
+-            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+             window_builder: None, // Skip any builder callbacks if cloning
+ 
+             #[cfg(feature = "glow")]
+@@ -471,15 +471,15 @@
+             depth_buffer: 0,
+             stencil_buffer: 0,
+ 
+-            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+             renderer: Renderer::default(),
+ 
+             run_and_return: true,
+ 
+-            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+             event_loop_builder: None,
+ 
+-            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+             window_builder: None,
+ 
+             centered: false,
+@@ -513,7 +513,7 @@
+ #[cfg(target_arch = "wasm32")]
+ pub struct WebOptions {
+     /// What rendering backend to use.
+-    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++    #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+     pub renderer: Renderer,
+ 
+     /// Sets the number of bits in the depth buffer.
+@@ -568,7 +568,7 @@
+ impl Default for WebOptions {
+     fn default() -> Self {
+         Self {
+-            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++            #[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+             renderer: Renderer::default(),
+ 
+             depth_buffer: 0,
+@@ -616,7 +616,7 @@
+ /// What rendering backend to use.
+ ///
+ /// You need to enable the "glow" and "wgpu" features to have a choice.
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+ #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+@@ -628,13 +628,20 @@
+     /// Use [`egui_wgpu`] renderer for [`wgpu`](https://github.com/gfx-rs/wgpu).
+     #[cfg(feature = "wgpu_no_default_features")]
+     Wgpu,
++
++    /// 9front: egui drawn on the processor (`egui_software_backend`) into
++    /// the window through softbuffer: no GPU needed. With `wgpu` as well,
++    /// [`Self::Wgpu`] takes it when wgpu finds no adapter.
++    #[cfg(feature = "software")]
++    Software,
+ }
+ 
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ impl Default for Renderer {
+     fn default() -> Self {
+         #[cfg(not(feature = "glow"))]
+         #[cfg(not(feature = "wgpu_no_default_features"))]
++        #[cfg(not(feature = "software"))]
+         compile_error!(
+             "eframe: you must enable at least one of the rendering backend features: 'glow' or 'wgpu'"
+         );
+@@ -647,6 +654,11 @@
+         #[cfg(feature = "wgpu_no_default_features")]
+         return Self::Wgpu;
+ 
++        #[cfg(not(feature = "glow"))]
++        #[cfg(not(feature = "wgpu_no_default_features"))]
++        #[cfg(feature = "software")]
++        return Self::Software;
++
+         // It's weird that the user has enabled both glow and wgpu,
+         // but let's pick the better of the two (wgpu):
+         #[cfg(feature = "glow")]
+@@ -655,7 +667,7 @@
+     }
+ }
+ 
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ impl core::fmt::Display for Renderer {
+     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+         match self {
+@@ -664,11 +676,14 @@
+ 
+             #[cfg(feature = "wgpu_no_default_features")]
+             Self::Wgpu => "wgpu".fmt(f),
++
++            #[cfg(feature = "software")]
++            Self::Software => "software".fmt(f),
+         }
+     }
+ }
+ 
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ impl core::str::FromStr for Renderer {
+     type Err = String;
+ 
+@@ -680,6 +695,9 @@
+             #[cfg(feature = "wgpu_no_default_features")]
+             "wgpu" => Ok(Self::Wgpu),
+ 
++            #[cfg(feature = "software")]
++            "software" => Ok(Self::Software),
++
+             _ => Err(format!(
+                 "eframe renderer {name:?} is not available. Make sure that the corresponding eframe feature is enabled."
+             )),
+@@ -845,7 +863,7 @@
+         cfg_select! {
+             all(
+                 target_os = "macos",
+-                any(feature = "glow", feature = "wgpu_no_default_features")
++                any(feature = "glow", feature = "wgpu_no_default_features", feature = "software")
+             ) => {
+                 if let Ok(window_handle) = &self.raw_window_handle {
+                     // Convert from egui points to native points:
+diff -ruN '--exclude=target' eframe-0.37.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-11-07 07:34:11.350962305 +0100
+@@ -187,22 +187,22 @@
+ // When compiling natively
+ 
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ mod native;
+ 
+ #[cfg(target_os = "macos")]
+ pub use native::macos::WindowChromeMetrics;
+ 
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub use native::run::EframeWinitApplication;
+ 
+ #[cfg(not(any(target_arch = "wasm32", target_os = "ios")))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub use native::run::EframePumpStatus;
+ 
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ #[cfg(feature = "persistence")]
+ pub use native::file_storage::storage_dir;
+ 
+@@ -226,7 +226,7 @@
+ #[cfg(all(
+     not(feature = "inspection"),
+     not(target_arch = "wasm32"),
+-    any(feature = "glow", feature = "wgpu_no_default_features")
++    any(feature = "glow", feature = "wgpu_no_default_features", feature = "software")
+ ))]
+ pub(crate) fn maybe_attach_inspection_plugin(_ctx: &egui::Context, _label: Option<String>) {
+     if let Ok(value) = std::env::var("EGUI_INSPECTION")
+@@ -283,7 +283,7 @@
+ /// # Errors
+ /// This function can fail if we fail to set up a graphics context.
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ #[allow(clippy::allow_attributes, clippy::needless_pass_by_value)]
+ pub fn run_native(
+     app_name: &str,
+@@ -301,7 +301,7 @@
+ /// # Errors
+ /// This function can fail if we fail to set up a graphics context.
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ #[allow(clippy::allow_attributes, clippy::needless_pass_by_value)]
+ pub fn run_native_ext(
+     app_name: &str,
+@@ -323,6 +323,13 @@
+             log::debug!("Using the wgpu renderer");
+             native::run::run_wgpu(app_name, native_options, egui_ctx, app_creator)
+         }
++
++        // 9front: wgpu's integration with the processor's painter
++        #[cfg(feature = "software")]
++        Renderer::Software => {
++            log::debug!("Using the software renderer");
++            native::run::run_wgpu(app_name, native_options, egui_ctx, app_creator)
++        }
+     }
+ }
+ 
+@@ -372,7 +379,7 @@
+ ///
+ /// See the `external_eventloop` example for a more complete example.
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub fn create_native<'a>(
+     app_name: &str,
+     mut native_options: NativeOptions,
+@@ -403,11 +410,22 @@
+                 event_loop,
+             ))
+         }
++
++        #[cfg(feature = "software")]
++        Renderer::Software => {
++            log::debug!("Using the software renderer");
++            EframeWinitApplication::new(native::run::create_wgpu(
++                app_name,
++                native_options,
++                app_creator,
++                event_loop,
++            ))
++        }
+     }
+ }
+ 
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ fn init_native(app_name: &str, native_options: &mut NativeOptions) -> Renderer {
+     #[cfg(not(feature = "__screenshot"))]
+     assert!(
+@@ -429,6 +447,8 @@
+         match native_options.renderer {
+             Renderer::Glow => "glow",
+             Renderer::Wgpu => "wgpu",
++            #[cfg(feature = "software")]
++            Renderer::Software => "software",
+         };
+         log::info!("Both the glow and wgpu renderers are available. Using {renderer}.");
+     }
+@@ -474,7 +494,7 @@
+ /// # Errors
+ /// This function can fail if we fail to set up a graphics context.
+ #[cfg(not(target_arch = "wasm32"))]
+-#[cfg(any(feature = "glow", feature = "wgpu_no_default_features"))]
++#[cfg(any(feature = "glow", feature = "wgpu_no_default_features", feature = "software"))]
+ pub fn run_ui_native(
+     app_name: &str,
+     native_options: NativeOptions,
+diff -ruN '--exclude=target' eframe-0.37.0/src/native/mod.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/mod.rs
+--- a/src/native/mod.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/native/mod.rs	2026-11-07 07:34:11.351261061 +0100
+@@ -15,5 +15,10 @@
+ #[cfg(feature = "glow")]
+ mod glow_integration;
+ 
+-#[cfg(feature = "wgpu_no_default_features")]
++// 9front: also with the feature "software" alone (its painter: painter.rs)
++#[cfg(any(feature = "wgpu_no_default_features", feature = "software"))]
+ mod wgpu_integration;
++
++// 9front: wgpu's painter, or the processor's (feature "software")
++#[cfg(any(feature = "wgpu_no_default_features", feature = "software"))]
++mod painter;
+diff -ruN '--exclude=target' eframe-0.37.0/src/native/painter.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/painter.rs
+--- a/src/native/painter.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/src/native/painter.rs	2026-11-07 07:37:38.547292670 +0100
+@@ -0,0 +1,334 @@
++//! 9front: the painter of [`super::wgpu_integration`]: wgpu's, or with the
++//! feature `software` egui's shapes drawn on the processor
++//! (`egui_software_backend`) into the window through softbuffer. The
++//! processor's painter is taken when wgpu finds no adapter for the first
++//! window (a machine without a GPU, or without a Vulkan driver for it), or
++//! when `EFRAME_RENDERER=software`; `EFRAME_RENDERER=wgpu` keeps wgpu (its
++//! error then ends the program, as without the feature).
++//!
++//! [`crate::Renderer::Software`] (or the feature `software` without `wgpu`)
++//! takes the processor's always.
++//!
++//! The application sees which one it got in
++//! [`crate::Frame::wgpu_render_state`]: `None` on the processor.
++
++use core::num::NonZeroU32;
++use std::sync::Arc;
++
++use egui::{ViewportId, ViewportIdSet};
++use winit::window::Window;
++
++pub enum Painter {
++    #[cfg(feature = "wgpu_no_default_features")]
++    Wgpu(egui_wgpu::winit::Painter),
++    #[cfg(feature = "software")]
++    Software(SoftwarePainter),
++}
++
++/// `EFRAME_RENDERER`: `Some(true)` software, `Some(false)` wgpu, `None` either
++#[cfg(all(feature = "software", feature = "wgpu_no_default_features"))]
++fn wanted_software() -> Option<bool> {
++    match std::env::var("EFRAME_RENDERER").as_deref() {
++        Ok("software") => Some(true),
++        Ok("wgpu") => Some(false),
++        _ => None,
++    }
++}
++
++impl Painter {
++    #[allow(clippy::allow_attributes, unused_variables)]
++    pub fn new(
++        egui_ctx: egui::Context,
++        native_options: &crate::NativeOptions,
++        event_loop: &winit::event_loop::ActiveEventLoop,
++    ) -> Self {
++        #[cfg(not(feature = "wgpu_no_default_features"))]
++        {
++            Self::Software(SoftwarePainter::new())
++        }
++        #[cfg(feature = "wgpu_no_default_features")]
++        {
++            #[cfg(feature = "software")]
++            if native_options.renderer == crate::Renderer::Software
++                || wanted_software() == Some(true)
++            {
++                log::info!("painting on the processor");
++                return Self::Software(SoftwarePainter::new());
++            }
++            // Inject the display handle into the wgpu setup so that wgpu can create
++            // surfaces on platforms that require it (e.g. GLES on Wayland).
++            let mut wgpu_options = native_options.wgpu_options.clone();
++            if let egui_wgpu::WgpuSetup::CreateNew(ref mut create_new) = wgpu_options.wgpu_setup
++                && create_new.display_handle.is_none()
++            {
++                create_new.display_handle = Some(Box::new(event_loop.owned_display_handle()));
++            }
++            Self::Wgpu(pollster::block_on(egui_wgpu::winit::Painter::new(
++                egui_ctx,
++                wgpu_options,
++                native_options.viewport.transparent.unwrap_or(false),
++                egui_wgpu::RendererOptions {
++                    msaa_samples: native_options.multisampling as _,
++                    depth_stencil_format: egui_wgpu::depth_format_from_bits(
++                        native_options.depth_buffer,
++                        native_options.stencil_buffer,
++                    ),
++                    dithering: native_options.dithering,
++                    ..Default::default()
++                },
++            )))
++        }
++    }
++
++    #[cfg(feature = "wgpu_no_default_features")]
++    pub fn render_state(&self) -> Option<egui_wgpu::RenderState> {
++        match self {
++            Self::Wgpu(p) => p.render_state(),
++            #[cfg(feature = "software")]
++            Self::Software(_) => None,
++        }
++    }
++
++    #[cfg(feature = "wgpu_no_default_features")]
++    pub fn set_surface_config(&mut self, surface_config: egui_wgpu::SurfaceConfig) {
++        match self {
++            Self::Wgpu(p) => p.set_surface_config(surface_config),
++            // no surface configuration on the processor
++            #[cfg(feature = "software")]
++            Self::Software(_) => {}
++        }
++    }
++
++    pub fn set_window(
++        &mut self,
++        viewport_id: ViewportId,
++        window: Option<Arc<Window>>,
++    ) -> crate::Result {
++        match self {
++            #[cfg(feature = "wgpu_no_default_features")]
++            Self::Wgpu(p) => {
++                #[cfg(feature = "software")]
++                if p.render_state().is_none()
++                    && window.is_some()
++                    && wanted_software() != Some(false)
++                {
++                    // the first window chooses the adapter: none, the processor
++                    if let Err(err) = pollster::block_on(p.set_window(viewport_id, window.clone()))
++                    {
++                        log::warn!("wgpu: {err}; painting on the processor");
++                        let mut sp = SoftwarePainter::new();
++                        sp.set_window(viewport_id, window);
++                        *self = Self::Software(sp);
++                    }
++                    return Ok(());
++                }
++                Ok(pollster::block_on(p.set_window(viewport_id, window))?)
++            }
++            #[cfg(feature = "software")]
++            Self::Software(p) => {
++                p.set_window(viewport_id, window);
++                Ok(())
++            }
++        }
++    }
++
++    pub fn max_texture_side(&self) -> Option<usize> {
++        match self {
++            #[cfg(feature = "wgpu_no_default_features")]
++            Self::Wgpu(p) => p.max_texture_side(),
++            #[cfg(feature = "software")]
++            Self::Software(_) => None,
++        }
++    }
++
++    #[allow(clippy::allow_attributes, unused_variables)]
++    pub fn on_window_resize_state_change(&mut self, viewport_id: ViewportId, resizing: bool) {
++        match self {
++            #[cfg(feature = "wgpu_no_default_features")]
++            Self::Wgpu(p) => p.on_window_resize_state_change(viewport_id, resizing),
++            #[cfg(feature = "software")]
++            Self::Software(_) => {}
++        }
++    }
++
++    #[allow(clippy::allow_attributes, unused_variables)]
++    pub fn on_window_resized(
++        &mut self,
++        viewport_id: ViewportId,
++        width_in_pixels: NonZeroU32,
++        height_in_pixels: NonZeroU32,
++    ) {
++        match self {
++            #[cfg(feature = "wgpu_no_default_features")]
++            Self::Wgpu(p) => p.on_window_resized(viewport_id, width_in_pixels, height_in_pixels),
++            // the buffer takes the window's size at each frame
++            #[cfg(feature = "software")]
++            Self::Software(_) => {}
++        }
++    }
++
++    #[expect(clippy::too_many_arguments)]
++    pub fn paint_and_update_textures(
++        &mut self,
++        viewport_id: ViewportId,
++        pixels_per_point: f32,
++        clear_color: [f32; 4],
++        clipped_primitives: &[egui::ClippedPrimitive],
++        textures_delta: &mut egui::TexturesDelta,
++        capture_data: Vec<egui::ScreenshotCallback>,
++        window: &Arc<Window>,
++    ) -> f32 {
++        match self {
++            #[cfg(feature = "wgpu_no_default_features")]
++            Self::Wgpu(p) => p.paint_and_update_textures(
++                viewport_id,
++                pixels_per_point,
++                clear_color,
++                clipped_primitives,
++                textures_delta,
++                capture_data,
++                window,
++            ),
++            #[cfg(feature = "software")]
++            Self::Software(p) => p.paint_and_update_textures(
++                viewport_id,
++                pixels_per_point,
++                clear_color,
++                clipped_primitives,
++                textures_delta,
++                capture_data,
++                window,
++            ),
++        }
++    }
++
++    pub fn gc_viewports(&mut self, active_viewports: &ViewportIdSet) {
++        match self {
++            #[cfg(feature = "wgpu_no_default_features")]
++            Self::Wgpu(p) => p.gc_viewports(active_viewports),
++            #[cfg(feature = "software")]
++            Self::Software(p) => p.surfaces.retain(|id, _| active_viewports.contains(id)),
++        }
++    }
++
++    pub fn destroy(&mut self) {
++        match self {
++            #[cfg(feature = "wgpu_no_default_features")]
++            Self::Wgpu(p) => p.destroy(),
++            #[cfg(feature = "software")]
++            Self::Software(p) => p.surfaces.clear(),
++        }
++    }
++}
++
++/// egui on the processor: one renderer (its textures are all viewports'),
++/// a softbuffer surface per window
++#[cfg(feature = "software")]
++pub struct SoftwarePainter {
++    render: egui_software_backend::EguiSoftwareRender,
++    surfaces: egui::ViewportIdMap<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
++}
++
++#[cfg(feature = "software")]
++impl SoftwarePainter {
++    fn new() -> Self {
++        Self {
++            // softbuffer's pixels are 0x00RRGGBB: the bytes B G R X
++            render: egui_software_backend::EguiSoftwareRender::new(
++                egui_software_backend::ColorFieldOrder::Bgra,
++            ),
++            surfaces: Default::default(),
++        }
++    }
++
++    fn set_window(&mut self, viewport_id: ViewportId, window: Option<Arc<Window>>) {
++        let Some(window) = window else {
++            // as wgpu's painter: no window, no surfaces
++            self.surfaces.clear();
++            return;
++        };
++        if self.surfaces.contains_key(&viewport_id) {
++            return;
++        }
++        let surface = softbuffer::Context::new(Arc::clone(&window))
++            .and_then(|cx| softbuffer::Surface::new(&cx, window));
++        match surface {
++            Ok(s) => {
++                self.surfaces.insert(viewport_id, s);
++            }
++            Err(err) => log::error!("softbuffer: viewport {viewport_id:?}: {err}"),
++        }
++    }
++
++    #[expect(clippy::too_many_arguments)]
++    fn paint_and_update_textures(
++        &mut self,
++        viewport_id: ViewportId,
++        pixels_per_point: f32,
++        clear_color: [f32; 4],
++        clipped_primitives: &[egui::ClippedPrimitive],
++        textures_delta: &mut egui::TexturesDelta,
++        capture_data: Vec<egui::ScreenshotCallback>,
++        window: &Arc<Window>,
++    ) -> f32 {
++        profiling::function_scope!();
++        let Some(surface) = self.surfaces.get_mut(&viewport_id) else {
++            return 0.0;
++        };
++        let size = window.inner_size();
++        let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
++        else {
++            return 0.0; // minimized: the deltas wait for a frame, as with wgpu
++        };
++        if let Err(err) = surface.resize(w, h) {
++            log::error!("softbuffer: resize {w}x{h}: {err}");
++            return 0.0;
++        }
++        let mut buf = match surface.buffer_mut() {
++            Ok(b) => b,
++            Err(err) => {
++                log::error!("softbuffer: {err}");
++                return 0.0;
++            }
++        };
++        // the clear colour (gamma, premultiplied), no alpha in the window
++        let c = |f: f32| (f.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
++        let bg = c(clear_color[0]) << 16 | c(clear_color[1]) << 8 | c(clear_color[2]);
++        buf.fill(bg);
++        let px: &mut [u32] = &mut buf;
++        // SAFETY: u32 and [u8; 4] have the same size, [u8; 4] the weaker alignment
++        #[expect(unsafe_code)]
++        let px4 = unsafe {
++            core::slice::from_raw_parts_mut(px.as_mut_ptr().cast::<[u8; 4]>(), px.len())
++        };
++        self.render.render(
++            &mut egui_software_backend::BufferMutRef::new(
++                px4,
++                w.get() as usize,
++                h.get() as usize,
++            ),
++            clipped_primitives,
++            textures_delta,
++            pixels_per_point,
++        );
++        textures_delta.clear();
++        if !capture_data.is_empty() {
++            let pixels = buf
++                .iter()
++                .map(|&p| egui::Color32::from_rgb((p >> 16) as u8, (p >> 8) as u8, p as u8))
++                .collect();
++            let image = Arc::new(egui::ColorImage::new(
++                [w.get() as usize, h.get() as usize],
++                pixels,
++            ));
++            for cb in capture_data {
++                cb.complete(Arc::clone(&image));
++            }
++        }
++        let start = web_time::Instant::now();
++        if let Err(err) = buf.present() {
++            log::error!("softbuffer: present: {err}");
++        }
++        start.elapsed().as_secs_f32()
++    }
++}
+diff -ruN '--exclude=target' eframe-0.37.0/src/native/run.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/run.rs
+--- a/src/native/run.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/native/run.rs	2026-11-07 07:34:11.351177432 +0100
+@@ -494,7 +494,7 @@
+ 
+ // ----------------------------------------------------------------------------
+ 
+-#[cfg(feature = "wgpu_no_default_features")]
++#[cfg(any(feature = "wgpu_no_default_features", feature = "software"))]
+ pub fn run_wgpu(
+     app_name: &str,
+     mut native_options: epi::NativeOptions,
+@@ -518,7 +518,7 @@
+     run_and_exit(event_loop, wgpu_eframe)
+ }
+ 
+-#[cfg(feature = "wgpu_no_default_features")]
++#[cfg(any(feature = "wgpu_no_default_features", feature = "software"))]
+ pub fn create_wgpu<'a>(
+     app_name: &str,
+     native_options: epi::NativeOptions,
+diff -ruN '--exclude=target' eframe-0.37.0/src/native/wgpu_integration.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/wgpu_integration.rs
+--- a/src/native/wgpu_integration.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/native/wgpu_integration.rs	2026-11-07 07:34:50.438924749 +0100
+@@ -86,7 +86,7 @@
+ pub struct SharedState {
+     egui_ctx: egui::Context,
+     viewports: Viewports,
+-    painter: egui_wgpu::winit::Painter,
++    painter: super::painter::Painter,
+     viewport_from_window: HashMap<WindowId, ViewportId>,
+     focused_viewport: Option<ViewportId>,
+     resized_viewport: Option<ViewportId>,
+@@ -208,11 +208,11 @@
+     }
+ 
+     #[cfg(target_os = "android")]
+-    fn drop_window(&mut self) -> Result<(), egui_wgpu::WgpuError> {
++    fn drop_window(&mut self) -> Result {
+         if let Some(running) = &mut self.running {
+             let mut shared = running.shared.borrow_mut();
+             shared.viewports.remove(&ViewportId::ROOT);
+-            pollster::block_on(shared.painter.set_window(ViewportId::ROOT, None))?;
++            shared.painter.set_window(ViewportId::ROOT, None)?;
+         }
+         Ok(())
+     }
+@@ -226,28 +226,9 @@
+         builder: ViewportBuilder,
+     ) -> crate::Result<&mut WgpuWinitRunning<'app>> {
+         profiling::function_scope!();
+-        // Inject the display handle into the wgpu setup so that wgpu can create
+-        // surfaces on platforms that require it (e.g. GLES on Wayland).
+-        let mut wgpu_options = self.native_options.wgpu_options.clone();
+-        if let egui_wgpu::WgpuSetup::CreateNew(ref mut create_new) = wgpu_options.wgpu_setup
+-            && create_new.display_handle.is_none()
+-        {
+-            create_new.display_handle = Some(Box::new(event_loop.owned_display_handle()));
+-        }
+-        let mut painter = pollster::block_on(egui_wgpu::winit::Painter::new(
+-            egui_ctx.clone(),
+-            wgpu_options,
+-            self.native_options.viewport.transparent.unwrap_or(false),
+-            egui_wgpu::RendererOptions {
+-                msaa_samples: self.native_options.multisampling as _,
+-                depth_stencil_format: egui_wgpu::depth_format_from_bits(
+-                    self.native_options.depth_buffer,
+-                    self.native_options.stencil_buffer,
+-                ),
+-                dithering: self.native_options.dithering,
+-                ..Default::default()
+-            },
+-        ));
++        // 9front: wgpu's painter or the processor's (painter.rs)
++        let mut painter =
++            super::painter::Painter::new(egui_ctx.clone(), &self.native_options, event_loop);
+ 
+         let mut viewport_info = ViewportInfo::default();
+         egui_winit::update_viewport_info(&mut viewport_info, &egui_ctx, &window, true);
+@@ -269,9 +250,10 @@
+ 
+         {
+             profiling::scope!("set_window");
+-            pollster::block_on(painter.set_window(ViewportId::ROOT, Some(Arc::clone(&window))))?;
++            painter.set_window(ViewportId::ROOT, Some(Arc::clone(&window)))?;
+         }
+ 
++        #[cfg(feature = "wgpu_no_default_features")]
+         let wgpu_render_state = painter.render_state();
+ 
+         let integration = EpiIntegration::new(
+@@ -284,6 +266,7 @@
+             None,
+             #[cfg(feature = "glow")]
+             None,
++            #[cfg(feature = "wgpu_no_default_features")]
+             wgpu_render_state.clone(),
+         );
+ 
+@@ -335,6 +318,7 @@
+             gl: None,
+             #[cfg(feature = "glow")]
+             get_proc_address: None,
++            #[cfg(feature = "wgpu_no_default_features")]
+             wgpu_render_state,
+             window: Some(Arc::clone(&window)),
+             raw_display_handle: window.display_handle().map(|h| h.as_raw()),
+@@ -691,7 +675,7 @@
+ 
+             {
+                 profiling::scope!("set_window");
+-                pollster::block_on(painter.set_window(viewport_id, Some(Arc::clone(window))))?;
++                painter.set_window(viewport_id, Some(Arc::clone(window)))?;
+             }
+ 
+             let Some(egui_winit) = egui_winit.as_mut() else {
+@@ -797,6 +781,7 @@
+         remove_viewports_not_in(viewports, painter, viewport_from_window, &viewport_output);
+ 
+         // Synchronization between the integration layer and the painter layer
++        #[cfg(feature = "wgpu_no_default_features")]
+         if let Some(surface_config) = integration.frame.wgpu_surface_config {
+             painter.set_surface_config(surface_config);
+         }
+@@ -1115,7 +1100,7 @@
+         event_loop: &ActiveEventLoop,
+         egui_ctx: &egui::Context,
+         windows_id: &mut HashMap<WindowId, ViewportId>,
+-        painter: &mut egui_wgpu::winit::Painter,
++        painter: &mut super::painter::Painter,
+         clipboard_shortcuts: bool,
+     ) {
+         if self.window.is_some() {
+@@ -1133,7 +1118,7 @@
+                 let window = Arc::new(window);
+ 
+                 if let Err(err) =
+-                    pollster::block_on(painter.set_window(viewport_id, Some(Arc::clone(&window))))
++                    painter.set_window(viewport_id, Some(Arc::clone(&window)))
+                 {
+                     log::error!("on set_window: viewport_id {viewport_id:?} {err}");
+                 }
+@@ -1296,7 +1281,7 @@
+ 
+     {
+         profiling::scope!("set_window");
+-        if let Err(err) = pollster::block_on(painter.set_window(ids.this, Some(Arc::clone(window))))
++        if let Err(err) = painter.set_window(ids.this, Some(Arc::clone(window)))
+         {
+             log::error!(
+                 "when rendering viewport_id={:?}, set_window Error {err}",
+@@ -1329,7 +1314,7 @@
+ 
+ pub(crate) fn remove_viewports_not_in(
+     viewports: &mut Viewports,
+-    painter: &mut egui_wgpu::winit::Painter,
++    painter: &mut super::painter::Painter,
+     viewport_from_window: &mut HashMap<WindowId, ViewportId>,
+     viewport_output: &OrderedViewportIdMap<ViewportOutput>,
+ ) {
+@@ -1346,7 +1331,7 @@
+     egui_ctx: &egui::Context,
+     viewport_output: &OrderedViewportIdMap<ViewportOutput>,
+     viewports: &mut Viewports,
+-    painter: &mut egui_wgpu::winit::Painter,
++    painter: &mut super::painter::Painter,
+     viewport_from_window: &mut HashMap<WindowId, ViewportId>,
+ ) {
+     for (
+@@ -1396,7 +1381,7 @@
+     class: ViewportClass,
+     mut builder: ViewportBuilder,
+     viewport_ui_cb: Option<Arc<dyn Fn(&mut egui::Ui) + Send + Sync>>,
+-    painter: &mut egui_wgpu::winit::Painter,
++    painter: &mut super::painter::Painter,
+ ) -> &'a mut Viewport {
+     use std::collections::btree_map::Entry;
+ 
+@@ -1445,7 +1430,7 @@
+                 );
+                 viewport.window = None;
+                 viewport.egui_winit = None;
+-                if let Err(err) = pollster::block_on(painter.set_window(viewport.ids.this, None)) {
++                if let Err(err) = painter.set_window(viewport.ids.this, None) {
+                     log::error!(
+                         "when rendering viewport_id={:?}, set_window Error {err}",
+                         viewport.ids.this

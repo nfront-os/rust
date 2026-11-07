@@ -43,13 +43,21 @@ snarf). Their changes are patches like the other crates' (`patches/crates`,
 - `wgpu-30.0.1`, `wgpu-core-30.0.1`, `wgpu-hal-30.0.1`: the Vulkan backend on
   plan9 (ash without dlopen, the static libvulkan.a's `vkGetInstanceProcAddr`,
   `VK_PLAN9_surface`); programs link `-l draw -l 9 -l fmt -l utf -l stdc++`.
+- `eframe-0.37.0`: egui's framework with or without a GPU: the feature
+  `software` (`src/native/painter.rs`) paints on the processor
+  (hdrshot-egui-backend, egui_software_backend for egui 0.37) into softbuffer.
+  With `wgpu` too, wgpu's painter is tried first and the processor takes over
+  when wgpu finds no adapter (`EFRAME_RENDERER=software|wgpu`,
+  `Renderer::Software` choose); without `wgpu` no Vulkan is linked (`-l draw
+  -l 9 -l fmt -l utf`: for arm64, which has no libvulkan.a). `tests/crates/eframetest`
+  (`-r wgpu|software`: the painter it must get; `--no-default-features`: without wgpu).
 
 9front's tree keeps a copy with full sources in `sys/src/rust` (it builds
 offline and on 9front itself, where this repository is not): after a change
 here (`scripts/crates-patch.sh diff`), 9front's `scripts/rust/crates.sh`
 copies them over; its tests/static compares. 9front's `tests/winit`
-(winittest, eguitest: egui on the processor, eframetest: eframe on wgpu's
-Vulkan) uses that copy; its `scripts/rust/vendor.sh` vendors the rest. Not yet: glutin (egui's GL), several windows a process, IME.
+(winittest, eguitest: egui on the processor; eframetest: eframe falling back to
+the processor without a GPU, also without wgpu) uses that copy; its `scripts/rust/vendor.sh` vendors the rest. Not yet: glutin (egui's GL), several windows a process, IME.
 
 ## Build
 
