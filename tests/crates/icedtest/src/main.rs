@@ -29,6 +29,7 @@ use common::Report;
 
 #[derive(Debug, Clone)]
 enum Msg {
+    Trace(String), // ICEDTRACE: the mouse's and the window's events as iced has them
     Frame,
     Press,
     Input(String),
@@ -130,6 +131,7 @@ impl App {
                 }
                 self.stage = 3;
             },
+            Msg::Trace(t) => println!("trace {t}"),
             Msg::Press => {
                 self.clicks += 1;
                 println!("event clicked {}", self.clicks);
@@ -154,7 +156,21 @@ impl App {
     }
 
     fn subscription(&self) -> Subscription<Msg> {
-        iced::window::frames().map(|_| Msg::Frame)
+        let frames = iced::window::frames().map(|_| Msg::Frame);
+        if std::env::var_os("ICEDTRACE").is_none() {
+            return frames;
+        }
+        Subscription::batch([frames, iced::event::listen_with(trace)])
+    }
+}
+
+/// ICEDTRACE: the mouse's and the window's events (but redraws), whether a widget took them
+fn trace(ev: iced::Event, status: iced::event::Status, _: iced::window::Id) -> Option<Msg> {
+    match &ev {
+        iced::Event::Mouse(m) => Some(Msg::Trace(format!("{m:?} {status:?}"))),
+        iced::Event::Window(iced::window::Event::RedrawRequested(_)) => None,
+        iced::Event::Window(w) => Some(Msg::Trace(format!("{w:?}"))),
+        _ => None,
     }
 }
 
