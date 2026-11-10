@@ -16,6 +16,8 @@ amd64)	TG=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=cargo-guest.log ;;
 	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
 arm64)	TG=aarch64-unknown-plan9 X=aarch64-pc-plan9 LOG=cargo-guest.arm64.log
 	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
+riscv64)	TG=riscv64gc-unknown-plan9 X=riscv64-unknown-plan9 LOG=cargo-guest.riscv64.log
+	export PLAN9=${PLAN9:-$TOP/../9front-riscv} ;;
 *)	echo "cargo.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype

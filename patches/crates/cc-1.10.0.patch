@@ -1,0 +1,12 @@
+diff -ruN '--exclude=target' cc-1.10.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/cc-1.10.0/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-11-10 15:12:32.740853718 +0100
+@@ -3289,6 +3289,8 @@
+                         if matches!(
+                             target.os,
+                             "linux" | "freebsd" | "netbsd" | "managarm" | "redox"
++                                // 9front: rv64gc, lp64d (its gcc, rustc's riscv64gc-unknown-plan9)
++                                | "plan9"
+                         ) {
+                             cmd.push_args(&["-march=rv64gc", "-mabi=lp64d"]);
+                         } else {

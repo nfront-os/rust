@@ -40,3 +40,6 @@ eframe = { package = "eframe", path = "/home/stefan/Devel/9front-rust/crates/efr
 wgpu-28_0_0 = { package = "wgpu", path = "/home/stefan/Devel/9front-rust/crates/wgpu-28.0.0" }
 wgpu-core-28_0_1 = { package = "wgpu-core", path = "/home/stefan/Devel/9front-rust/crates/wgpu-core-28.0.1" }
 wgpu-hal-28_0_1 = { package = "wgpu-hal", path = "/home/stefan/Devel/9front-rust/crates/wgpu-hal-28.0.1" }
+cc = { package = "cc", path = "/home/stefan/Devel/9front-rust/crates/cc-1.4.3" }
+cc-1_10_0 = { package = "cc", path = "/home/stefan/Devel/9front-rust/crates/cc-1.10.0" }
+cc-1_11_1 = { package = "cc", path = "/home/stefan/Devel/9front-rust/crates/cc-1.11.1" }

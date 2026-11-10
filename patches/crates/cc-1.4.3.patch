@@ -1,0 +1,12 @@
+diff -ruN '--exclude=target' cc-1.4.3/src/lib.rs /home/stefan/Devel/9front-rust/crates/cc-1.4.3/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-11-10 15:12:32.739885046 +0100
+@@ -2619,7 +2619,7 @@
+                     // get the 32i/32imac/32imc/64gc/64imac/... part
+                     let arch = &target.full_arch[5..];
+                     if arch.starts_with("64") {
+-                        if matches!(target.os, "linux" | "freebsd" | "netbsd" | "managarm") {
++                        if matches!(target.os, "linux" | "freebsd" | "netbsd" | "managarm" | "plan9") {
+                             cmd.args.push(("-march=rv64gc").into());
+                             cmd.args.push("-mabi=lp64d".into());
+                         } else {

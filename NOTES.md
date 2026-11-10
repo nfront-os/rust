@@ -546,8 +546,17 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   in s1/s2 wie APEs pthread.c). Stack-Slots passen (USTKTOP 256 GiB, Sv39).
 - `bootstrap.toml`: die Cross-gccs liegen jetzt in `9front-gcc/build/` (nicht mehr
   `build-gcc/`); `tests/run.sh` braucht dafür `GCC9BUILD=…/9front-gcc/build`.
-- **Ergebnis**: `objtype=riscv64 GCC9BUILD=… tests/run.sh` 13/13 (QEMU virt, TCG, 4 Harts).
-  Nicht gelaufen: async.sh, cargo.sh, std-Testsuite; kein rustc/cargo nativ (LLVM für riscv64).
+- **cc-Crate** (1.4.3 cargo, 1.10.0 async-Tests, 1.11.1 GUI-Tests; `patches/crates/cc-*.patch`):
+  für riscv64 gibt es `-march=rv64gc -mabi=lp64d` nur unter Linux, FreeBSD, NetBSD (…), sonst
+  `-mabi=lp64` (Soft-Float): ring's C-Objekte linkten nicht („can't link soft-float modules with
+  double-float modules“). `plan9` in die Liste.
+- Falle: nach dem Neubau des stage-1-rustc (gleiche Versionszeile) nimmt cargo die alten
+  Host-Artefakte (Build-Skripte) weiter: E0460/E0463. `target/release` der Testcrates und
+  `tests/out/cargo-port/release` löschen.
+- **Ergebnis** (QEMU virt, TCG, 4 Harts, `GCC9BUILD=…/9front-gcc/build`): run.sh 13/13,
+  async.sh 5/5 (mio, tokio, http, tlsdns, proc), cargo.sh 5/5 (cargo von Linux aus gebaut,
+  `objtype=riscv64 scripts/build-cargo.sh`). Nicht gelaufen: std-Testsuite; kein rustc nativ
+  (LLVM für riscv64).
 
 ## Offen
 
