@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Tue, 10 Nov 2026 22:58:14 +0100
+Subject: [PATCH 24/25] plan9: submodules: cargo and llvm-project on their
+ plan9 branches (9front: cargo's process, paths, Cargo.toml search, file
+ locks; LLVM against APE)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/llvm-project | 2 +-
+ src/tools/cargo  | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/llvm-project b/src/llvm-project
+index 0a5579eb649..b7b26aed91e 160000
+--- a/src/llvm-project
++++ b/src/llvm-project
+@@ -1 +1 @@
+-Subproject commit 0a5579eb649d3634a9c30ac873300cc2944fa070
++Subproject commit b7b26aed91ecf08da53e17aec81548f304bd578d
+diff --git a/src/tools/cargo b/src/tools/cargo
+index c07ac2c4d12..1c91c522607 160000
+--- a/src/tools/cargo
++++ b/src/tools/cargo
+@@ -1 +1 @@
+-Subproject commit c07ac2c4d12237effc4b94f4543769b421790045
++Subproject commit 1c91c522607a9db162d711e2f18e6787be265452

@@ -1,0 +1,163 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 16:28:37 +0100
+Subject: [PATCH] 9front (Plan 9): LLVM against APE: Signals (no handlers),
+ Path (getMainExecutable, statvfs), raw_ostream (no st_blksize), CAS (no
+ errc::protocol_error), LoopStrengthReduce (uintptr_t is not size_t)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ llvm/lib/CAS/MappedFileRegionArena.cpp            | 15 +++++++++++----
+ llvm/lib/Support/Unix/Path.inc                    | 12 +++++++++---
+ llvm/lib/Support/Unix/Signals.inc                 |  8 ++++++++
+ llvm/lib/Support/raw_ostream.cpp                  |  3 ++-
+ llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp |  4 ++--
+ 5 files changed, 32 insertions(+), 10 deletions(-)
+
+diff --git a/llvm/lib/CAS/MappedFileRegionArena.cpp b/llvm/lib/CAS/MappedFileRegionArena.cpp
+index 697461f5d5c4..2e8892a43c56 100644
+--- a/llvm/lib/CAS/MappedFileRegionArena.cpp
++++ b/llvm/lib/CAS/MappedFileRegionArena.cpp
+@@ -71,6 +71,13 @@
+ #endif
+ 
+ using namespace llvm;
++
++// 9front (Plan 9): APE has no EPROTO, so its libstdc++ no errc::protocol_error.
++#if defined(__plan9__)
++static constexpr std::errc ProtocolError = std::errc::io_error;
++#else
++static constexpr std::errc ProtocolError = std::errc::protocol_error;
++#endif
+ using namespace llvm::cas;
+ using namespace llvm::cas::ondisk;
+ 
+@@ -350,14 +357,14 @@ void MappedFileRegionArena::destroyImpl() {
+ 
+ Error MappedFileRegionArena::initializeHeader(uint64_t HeaderOffset) {
+   if (capacity() >= static_cast<uint64_t>(INT64_MAX))
+-    return createStringError(make_error_code(std::errc::protocol_error),
++    return createStringError(make_error_code(ProtocolError),
+                              "arena capacity does not fit in int64_t");
+   uint64_t HeaderEndOffset = HeaderOffset + sizeof(decltype(*H));
+   if (HeaderEndOffset > capacity())
+-    return createStringError(make_error_code(std::errc::protocol_error),
++    return createStringError(make_error_code(ProtocolError),
+                              "arena header extends past capacity");
+   if (!isAligned(Align::Of<decltype(*H)>(), HeaderOffset))
+-    return createStringError(make_error_code(std::errc::protocol_error),
++    return createStringError(make_error_code(ProtocolError),
+                              "arena header offset is not aligned");
+   H = reinterpret_cast<decltype(H)>(data() + HeaderOffset);
+ 
+@@ -365,7 +372,7 @@ Error MappedFileRegionArena::initializeHeader(uint64_t HeaderOffset) {
+   if (!H->BumpPtr.compare_exchange_strong(ExistingValue, HeaderEndOffset))
+     if (ExistingValue < HeaderEndOffset)
+       return createStringError(
+-          make_error_code(std::errc::protocol_error),
++          make_error_code(ProtocolError),
+           "arena bump pointer is corrupt: 0x" +
+               utohexstr(ExistingValue, /*LowerCase=*/true));
+   if (Logger)
+diff --git a/llvm/lib/Support/Unix/Path.inc b/llvm/lib/Support/Unix/Path.inc
+index d01967330e12..f69022f91cc7 100644
+--- a/llvm/lib/Support/Unix/Path.inc
++++ b/llvm/lib/Support/Unix/Path.inc
+@@ -111,7 +111,7 @@ typedef uint_t uint;
+ #endif
+ 
+ #if defined(__NetBSD__) || defined(__DragonFly__) || defined(__GNU__) ||       \
+-    defined(__MVS__)
++    defined(__MVS__) || defined(__plan9__)
+ #define STATVFS_F_FLAG(vfs) (vfs).f_flag
+ #else
+ #define STATVFS_F_FLAG(vfs) (vfs).f_flags
+@@ -326,6 +326,12 @@ std::string getMainExecutable(const char *argv0, void *MainAddr) {
+       return std::string(real_path);
+     break; // Found entry, but realpath failed.
+   }
++#elif defined(__plan9__)
++  // 9front (Plan 9) keeps no name of the program a proc runs: argv[0].
++  (void)MainAddr;
++  char exe_path[PATH_MAX];
++  if (argv0 && realpath(argv0, exe_path))
++    return exe_path;
+ #elif defined(HAVE_DLOPEN)
+   // Use dladdr to get executable path if available.
+   Dl_info DLInfo;
+@@ -565,9 +571,9 @@ static bool is_local_impl(struct STATVFS &Vfs) {
+ 
+   // vmount entry not found; "remote" is the conservative answer.
+   return false;
+-#elif defined(__MVS__)
++#elif defined(__MVS__) || defined(__plan9__)
+   // The file system can have an arbitrary structure on z/OS; must go with the
+-  // conservative answer.
++  // conservative answer. 9front (Plan 9): a name space of file servers.
+   return false;
+ #else
+   return !!(STATVFS_F_FLAG(Vfs) & MNT_LOCAL);
+diff --git a/llvm/lib/Support/Unix/Signals.inc b/llvm/lib/Support/Unix/Signals.inc
+index 772fa37b004a..156f101cf9c8 100644
+--- a/llvm/lib/Support/Unix/Signals.inc
++++ b/llvm/lib/Support/Unix/Signals.inc
+@@ -320,6 +320,13 @@ static void CreateSigAltStack() {
+ static void CreateSigAltStack() {}
+ #endif
+ 
++#if defined(__plan9__)
++// 9front (Plan 9): APE's signals are its emulation of notes, which the program (Rust's std)
++// takes itself: no handlers.
++static void RegisterHandlers(bool NeedsPOSIXUtilitySignalHandling = false) {
++  (void)NeedsPOSIXUtilitySignalHandling;
++}
++#else
+ static void RegisterHandlers(
+     bool NeedsPOSIXUtilitySignalHandling = false) { // Not signal-safe.
+   // The mutex prevents other threads from registering handlers while we're
+@@ -387,6 +394,7 @@ static void RegisterHandlers(
+   for (auto S : InfoSigs)
+     registerHandler(S, SignalKind::IsInfo);
+ }
++#endif
+ 
+ void sys::unregisterHandlers() {
+   // Restore all of the signal handlers to how they were before we showed up.
+diff --git a/llvm/lib/Support/raw_ostream.cpp b/llvm/lib/Support/raw_ostream.cpp
+index 341dd561092d..d3b86ffdaac7 100644
+--- a/llvm/lib/Support/raw_ostream.cpp
++++ b/llvm/lib/Support/raw_ostream.cpp
+@@ -822,9 +822,10 @@ size_t raw_fd_ostream::preferred_buffer_size() const {
+   if (IsWindowsConsole)
+     return 0;
+   return raw_ostream::preferred_buffer_size();
+-#elif defined(__MVS__)
++#elif defined(__MVS__) || defined(__plan9__)
+   // The buffer size on z/OS is defined with macro BUFSIZ, which can be
+   // retrieved by invoking function raw_ostream::preferred_buffer_size().
++  // 9front (Plan 9): its stat has no block size.
+   return raw_ostream::preferred_buffer_size();
+ #else
+   assert(FD >= 0 && "File not yet open!");
+diff --git a/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp b/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp
+index 7a02f2f63e18..97e9fdd15112 100644
+--- a/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp
++++ b/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp
+@@ -417,7 +417,7 @@ RegUseTracker::countRegister(const SCEV *Reg, size_t LUIdx) {
+   RegSortData &RSD = Pair.first->second;
+   if (Pair.second)
+     RegSequence.push_back(Reg);
+-  RSD.UsedByIndices.resize(std::max(RSD.UsedByIndices.size(), LUIdx + 1));
++  RSD.UsedByIndices.resize(std::max<size_t>(RSD.UsedByIndices.size(), LUIdx + 1));
+   RSD.UsedByIndices.set(LUIdx);
+ }
+ 
+@@ -441,7 +441,7 @@ RegUseTracker::swapAndDropUse(size_t LUIdx, size_t LastLUIdx) {
+     if (LUIdx < UsedByIndices.size())
+       UsedByIndices[LUIdx] =
+         LastLUIdx < UsedByIndices.size() ? UsedByIndices[LastLUIdx] : false;
+-    UsedByIndices.resize(std::min(UsedByIndices.size(), LastLUIdx));
++    UsedByIndices.resize(std::min<size_t>(UsedByIndices.size(), LastLUIdx));
+   }
+ }
+ 

@@ -1,0 +1,1496 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 22:44:42 +0100
+Subject: [PATCH 16/25] plan9: std's test suite in the guest
+
+std's unit tests link a second std: the assembly as naked functions (each copy its own),
+the C exports (malloc, __plan9_*) only outside cfg(test), PRIVTOP and MAIN_PID one instance
+(sgx's export_name + available_externally); current() takes ThreadData only of its own pid
+(a proc's slots are its parent's copy).
+
+Fixes: Instant signed (timespec's range); OpenOptions checked as unix; set_times sets the
+mtime, the atime left (stat(5)); remove_dir_all as rm -r (the directory read whole first);
+ExitStatus::code as APE's wait; a NUL in the program name InvalidInput; dial and announce
+of numeric addresses through /net/<proto>/clone, not /net/cs (it stopped answering under
+load); "malformed address", "bad ip address" InvalidInput; read_buf of sockets uninitialized.
+
+Tests: what Plan 9 has not (symbolic and hard links, setting the atime, TCP half close,
+reading back keepalive and ttl, linger, nonblocking, peek, Nagle, NUL in env values) ignored
+with a reason; the path separator, $path, rwlock's limit, env and the shell for plan9.
+remote-test-server builds for plan9. amd64: 343 passed, 2 failed (TCP under load), 39 ignored;
+the integration tests pass.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/fs/tests.rs                 |  54 ++-
+ library/std/src/net/tcp/tests.rs            |  11 +-
+ library/std/src/net/udp/tests.rs            |   4 +
+ library/std/src/os/plan9/fs.rs              |   5 +
+ library/std/src/process/tests.rs            |  14 +-
+ library/std/src/sys/alloc/plan9.rs          |  18 +-
+ library/std/src/sys/fs/plan9.rs             |  77 +++-
+ library/std/src/sys/net/connection/plan9.rs |  97 +++--
+ library/std/src/sys/pal/plan9/mod.rs        |   8 +-
+ library/std/src/sys/pal/plan9/proc.rs       | 371 +++++++++++---------
+ library/std/src/sys/process/plan9.rs        |  18 +-
+ library/std/src/sys/time/plan9.rs           |  25 +-
+ library/std/tests/path.rs                   |   2 +
+ library/std/tests/process_spawning.rs       |   7 +-
+ library/std/tests/sync/rwlock.rs            |   1 +
+ src/tools/remote-test-server/src/main.rs    |  16 +-
+ 16 files changed, 483 insertions(+), 245 deletions(-)
+
+diff --git a/library/std/src/fs/tests.rs b/library/std/src/fs/tests.rs
+index c06154ecf0b..edddd1ad2b7 100644
+--- a/library/std/src/fs/tests.rs
++++ b/library/std/src/fs/tests.rs
+@@ -14,6 +14,15 @@
+ use crate::os::unix::fs::symlink as junction_point;
+ #[cfg(windows)]
+ use crate::os::windows::fs::{OpenOptionsExt, junction_point, symlink_dir, symlink_file};
++// 9front (Plan 9) has no symbolic links: got_symlink_permission is false, their tests skip
++#[cfg(target_os = "plan9")]
++fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(_original: P, _link: Q) -> io::Result<()> {
++    Err(io::Error::from(ErrorKind::Unsupported))
++}
++#[cfg(target_os = "plan9")]
++use symlink_file as symlink_dir;
++#[cfg(target_os = "plan9")]
++use symlink_file as junction_point;
+ use crate::path::{Path, PathBuf};
+ use crate::sync::Arc;
+ use crate::test_helpers::{TempDir, tmpdir};
+@@ -47,6 +56,9 @@ macro_rules! error_contains {
+ // tests most of the time, but at least we do if the user has the right
+ // permissions.
+ pub(crate) fn got_symlink_permission(tmpdir: &TempDir) -> bool {
++    if cfg!(target_os = "plan9") {
++        return false;
++    }
+     if cfg!(not(windows)) || env::var_os("CI").is_some() {
+         return true;
+     }
+@@ -633,7 +645,15 @@ fn set_get_permissions_nofollows() {
+     let result = fs::set_permissions_nofollow(&filename, permission_bits);
+ 
+     cfg_select! {
+-        any(windows, unix, target_os = "uefi", target_os = "solid_asp3", target_os = "motor") => {
++        any(
++            windows,
++            unix,
++            target_os = "uefi",
++            target_os = "solid_asp3",
++            target_os = "motor",
++            // no links: the file's own permissions
++            target_os = "plan9",
++        ) => {
+             assert_eq!(result.unwrap(), ());
+             let metadata0 = check!(fs::metadata(&filename));
+             assert!(metadata0.permissions().readonly());
+@@ -657,6 +677,7 @@ fn set_get_permissions_nofollows() {
+ 
+ /// Test set_permissions_nofollow on a symlink.
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn set_get_permissions_nofollows_symlink() {
+     let tmpdir = tmpdir();
+     let filename = tmpdir.join("set_get_unix_permissions_file");
+@@ -1459,6 +1480,8 @@ fn recursive_mkdir_empty() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn recursive_rmdir() {
+     let tmpdir = tmpdir();
+     let d1 = tmpdir.join("d1");
+@@ -1480,6 +1503,7 @@ fn recursive_rmdir() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn recursive_rmdir_of_dir_symlink() {
+     // test we do not recursively delete a symlink but only dirs.
+     let tmpdir = tmpdir();
+@@ -1507,6 +1531,7 @@ fn recursive_rmdir_of_file_fails() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn recursive_rmdir_of_file_symlink() {
+     let tmpdir = tmpdir();
+     if !got_symlink_permission(&tmpdir) {
+@@ -1733,6 +1758,7 @@ fn copy_file_returns_metadata_len() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn copy_file_follows_dst_symlink() {
+     let tmp = tmpdir();
+     if !got_symlink_permission(&tmp) {
+@@ -1755,6 +1781,7 @@ fn copy_file_follows_dst_symlink() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn symlinks_work() {
+     let tmpdir = tmpdir();
+     if !got_symlink_permission(&tmpdir) {
+@@ -1774,6 +1801,7 @@ fn symlinks_work() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn symlink_noexist() {
+     // Symlinks can point to things that don't exist
+     let tmpdir = tmpdir();
+@@ -1788,6 +1816,7 @@ fn symlink_noexist() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn read_link() {
+     let tmpdir = tmpdir();
+     if cfg!(windows) {
+@@ -1830,6 +1859,7 @@ fn readlink_not_symlink() {
+ 
+ #[test]
+ #[cfg_attr(target_os = "android", ignore = "Android SELinux rules prevent creating hardlinks")]
++#[cfg_attr(target_os = "plan9", ignore = "no hard links")]
+ fn links_work() {
+     let tmpdir = tmpdir();
+     let input = tmpdir.join("in.txt");
+@@ -2191,6 +2221,7 @@ fn canonicalize_works_simple() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn realpath_works() {
+     let tmpdir = tmpdir();
+     if !got_symlink_permission(&tmpdir) {
+@@ -2218,6 +2249,7 @@ fn realpath_works() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn realpath_works_tricky() {
+     let tmpdir = tmpdir();
+     if !got_symlink_permission(&tmpdir) {
+@@ -2295,6 +2327,8 @@ fn file_open_not_found() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn create_dir_all_with_junctions() {
+     let tmpdir = tmpdir();
+     let target = tmpdir.join("target");
+@@ -2388,6 +2422,7 @@ fn metadata_access_times() {
+ 
+ /// Test creating hard links to symlinks.
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ #[cfg_attr(target_os = "android", ignore = "Android SELinux rules prevent creating hardlinks")]
+ fn symlink_hard_link() {
+     let tmpdir = tmpdir();
+@@ -2594,6 +2629,7 @@ fn test_read_dir_infinite_loop() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "a directory is renamed only within its directory (a wstat of the name)")]
+ fn rename_directory() {
+     let tmpdir = tmpdir();
+     let old_path = tmpdir.join("foo/bar/baz");
+@@ -2611,6 +2647,7 @@ fn rename_directory() {
+ 
+ #[test]
+ #[cfg_attr(target_os = "l4re", ignore = "futimens")]
++#[cfg_attr(target_os = "plan9", ignore = "a wstat sets no access time (stat(5))")]
+ fn test_file_times() {
+     #[cfg(target_vendor = "apple")]
+     use crate::os::darwin::fs::FileTimesExt;
+@@ -2812,6 +2849,7 @@ fn test_rename_directory_to_non_empty_directory() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn test_rename_symlink() {
+     let tmpdir = tmpdir();
+     if !got_symlink_permission(&tmpdir) {
+@@ -2904,6 +2942,7 @@ fn test_rename_noreplace_directory() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn test_rename_noreplace_symlink() {
+     let tmpdir = tmpdir();
+     if !got_symlink_permission(&tmpdir) {
+@@ -2973,6 +3012,7 @@ fn test_open_options_invalid_combinations() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "a wstat sets no access time (stat(5))")]
+ fn test_fs_set_times() {
+     #[cfg(target_vendor = "apple")]
+     use crate::os::darwin::fs::FileTimesExt;
+@@ -3024,6 +3064,7 @@ fn test_fs_set_times() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "a wstat sets no access time (stat(5))")]
+ fn test_fs_set_times_on_dir() {
+     #[cfg(target_vendor = "apple")]
+     use crate::os::darwin::fs::FileTimesExt;
+@@ -3075,6 +3116,7 @@ fn test_fs_set_times_on_dir() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn test_fs_set_times_follows_symlink() {
+     #[cfg(target_vendor = "apple")]
+     use crate::os::darwin::fs::FileTimesExt;
+@@ -3091,10 +3133,12 @@ fn test_fs_set_times_follows_symlink() {
+     File::create(&target).unwrap();
+ 
+     // Create a symlink to the target
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "plan9"))]
+     let link = tmp.join("link");
+     #[cfg(unix)]
+     crate::os::unix::fs::symlink(&target, &link).unwrap();
++    #[cfg(target_os = "plan9")]
++    symlink_file(&target, &link).unwrap();
+ 
+     #[cfg(windows)]
+     let link = tmp.join("link.txt");
+@@ -3176,6 +3220,7 @@ fn test_fs_set_times_follows_symlink() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn test_fs_set_times_nofollow() {
+     #[cfg(target_vendor = "apple")]
+     use crate::os::darwin::fs::FileTimesExt;
+@@ -3191,10 +3236,12 @@ fn test_fs_set_times_nofollow() {
+     let target = tmp.join("target");
+     File::create(&target).unwrap();
+ 
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "plan9"))]
+     let link = tmp.join("link");
+     #[cfg(unix)]
+     crate::os::unix::fs::symlink(&target, &link).unwrap();
++    #[cfg(target_os = "plan9")]
++    symlink_file(&target, &link).unwrap();
+ 
+     #[cfg(windows)]
+     let link = tmp.join("link.txt");
+@@ -3413,6 +3460,7 @@ fn test_dir_open_dir() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no symbolic links")]
+ fn test_dir_metadata() {
+     let tmpdir = tmpdir();
+     let dir = check!(Dir::open(tmpdir.path()));
+diff --git a/library/std/src/net/tcp/tests.rs b/library/std/src/net/tcp/tests.rs
+index 9aeddff8649..d26d21c7f84 100644
+--- a/library/std/src/net/tcp/tests.rs
++++ b/library/std/src/net/tcp/tests.rs
+@@ -502,6 +502,7 @@ fn tcp_clone_two_write() {
+ // FIXME: https://github.com/fortanix/rust-sgx/issues/110
+ #[cfg_attr(target_env = "sgx", ignore)]
+ #[cfg_attr(target_os = "wasi", ignore)] // no threads
++#[cfg_attr(target_os = "plan9", ignore = "its TCP closes both ways (no half close)")]
+ fn shutdown_smoke() {
+     each_ip(&mut |a| {
+         let addr = t!(a.local_addr());
+@@ -568,6 +569,8 @@ fn close_readwrite_smoke() {
+ // On windows, shutdown will not wake up blocking I/O operations.
+ #[cfg_attr(windows, ignore)]
+ #[cfg_attr(target_os = "wasi", ignore)] // no threads
++// 9front (Plan 9): its TCP has only hangup, both ways; shutdown(Read) wakes no reader
++#[cfg_attr(target_os = "plan9", ignore)]
+ fn close_read_wakes_up() {
+     each_ip(&mut |listener| {
+         let addr = t!(listener.local_addr());
+@@ -694,7 +697,7 @@ fn render_socket_addr<'a>(addr: &'a SocketAddr) -> impl fmt::Debug + 'a {
+         addr.to_string()
+     }
+ 
+-    #[cfg(any(unix, target_os = "wasi"))]
++    #[cfg(any(unix, target_os = "wasi", target_os = "plan9"))]
+     use crate::os::fd::AsRawFd;
+     #[cfg(target_env = "sgx")]
+     use crate::os::fortanix_sgx::io::AsRawFd;
+@@ -839,6 +842,7 @@ fn test_timeout_zero_duration() {
+ #[test]
+ #[cfg_attr(target_env = "sgx", ignore)]
+ #[cfg_attr(target_os = "wasi", ignore)] // linger not supported
++#[cfg_attr(target_os = "plan9", ignore = "no linger")]
+ fn linger() {
+     let listener = t!(TcpListener::bind(LOCALHOST_IP4));
+ 
+@@ -854,6 +858,7 @@ fn linger() {
+ #[test]
+ #[cfg_attr(target_env = "sgx", ignore)]
+ #[cfg_attr(target_os = "wasi", ignore)]
++#[cfg_attr(target_os = "plan9", ignore = "keepalive is set, not read back")]
+ fn keepalive() {
+     let listener = t!(TcpListener::bind(LOCALHOST_IP4));
+     let stream = t!(TcpStream::connect(t!(listener.local_addr())));
+@@ -867,6 +872,7 @@ fn keepalive() {
+ 
+ #[test]
+ #[cfg_attr(target_env = "sgx", ignore)]
++#[cfg_attr(target_os = "plan9", ignore = "no Nagle: always nodelay")]
+ fn nodelay() {
+     let listener = t!(TcpListener::bind(LOCALHOST_IP4));
+ 
+@@ -881,6 +887,7 @@ fn nodelay() {
+ 
+ #[test]
+ #[cfg_attr(target_env = "sgx", ignore)]
++#[cfg_attr(target_os = "plan9", ignore = "the ttl is set, not read back")]
+ fn ttl() {
+     let ttl = 100;
+ 
+@@ -914,6 +921,7 @@ fn hop_limit() {
+ 
+ #[test]
+ #[cfg_attr(target_env = "sgx", ignore)]
++#[cfg_attr(target_os = "plan9", ignore = "no nonblocking sockets")]
+ fn set_nonblocking() {
+     let listener = t!(TcpListener::bind(LOCALHOST_IP4));
+ 
+@@ -936,6 +944,7 @@ fn set_nonblocking() {
+ #[test]
+ #[cfg_attr(target_env = "sgx", ignore)] // FIXME: https://github.com/fortanix/rust-sgx/issues/31
+ #[cfg_attr(target_os = "wasi", ignore)] // no threads
++#[cfg_attr(target_os = "plan9", ignore = "no peek")]
+ fn peek() {
+     each_ip(&mut |srv| {
+         let addr = t!(srv.local_addr());
+diff --git a/library/std/src/net/udp/tests.rs b/library/std/src/net/udp/tests.rs
+index 6296e07044c..dae39e50691 100644
+--- a/library/std/src/net/udp/tests.rs
++++ b/library/std/src/net/udp/tests.rs
+@@ -301,6 +301,7 @@ fn connect_send_recv() {
+ 
+ #[test]
+ #[cfg_attr(target_os = "wasi", ignore)] // peek not supported
++#[cfg_attr(target_os = "plan9", ignore = "no peek")]
+ fn connect_send_peek_recv() {
+     each_ip(&mut |socket, _| {
+         let addr = t!(socket.local_addr());
+@@ -324,6 +325,7 @@ fn connect_send_peek_recv() {
+ 
+ #[test]
+ #[cfg_attr(target_os = "wasi", ignore)] // peek_from not supported
++#[cfg_attr(target_os = "plan9", ignore = "no peek")]
+ fn peek_from() {
+     each_ip(&mut |socket, _| {
+         let addr = t!(socket.local_addr());
+@@ -344,6 +346,7 @@ fn peek_from() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "the ttl is set, not read back")]
+ fn ttl() {
+     let ttl = 100;
+ 
+@@ -365,6 +368,7 @@ fn hop_limit() {
+ }
+ 
+ #[test]
++#[cfg_attr(target_os = "plan9", ignore = "no nonblocking sockets")]
+ fn set_nonblocking() {
+     each_ip(&mut |socket, _| {
+         let addr = t!(socket.local_addr());
+diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
+index 155122561f5..7cb22039133 100644
+--- a/library/std/src/os/plan9/fs.rs
++++ b/library/std/src/os/plan9/fs.rs
+@@ -1,6 +1,11 @@
+ //! Plan 9-specific extensions to primitives in the [`std::fs`] module: the fields of a
+ //! file's stat(5) entry, permissions, `pread`/`pwrite`.
+ //!
++//! Times: a wstat (stat(5)) changes a file's modification time, not its access time.
++//! [`File::set_times`] and [`fs::set_times`] set the modification time; an access time in
++//! the [`FileTimes`](fs::FileTimes) is left as the file server keeps it (no error, so that
++//! programs that set both, as archivers do, keep working).
++//!
+ //! [`std::fs`]: crate::fs
+ 
+ #![stable(feature = "rust1", since = "1.0.0")]
+diff --git a/library/std/src/process/tests.rs b/library/std/src/process/tests.rs
+index e31cb002c02..70f19d1559d 100644
+--- a/library/std/src/process/tests.rs
++++ b/library/std/src/process/tests.rs
+@@ -19,6 +19,9 @@ fn known_command() -> Command {
+ fn shell_cmd() -> Command {
+     if cfg!(target_os = "android") || cfg!(target_os = "motor") {
+         Command::new("/system/bin/sh")
++    } else if cfg!(target_os = "plan9") {
++        // APE's POSIX shell (rc is the system's)
++        Command::new("/bin/ape/sh")
+     } else {
+         Command::new("/bin/sh")
+     }
+@@ -371,6 +374,14 @@ pub(crate) fn env_cmd() -> Command {
+     cmd
+ }
+ 
++/// 9front (Plan 9) has no env: rc's whatis prints each variable of /env as name=value
++#[cfg(target_os = "plan9")]
++pub(crate) fn env_cmd() -> Command {
++    let mut cmd = Command::new("/bin/rc");
++    cmd.args(["-c", "cd /env; for(v in *) whatis $v >[2]/dev/null"]);
++    cmd
++}
++
+ #[cfg(windows)]
+ pub(crate) fn env_cmd() -> Command {
+     let mut cmd = Command::new("cmd");
+@@ -515,6 +526,7 @@ fn test_interior_nul_in_env_key_is_error() {
+     any(target_os = "vxworks", all(target_vendor = "apple", not(target_os = "macos"))),
+     ignore = "no `env` cmd available"
+ )]
++#[cfg_attr(target_os = "plan9", ignore = "a NUL in a value separates the elements of an rc list (/env)")]
+ fn test_interior_nul_in_env_value_is_error() {
+     match env_cmd().env("key", "has-some-\0\0s-inside").spawn() {
+         Err(e) => assert_eq!(e.kind(), ErrorKind::InvalidInput),
+@@ -538,7 +550,7 @@ fn env_empty() {
+ }
+ 
+ #[test]
+-#[cfg(not(windows))]
++#[cfg(not(any(windows, target_os = "plan9")))] // arg0: unix's CommandExt
+ #[cfg_attr(any(target_os = "emscripten", target_env = "sgx"), ignore)]
+ fn debug_print() {
+     const PIDFD: &'static str =
+diff --git a/library/std/src/sys/alloc/plan9.rs b/library/std/src/sys/alloc/plan9.rs
+index 071aa6f8ed6..5070822085e 100644
+--- a/library/std/src/sys/alloc/plan9.rs
++++ b/library/std/src/sys/alloc/plan9.rs
+@@ -55,17 +55,20 @@ unsafe fn c_aligned(align: usize, size: usize) -> *mut libc::c_void {
+     unsafe { libc::mallocalign(n, a.max(C_ALIGN), 0, 0) }
+ }
+ 
+-#[unsafe(export_name = "malloc")]
++#[cfg_attr(not(test), unsafe(export_name = "malloc"))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn c_malloc(size: usize) -> *mut libc::c_void {
+     unsafe { c_aligned(16, size) }
+ }
+ 
+-#[unsafe(export_name = "free")]
++#[cfg_attr(not(test), unsafe(export_name = "free"))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn c_free(p: *mut libc::c_void) {
+     unsafe { libc::free(p) }
+ }
+ 
+-#[unsafe(export_name = "realloc")]
++#[cfg_attr(not(test), unsafe(export_name = "realloc"))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn c_realloc(p: *mut libc::c_void, size: usize) -> *mut libc::c_void {
+     unsafe {
+         if p.is_null() {
+@@ -86,7 +89,8 @@ unsafe fn c_aligned(align: usize, size: usize) -> *mut libc::c_void {
+     }
+ }
+ 
+-#[unsafe(export_name = "aligned_alloc")]
++#[cfg_attr(not(test), unsafe(export_name = "aligned_alloc"))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn c_aligned_alloc(align: usize, size: usize) -> *mut libc::c_void {
+     if !align.is_power_of_two() {
+         return ptr::null_mut();
+@@ -94,12 +98,14 @@ unsafe fn c_aligned(align: usize, size: usize) -> *mut libc::c_void {
+     unsafe { c_aligned(align, size) }
+ }
+ 
+-#[unsafe(export_name = "memalign")]
++#[cfg_attr(not(test), unsafe(export_name = "memalign"))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn c_memalign(align: usize, size: usize) -> *mut libc::c_void {
+     unsafe { c_aligned_alloc(align, size) }
+ }
+ 
+-#[unsafe(export_name = "posix_memalign")]
++#[cfg_attr(not(test), unsafe(export_name = "posix_memalign"))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn c_posix_memalign(
+     p: *mut *mut libc::c_void,
+     align: usize,
+diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
+index 054f73bde2f..e6a17b4b27d 100644
+--- a/library/std/src/sys/fs/plan9.rs
++++ b/library/std/src/sys/fs/plan9.rs
+@@ -395,18 +395,32 @@ pub fn mode(&mut self, mode: u32) {
+     }
+ 
+     fn omode(&self) -> io::Result<i32> {
++        // the checks and messages of unix's get_access_mode and get_creation_mode
+         let write = self.write || self.append;
++        let creates = self.truncate || self.create || self.create_new;
++        if !write && creates {
++            return Err(io::const_error!(
++                io::ErrorKind::InvalidInput,
++                "creating or truncating a file requires write or append access",
++            ));
++        }
++        if self.append && self.truncate && !self.create_new {
++            return Err(io::const_error!(
++                io::ErrorKind::InvalidInput,
++                "append and truncate cannot both be enabled",
++            ));
++        }
+         let mut m = match (self.read, write) {
+             (true, false) => libc::OREAD,
+             (false, true) => libc::OWRITE,
+             (true, true) => libc::ORDWR,
+-            (false, false) => return Err(io::Error::from(io::ErrorKind::InvalidInput)),
+-        };
+-        if self.truncate || self.create || self.create_new {
+-            if !write {
+-                return Err(io::Error::from(io::ErrorKind::InvalidInput));
++            (false, false) => {
++                return Err(io::const_error!(
++                    io::ErrorKind::InvalidInput,
++                    "must specify at least one of read, write, or append access",
++                ));
+             }
+-        }
++        };
+         if self.truncate && !self.append {
+             m |= libc::OTRUNC;
+         }
+@@ -488,12 +502,12 @@ pub fn lock_file(path: &Path, wait: bool) -> io::Result<File> {
+     }
+ }
+ 
+-fn times(times: &FileTimes, d: &mut libc::Dir) {
+-    if let Some(t) = times.accessed {
+-        d.atime = t.to_secs();
+-    }
+-    if let Some(t) = times.modified {
+-        d.mtime = t.to_secs();
++/// stat(5): a wstat changes the mtime, not the atime: the modification time is set, an
++/// access time asked for is left as the server keeps it (os::plan9::fs).
++fn set_times_with(t: &FileTimes, w: impl FnOnce(*mut libc::Dir) -> i32) -> io::Result<()> {
++    match t.modified {
++        Some(m) => wstat(|d| d.mtime = m.to_secs(), w),
++        None => Ok(()),
+     }
+ }
+ 
+@@ -647,7 +661,7 @@ pub fn set_permissions(&self, perm: FilePermissions) -> io::Result<()> {
+ 
+     pub fn set_times(&self, t: FileTimes) -> io::Result<()> {
+         let fd = self.0.as_raw_fd();
+-        wstat(|d| times(&t, d), |d| unsafe { libc::dirfwstat(fd, d) })
++        set_times_with(&t, |d| unsafe { libc::dirfwstat(fd, d) })
+     }
+ 
+     /// The name it was opened by (fd2path(2)).
+@@ -797,8 +811,36 @@ pub fn rmdir(p: &Path) -> io::Result<()> {
+     remove(p)
+ }
+ 
++/// As rm(1)'s -r: a directory read whole, then its entries removed, again until it is empty.
++/// Removing while reading would skip entries: the offset of a directory's read is a position
++/// in its entries, and the ones after a removed one move up (read_large_dir's test).
+ pub fn remove_dir_all(path: &Path) -> io::Result<()> {
+-    crate::sys::fs::common::remove_dir_all(path)
++    if !stat(path)?.file_type().is_dir() {
++        return Err(io::const_error!(io::ErrorKind::NotADirectory, "not a directory"));
++    }
++    remove_dir_all_recursive(path)
++}
++
++fn remove_dir_all_recursive(path: &Path) -> io::Result<()> {
++    let ignore_notfound = |r: io::Result<()>| match r {
++        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
++        r => r,
++    };
++    loop {
++        let entries = crate::fs::read_dir(path)?.collect::<io::Result<Vec<_>>>()?;
++        if entries.is_empty() {
++            break;
++        }
++        for e in entries {
++            let p = e.path();
++            if e.file_type()?.is_dir() {
++                ignore_notfound(remove_dir_all_recursive(&p))?;
++            } else {
++                ignore_notfound(crate::fs::remove_file(&p))?;
++            }
++        }
++    }
++    ignore_notfound(crate::fs::remove_dir(path))
+ }
+ 
+ fn parent(p: &Path) -> &Path {
+@@ -863,10 +905,7 @@ fn rename_impl(old: &Path, new: &Path, replace: bool) -> io::Result<()> {
+     o.mode(from.mode & 0o777);
+     let mut dst = File::open(new, &o)?;
+     io::copy(&mut FileRw(&mut src), &mut FileRw(&mut dst))?;
+-    dst.set_times(FileTimes {
+-        accessed: Some(SystemTime::from_secs(from.atime)),
+-        modified: Some(SystemTime::from_secs(from.mtime)),
+-    })?;
++    dst.set_times(FileTimes { accessed: None, modified: Some(SystemTime::from_secs(from.mtime)) })?;
+     remove(old)
+ }
+ 
+@@ -909,7 +948,7 @@ pub fn set_perm_nofollow(p: &Path, perm: FilePermissions) -> io::Result<()> {
+ 
+ pub fn set_times(p: &Path, t: FileTimes) -> io::Result<()> {
+     let c = cstr(p)?;
+-    wstat(|d| times(&t, d), |d| unsafe { libc::dirwstat(c.as_ptr(), d) })
++    set_times_with(&t, |d| unsafe { libc::dirwstat(c.as_ptr(), d) })
+ }
+ 
+ pub fn set_times_nofollow(p: &Path, t: FileTimes) -> io::Result<()> {
+diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
+index 7e4d05a8fb4..0ea7669c75d 100644
+--- a/library/std/src/sys/net/connection/plan9.rs
++++ b/library/std/src/sys/net/connection/plan9.rs
+@@ -25,14 +25,40 @@ fn err(kind: io::ErrorKind, msg: &'static str) -> io::Error {
+     io::Error::new(kind, msg)
+ }
+ 
+-/// `tcp!1.2.3.4!80`; the unspecified address is `*`.
+-fn netaddr(proto: &str, addr: &SocketAddr) -> CString {
+-    let s = if addr.ip().is_unspecified() {
+-        format!("{proto}!*!{}", addr.port())
++/// `1.2.3.4!80`, as a conversation's ctl takes it; the unspecified address is `*`.
++fn netaddr(addr: &SocketAddr) -> String {
++    if addr.ip().is_unspecified() {
++        format!("*!{}", addr.port())
+     } else {
+-        format!("{proto}!{}!{}", addr.ip(), addr.port())
+-    };
+-    CString::new(s).unwrap()
++        format!("{}!{}", addr.ip(), addr.port())
++    }
++}
++
++/// A new conversation of `/net/<proto>` with `msg` written to its ctl ("connect 1.2.3.4!80",
++/// "announce *!80"): what dial(2) and announce(2) do after asking the connection server,
++/// /net/cs, to translate the address. A SocketAddr is numeric, so cs is not asked: it is a
++/// single server that, under many dials at once, stopped answering (std's net tests).
++/// The ctl (the clone file's) and the conversation's directory.
++fn conversation(proto: &str, msg: &str) -> io::Result<(FileDesc, String)> {
++    let clone = CString::new(format!("/net/{proto}/clone")).unwrap();
++    let ctl = cvt(unsafe { libc::open(clone.as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
++    let ctl = unsafe { FileDesc::from_raw_fd(ctl) };
++    let mut buf = [0u8; 16];
++    let n = ctl.read(&mut buf)?;
++    let num = crate::str::from_utf8(&buf[..n])
++        .map_err(|_| err(io::ErrorKind::InvalidData, "bad conversation number"))?
++        .trim();
++    let dir = format!("/net/{proto}/{num}");
++    ctl.write(msg.as_bytes())?;
++    Ok((ctl, dir))
++}
++
++/// A file of a conversation's directory, opened.
++fn open_conv(dir: &str, file: &str) -> io::Result<FileDesc> {
++    let p = CString::new(format!("{dir}/{file}")).unwrap();
++    let fd = cvt(unsafe { libc::open(p.as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
++    set_state(fd, FdState::default());
++    Ok(unsafe { FileDesc::from_raw_fd(fd) })
+ }
+ 
+ /// `1.2.3.4!80` (a conversation's `local` or `remote`, `/net/cs`'s answer).
+@@ -113,6 +139,12 @@ fn socket_of(fd: RawFd) -> io::Result<Socket> {
+ }
+ 
+ impl Socket {
++    /// The fd, as the other platforms' sockets have it (net's Debug tests).
++    #[allow(dead_code)]
++    pub fn as_raw(&self) -> RawFd {
++        self.as_raw_fd()
++    }
++
+     fn new(fd: FileDesc) -> Socket {
+         Socket { fd }
+     }
+@@ -153,6 +185,10 @@ fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+         with_alarm(self.state().read_ms, || self.fd.read(buf))
+     }
+ 
++    fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        with_alarm(self.state().read_ms, || self.fd.read_buf(cursor))
++    }
++
+     fn write(&self, buf: &[u8]) -> io::Result<usize> {
+         with_alarm(self.state().write_ms, || self.fd.write(buf))
+     }
+@@ -231,13 +267,12 @@ fn each_addr<A: ToSocketAddrs, T>(
+ }
+ 
+ fn dial(addr: &SocketAddr, ms: u32) -> io::Result<Socket> {
+-    let a = netaddr("tcp", addr);
+-    let fd = with_alarm(ms, || {
+-        cvt(unsafe {
+-            libc::dial(a.as_ptr(), crate::ptr::null(), crate::ptr::null_mut(), crate::ptr::null_mut())
+-        })
+-    })?;
+-    socket_of(fd)
++    // the address as it is (`*` is announce's)
++    let msg = format!("connect {}!{}", addr.ip(), addr.port());
++    // the write of connect returns when the connection is up (or refused)
++    let (_ctl, dir) = with_alarm(ms, || conversation("tcp", &msg))?;
++    // the data file keeps the conversation; the ctl goes
++    Ok(Socket::new(open_conv(&dir, "data")?))
+ }
+ 
+ /* TCP */
+@@ -288,7 +323,8 @@ pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+     }
+ 
+     pub fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
+-        crate::io::default_read_buf(|b| self.read(b), cursor)
++        // into the uninitialized part as it is (net's read_buf test)
++        self.inner.read_buf(cursor)
+     }
+ 
+     pub fn read_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
+@@ -408,19 +444,11 @@ pub struct TcpListener {
+ impl TcpListener {
+     pub fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
+         each_addr(addr, |a| {
+-            let n = netaddr("tcp", a);
+-            let mut dir = [0u8; 40];
+-            let afd = cvt(unsafe { libc::announce(n.as_ptr(), dir.as_mut_ptr().cast()) })?;
+-            let afd = unsafe { FileDesc::from_raw_fd(afd) };
+-            // by its name (announce's is the clone file's): the socket's directory is its
+-            let n = dir.iter().position(|&c| c == 0).unwrap_or(dir.len());
+-            let mut ctl = dir[..n].to_vec();
+-            ctl.extend_from_slice(b"/ctl");
+-            let ctl = CString::new(ctl).unwrap();
+-            let fd = cvt(unsafe { libc::open(ctl.as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
+-            drop(afd);
+-            set_state(fd, FdState::default());
+-            Ok(TcpListener { inner: Socket::new(unsafe { FileDesc::from_raw_fd(fd) }) })
++            let (clone, dir) = conversation("tcp", &format!("announce {}", netaddr(a)))?;
++            // by its name (the clone file's is not): the socket's directory is its
++            let ctl = open_conv(&dir, "ctl")?;
++            drop(clone);
++            Ok(TcpListener { inner: Socket::new(ctl) })
+         })
+     }
+ 
+@@ -540,18 +568,9 @@ pub struct UdpSocket {
+ impl UdpSocket {
+     pub fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<UdpSocket> {
+         each_addr(addr, |a| {
+-            let n = netaddr("udp", a);
+-            let mut dir = [0u8; 40];
+-            let cfd = cvt(unsafe { libc::announce(n.as_ptr(), dir.as_mut_ptr().cast()) })?;
+-            let cfd = unsafe { FileDesc::from_raw_fd(cfd) };
++            let (cfd, dir) = conversation("udp", &format!("announce {}", netaddr(a)))?;
+             cfd.write(b"headers")?;
+-            let n = dir.iter().position(|&c| c == 0).unwrap_or(dir.len());
+-            let mut data = dir[..n].to_vec();
+-            data.extend_from_slice(b"/data");
+-            let data = CString::new(data).unwrap();
+-            let fd = cvt(unsafe { libc::open(data.as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
+-            set_state(fd, FdState::default());
+-            Ok(UdpSocket { inner: Socket::new(unsafe { FileDesc::from_raw_fd(fd) }) })
++            Ok(UdpSocket { inner: Socket::new(open_conv(&dir, "data")?) })
+         })
+     }
+ 
+diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
+index cfa0993199d..55fe9c69a53 100644
+--- a/library/std/src/sys/pal/plan9/mod.rs
++++ b/library/std/src/sys/pal/plan9/mod.rs
+@@ -120,7 +120,13 @@ pub fn error_kind(s: &[u8]) -> io::ErrorKind {
+         WouldBlock
+     } else if has("in use") {
+         ResourceBusy
+-    } else if has("bad arg") || has("bad character") || has("file name syntax") {
++    } else if has("bad arg")
++        || has("bad character")
++        || has("file name syntax")
++        || has("malformed address")
++        || has("bad ip address")
++    {
++        // malformed address: dial(2) of one such as 0.0.0.0; bad ip address: a ctl's connect
+         InvalidInput
+     } else if has("not implemented") || has("not supported") {
+         Unsupported
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index 6ecdae9863a..25ce8b9a41a 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -50,6 +50,10 @@ pub struct ThreadData {
+ 
+ /// The stack segment below this is free in every proc: `main`'s proc left it for a
+ /// stack from malloc (or the creator of the first thread for its own frame).
++// One instance for this crate and its unit tests (they link a second std; only the first's
++// __plan9_mainstack runs), as sgx's statics.
++#[cfg_attr(test, linkage = "available_externally")]
++#[unsafe(export_name = "_ZN16__rust_internals3std3sys5plan94proc7PRIVTOPE")]
+ static PRIVTOP: AtomicUsize = AtomicUsize::new(0);
+ /// The `privalloc` slot of [`ThreadData`].
+ static PRIV_SLOT: AtomicPtr<*mut c_void> = AtomicPtr::new(ptr::null_mut());
+@@ -105,7 +109,8 @@ pub fn current() -> &'static ThreadData {
+     unsafe {
+         let s = slot();
+         let td = *s as *mut ThreadData;
+-        if !td.is_null() {
++        // a proc's slots are a copy of its parent's (rfork): theirs is not ours
++        if !td.is_null() && (*td).pid == libc::getpid() {
+             return &*td;
+         }
+         let td = new_thread_data();
+@@ -161,6 +166,8 @@ unsafe fn free_thread_data(td: *mut ThreadData) {
+ }
+ 
+ /// The proc that runs `main`.
++#[cfg_attr(test, linkage = "available_externally")]
++#[unsafe(export_name = "_ZN16__rust_internals3std3sys5plan94proc8MAIN_PIDE")]
+ static MAIN_PID: AtomicI32 = AtomicI32::new(0);
+ 
+ /// proc(3)'s ctl "kill": a note could be caught.
+@@ -211,167 +218,200 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+     }
+ }
+ 
+-/* stack switching and rfork */
+-
+-unsafe extern "C" {
+-    /// Runs `f(arg)` on the stack below `top`, back on the caller's after.
+-    fn __rust_plan9_runon(top: *mut u8, f: unsafe extern "C" fn(*mut c_void), arg: *mut c_void);
+-    /// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
+-    /// below `privtop`, without touching its parent's.
+-    fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32;
+-    /// The same for a child that runs `(*arg).0(arg)`: process::Command's.
+-    fn __rust_plan9_rforkrun(flags: i32, privtop: usize, arg: *const c_void) -> i32;
+-}
++/* stack switching and rfork (naked functions: each copy of std has its own; std's unit
++ * tests link a second one) */
+ 
+ // amd64: the system call number in BP, the argument at 8(SP) (libc's system call stubs);
+ // the kernel gives the child R14 and R15 of its parent (pc64/l.s forkret), the rest zero.
++/// Runs `f(arg)` on the stack below `top`, back on the caller's after.
++#[cfg(target_arch = "x86_64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_runon(
++    top: *mut u8,
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++) {
++    crate::arch::naked_asm!(
++        "   pushq %rbp",
++        "   movq %rsp, %rbp",
++        "   movq %rdi, %rsp",
++        "   movq %rdx, %rdi",
++        "   call *%rsi",
++        "   movq %rbp, %rsp",
++        "   popq %rbp",
++        "   ret",
++        options(att_syntax)
++    )
++}
++
++/// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
++/// below `privtop`, without touching its parent's.
++#[cfg(target_arch = "x86_64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   pushq %rbx",
++        "   pushq %rbp",
++        "   pushq %r12",
++        "   pushq %r13",
++        "   pushq %r14",
++        "   pushq %r15",
++        "   movq %rsi, %r14",
++        "   movq %rdx, %r15",
++        "   subq $16, %rsp",
++        "   movq %rdi, 8(%rsp)",
++        "   movq $19, %rbp", // RFORK
++        "   syscall",
++        "   testq %rax, %rax",
++        "   jz 1f",
++        "   addq $16, %rsp",
++        "   popq %r15",
++        "   popq %r14",
++        "   popq %r13",
++        "   popq %r12",
++        "   popq %rbp",
++        "   popq %rbx",
++        "   ret",
++        "1: movq %r14, %rsp",
++        "   movq %r15, %rdi",
++        "   call {start}",
++        "2: jmp 2b",
++        start = sym __rust_plan9_threadstart,
++        options(att_syntax)
++    )
++}
++
++/// The same for a child that runs `(*arg).0(arg)`: process::Command's.
+ #[cfg(target_arch = "x86_64")]
+-crate::arch::global_asm!(
+-    ".text",
+-    ".globl __rust_plan9_runon",
+-    "__rust_plan9_runon:",
+-    "   pushq %rbp",
+-    "   movq %rsp, %rbp",
+-    "   movq %rdi, %rsp",
+-    "   movq %rdx, %rdi",
+-    "   call *%rsi",
+-    "   movq %rbp, %rsp",
+-    "   popq %rbp",
+-    "   ret",
+-    ".globl __rust_plan9_rforkthread",
+-    "__rust_plan9_rforkthread:",
+-    "   pushq %rbx",
+-    "   pushq %rbp",
+-    "   pushq %r12",
+-    "   pushq %r13",
+-    "   pushq %r14",
+-    "   pushq %r15",
+-    "   movq %rsi, %r14",
+-    "   movq %rdx, %r15",
+-    "   subq $16, %rsp",
+-    "   movq %rdi, 8(%rsp)",
+-    "   movq $19, %rbp", // RFORK
+-    "   syscall",
+-    "   testq %rax, %rax",
+-    "   jz 1f",
+-    "   addq $16, %rsp",
+-    "   popq %r15",
+-    "   popq %r14",
+-    "   popq %r13",
+-    "   popq %r12",
+-    "   popq %rbp",
+-    "   popq %rbx",
+-    "   ret",
+-    "1: movq %r14, %rsp",
+-    "   movq %r15, %rdi",
+-    "   call __rust_plan9_threadstart",
+-    "2: jmp 2b",
+-    ".globl __rust_plan9_rforkrun",
+-    "__rust_plan9_rforkrun:",
+-    "   pushq %rbx",
+-    "   pushq %rbp",
+-    "   pushq %r12",
+-    "   pushq %r13",
+-    "   pushq %r14",
+-    "   pushq %r15",
+-    "   movq %rsi, %r14",
+-    "   movq %rdx, %r15",
+-    "   subq $16, %rsp",
+-    "   movq %rdi, 8(%rsp)",
+-    "   movq $19, %rbp", // RFORK
+-    "   syscall",
+-    "   testq %rax, %rax",
+-    "   jz 1f",
+-    "   addq $16, %rsp",
+-    "   popq %r15",
+-    "   popq %r14",
+-    "   popq %r13",
+-    "   popq %r12",
+-    "   popq %rbp",
+-    "   popq %rbx",
+-    "   ret",
+-    "1: movq %r14, %rsp",
+-    "   movq %r15, %rdi",
+-    "   call *(%r15)",
+-    "2: jmp 2b",
+-    options(att_syntax)
+-);
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkrun(flags: i32, privtop: usize, arg: *const c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   pushq %rbx",
++        "   pushq %rbp",
++        "   pushq %r12",
++        "   pushq %r13",
++        "   pushq %r14",
++        "   pushq %r15",
++        "   movq %rsi, %r14",
++        "   movq %rdx, %r15",
++        "   subq $16, %rsp",
++        "   movq %rdi, 8(%rsp)",
++        "   movq $19, %rbp", // RFORK
++        "   syscall",
++        "   testq %rax, %rax",
++        "   jz 1f",
++        "   addq $16, %rsp",
++        "   popq %r15",
++        "   popq %r14",
++        "   popq %r13",
++        "   popq %r12",
++        "   popq %rbp",
++        "   popq %rbx",
++        "   ret",
++        "1: movq %r14, %rsp",
++        "   movq %r15, %rdi",
++        "   call *(%r15)",
++        "2: jmp 2b",
++        options(att_syntax)
++    )
++}
+ 
+ // 386: the system call number in AX, the arguments from 4(SP) on (libc's stubs are called:
+ // 0(SP) is their return address), INT $64; the kernel gives the child all registers of its
+ // parent (pc/l.s forkret pops the copied Ureg), AX zero. cdecl: arguments on the stack,
+ // %ebx, %esi, %edi, %ebp callee-saved; the stack 16-byte aligned at a call.
++/// Runs `f(arg)` on the stack below `top`, back on the caller's after.
++#[cfg(target_arch = "x86")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_runon(
++    top: *mut u8,
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++) {
++    crate::arch::naked_asm!(
++        "   pushl %ebp",
++        "   movl %esp, %ebp",
++        "   movl 8(%ebp), %eax",  // top
++        "   movl 12(%ebp), %ecx", // f
++        "   movl 16(%ebp), %edx", // arg
++        "   movl %eax, %esp",
++        "   subl $12, %esp",
++        "   pushl %edx",
++        "   call *%ecx",
++        "   movl %ebp, %esp",
++        "   popl %ebp",
++        "   ret",
++        options(att_syntax)
++    )
++}
++
++/// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
++/// below `privtop`, without touching its parent's.
++#[cfg(target_arch = "x86")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   pushl %ebx",
++        "   pushl %ebp",
++        "   pushl %esi",
++        "   pushl %edi",
++        "   movl 20(%esp), %eax", // flags
++        "   movl 24(%esp), %esi", // privtop
++        "   movl 28(%esp), %edi", // arg
++        "   subl $8, %esp",
++        "   movl %eax, 4(%esp)",
++        "   movl $19, %eax", // RFORK
++        "   int $64",
++        "   testl %eax, %eax",
++        "   jz 1f",
++        "   addl $8, %esp",
++        "   popl %edi",
++        "   popl %esi",
++        "   popl %ebp",
++        "   popl %ebx",
++        "   ret",
++        "1: movl %esi, %esp",
++        "   subl $12, %esp",
++        "   pushl %edi",
++        "   call {start}",
++        "2: jmp 2b",
++        start = sym __rust_plan9_threadstart,
++        options(att_syntax)
++    )
++}
++
++/// The same for a child that runs `(*arg).0(arg)`: process::Command's.
+ #[cfg(target_arch = "x86")]
+-crate::arch::global_asm!(
+-    ".text",
+-    ".globl __rust_plan9_runon",
+-    "__rust_plan9_runon:",
+-    "   pushl %ebp",
+-    "   movl %esp, %ebp",
+-    "   movl 8(%ebp), %eax", // top
+-    "   movl 12(%ebp), %ecx", // f
+-    "   movl 16(%ebp), %edx", // arg
+-    "   movl %eax, %esp",
+-    "   subl $12, %esp",
+-    "   pushl %edx",
+-    "   call *%ecx",
+-    "   movl %ebp, %esp",
+-    "   popl %ebp",
+-    "   ret",
+-    ".globl __rust_plan9_rforkthread",
+-    "__rust_plan9_rforkthread:",
+-    "   pushl %ebx",
+-    "   pushl %ebp",
+-    "   pushl %esi",
+-    "   pushl %edi",
+-    "   movl 20(%esp), %eax", // flags
+-    "   movl 24(%esp), %esi", // privtop
+-    "   movl 28(%esp), %edi", // arg
+-    "   subl $8, %esp",
+-    "   movl %eax, 4(%esp)",
+-    "   movl $19, %eax", // RFORK
+-    "   int $64",
+-    "   testl %eax, %eax",
+-    "   jz 1f",
+-    "   addl $8, %esp",
+-    "   popl %edi",
+-    "   popl %esi",
+-    "   popl %ebp",
+-    "   popl %ebx",
+-    "   ret",
+-    "1: movl %esi, %esp",
+-    "   subl $12, %esp",
+-    "   pushl %edi",
+-    "   call __rust_plan9_threadstart",
+-    "2: jmp 2b",
+-    ".globl __rust_plan9_rforkrun",
+-    "__rust_plan9_rforkrun:",
+-    "   pushl %ebx",
+-    "   pushl %ebp",
+-    "   pushl %esi",
+-    "   pushl %edi",
+-    "   movl 20(%esp), %eax",
+-    "   movl 24(%esp), %esi",
+-    "   movl 28(%esp), %edi",
+-    "   subl $8, %esp",
+-    "   movl %eax, 4(%esp)",
+-    "   movl $19, %eax", // RFORK
+-    "   int $64",
+-    "   testl %eax, %eax",
+-    "   jz 1f",
+-    "   addl $8, %esp",
+-    "   popl %edi",
+-    "   popl %esi",
+-    "   popl %ebp",
+-    "   popl %ebx",
+-    "   ret",
+-    "1: movl %esi, %esp",
+-    "   subl $12, %esp",
+-    "   pushl %edi",
+-    "   call *(%edi)",
+-    "2: jmp 2b",
+-    options(att_syntax)
+-);
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkrun(flags: i32, privtop: usize, arg: *const c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   pushl %ebx",
++        "   pushl %ebp",
++        "   pushl %esi",
++        "   pushl %edi",
++        "   movl 20(%esp), %eax",
++        "   movl 24(%esp), %esi",
++        "   movl 28(%esp), %edi",
++        "   subl $8, %esp",
++        "   movl %eax, 4(%esp)",
++        "   movl $19, %eax", // RFORK
++        "   int $64",
++        "   testl %eax, %eax",
++        "   jz 1f",
++        "   addl $8, %esp",
++        "   popl %edi",
++        "   popl %esi",
++        "   popl %ebp",
++        "   popl %ebx",
++        "   ret",
++        "1: movl %esi, %esp",
++        "   subl $12, %esp",
++        "   pushl %edi",
++        "   call *(%edi)",
++        "2: jmp 2b",
++        options(att_syntax)
++    )
++}
+ 
+ /// What a child of [`rfork_run`] runs: `f(self)`, which must not return.
+ #[repr(C)]
+@@ -412,7 +452,8 @@ struct CProc {
+ /// For C in the program (9front-rust's ape9: APE's read buffering): `rfork(flags|RFPROC)` of
+ /// a proc that runs `f(arg)` on its own stack segment, then ends; the program's end ends it,
+ /// as a thread. -1 and the error string if it cannot.
+-#[unsafe(no_mangle)]
++#[cfg_attr(not(test), unsafe(no_mangle))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn __plan9_rforkproc(
+     flags: i32,
+     f: unsafe extern "C" fn(*mut c_void),
+@@ -586,8 +627,7 @@ pub fn spawn(stack_size: usize, main: unsafe fn(*mut c_void), arg: *mut c_void)
+     }
+ }
+ 
+-/// The new proc, on its own copy of the stack segment.
+-#[unsafe(no_mangle)]
++/// The new proc, on its own copy of the stack segment (called by rforkthread's child).
+ unsafe extern "C" fn __rust_plan9_threadstart(v: *mut c_void) -> ! {
+     unsafe {
+         let p = v as *mut Packet;
+@@ -646,7 +686,8 @@ struct MainArgs {
+ 
+ /// libgcc's `__wrap_main` (9front's gcc port): `main` on a stack from malloc, as the other
+ /// threads; the program ends with its result.
+-#[unsafe(no_mangle)]
++#[cfg_attr(not(test), unsafe(no_mangle))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn __plan9_mainstack(
+     main: unsafe extern "C" fn(i32, *mut *mut u8, *mut *mut u8) -> i32,
+     argc: i32,
+@@ -688,7 +729,8 @@ unsafe fn cthread_main(v: *mut c_void) {
+ /// For C in the program (APE's POSIX threads, ap/gnu/pthread.c): a thread as std's, on a stack
+ /// of `stack_size` bytes (0: std's default), running `f(arg)`; its handle, or null and the
+ /// error string. The handle goes to `__plan9_thread_join` or `__plan9_thread_detach`.
+-#[unsafe(no_mangle)]
++#[cfg_attr(not(test), unsafe(no_mangle))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn __plan9_thread_spawn(
+     stack_size: usize,
+     f: unsafe extern "C" fn(*mut c_void),
+@@ -700,7 +742,8 @@ unsafe fn cthread_main(v: *mut c_void) {
+             return ptr::null_mut();
+         }
+         ptr::write(c, CThread { f, arg });
+-        let size = if stack_size == 0 { crate::sys::thread::DEFAULT_MIN_STACK_SIZE } else { stack_size };
++        let size =
++            if stack_size == 0 { crate::sys::thread::DEFAULT_MIN_STACK_SIZE } else { stack_size };
+         let p = spawn(size, cthread_main, c.cast());
+         if p.is_null() {
+             libc::free(c.cast());
+@@ -710,20 +753,23 @@ unsafe fn cthread_main(v: *mut c_void) {
+ }
+ 
+ /// Waits for a thread of `__plan9_thread_spawn`.
+-#[unsafe(no_mangle)]
++#[cfg_attr(not(test), unsafe(no_mangle))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn __plan9_thread_join(p: *mut c_void) {
+     unsafe { join(p.cast()) }
+ }
+ 
+ /// A thread of `__plan9_thread_spawn` goes on without anyone waiting for it.
+-#[unsafe(no_mangle)]
++#[cfg_attr(not(test), unsafe(no_mangle))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn __plan9_thread_detach(p: *mut c_void) {
+     unsafe { detach(p.cast()) }
+ }
+ 
+ /// For APE in the program (9front's ap/plan9/_exit.c, gen/abort.c): an `exit` or `abort` of
+ /// the C ends the program as std does, its other threads with it, the status for the parent.
+-#[unsafe(no_mangle)]
++#[cfg_attr(not(test), unsafe(no_mangle))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn __plan9_exit(status: *const libc::c_char) -> ! {
+     let status = if status.is_null() { c"" } else { unsafe { crate::ffi::CStr::from_ptr(status) } };
+     end_program(status)
+@@ -731,7 +777,8 @@ unsafe fn cthread_main(v: *mut c_void) {
+ 
+ /// For APE's abort (9front's gen/abort.c): the program's other procs go, main's too, and
+ /// this one ends with a trap (ud2, as Rust's own abort): it stays Broken, its stack for acid.
+-#[unsafe(no_mangle)]
++#[cfg_attr(not(test), unsafe(no_mangle))]
++#[cfg_attr(test, allow(dead_code))]
+ pub unsafe extern "C" fn __plan9_abort() -> ! {
+     let me = unsafe { libc::getpid() };
+     let main = MAIN_PID.load(Relaxed);
+diff --git a/library/std/src/sys/process/plan9.rs b/library/std/src/sys/process/plan9.rs
+index 1198197e4ae..d2a8a82fe70 100644
+--- a/library/std/src/sys/process/plan9.rs
++++ b/library/std/src/sys/process/plan9.rs
+@@ -154,6 +154,8 @@ pub fn spawn(
+             CString::new(s.as_bytes())
+                 .map_err(|_| io::const_error!(io::ErrorKind::InvalidInput, "NUL byte in argument"))
+         };
++        // a NUL in the name is no file name: before $path is searched for it
++        cstr(&self.program)?;
+         let prog = cstr(self.resolve()?.as_os_str())?;
+         let args: Vec<CString> = self.args.iter().map(|a| cstr(a)).collect::<io::Result<_>>()?;
+         let mut argv: Vec<*const c_char> = args.iter().map(|a| a.as_ptr()).collect();
+@@ -459,13 +461,23 @@ pub fn exit_ok(&self) -> Result<(), ExitStatusError> {
+         if self.len == 0 { Ok(()) } else { Err(ExitStatusError(*self)) }
+     }
+ 
+-    /// 0 for success, the number of a Rust program's `exit` (its status is the number);
+-    /// none for any other message.
++    /// As APE's wait (ap/plan9/wait.c): 0 for success, a number the program gave exits(2)
++    /// (a Rust program's `exit`), 1 outside 0..256; none for a note, as for a signal
++    /// (the kernel's "sys: ...", or one of APE's signal names: "interrupt", "kill", ...);
++    /// 1 for any other message.
+     pub fn code(&self) -> Option<i32> {
+         if self.len == 0 {
+             return Some(0);
+         }
+-        crate::str::from_utf8(self.exits()).ok()?.trim().parse().ok()
++        let m = self.exits();
++        if let Some(n) = crate::str::from_utf8(m).ok().and_then(|s| s.trim().parse::<i64>().ok()) {
++            return Some(if (0..256).contains(&n) { n as i32 } else { 1 });
++        }
++        const NOTES: [&[u8]; 14] = [
++            b"sys: ", b"hangup", b"interrupt", b"quit", b"alarm", b"abort", b"exit", b"die",
++            b"kill", b"term", b"usr1", b"usr2", b"virtual alarm", b"profiling alarm",
++        ];
++        if NOTES.iter().any(|n| m.starts_with(n)) { None } else { Some(1) }
+     }
+ }
+ 
+diff --git a/library/std/src/sys/time/plan9.rs b/library/std/src/sys/time/plan9.rs
+index d2ad575b14f..e9c2380aba7 100644
+--- a/library/std/src/sys/time/plan9.rs
++++ b/library/std/src/sys/time/plan9.rs
+@@ -2,8 +2,18 @@
+ 
+ use crate::time::Duration;
+ 
++/// Nanoseconds since boot; before it negative (`Instant - Duration`), within the range of
++/// unix's timespec (i64 seconds): beyond it an addition is None, as there.
+ #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+-pub struct Instant(Duration);
++pub struct Instant(i128);
++
++const NSEC: i128 = 1_000_000_000;
++const INSTANT_MAX: i128 = i64::MAX as i128 * NSEC + (NSEC - 1);
++const INSTANT_MIN: i128 = i64::MIN as i128 * NSEC;
++
++fn instant(t: i128) -> Option<Instant> {
++    if (INSTANT_MIN..=INSTANT_MAX).contains(&t) { Some(Instant(t)) } else { None }
++}
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+ pub struct SystemTime(Duration);
+@@ -13,19 +23,24 @@
+ impl Instant {
+     pub fn now() -> Instant {
+         // nanoseconds since boot (/dev/bintime): never go back
+-        Instant(Duration::from_nanos(unsafe { libc::uptime() }.max(0) as u64))
++        Instant(unsafe { libc::uptime() }.max(0) as i128)
+     }
+ 
+     pub fn checked_sub_instant(&self, other: &Instant) -> Option<Duration> {
+-        self.0.checked_sub(other.0)
++        let d = self.0.checked_sub(other.0)?;
++        if d < 0 {
++            return None;
++        }
++        let secs = u64::try_from(d / NSEC).ok()?;
++        Some(Duration::new(secs, (d % NSEC) as u32))
+     }
+ 
+     pub fn checked_add_duration(&self, other: &Duration) -> Option<Instant> {
+-        self.0.checked_add(*other).map(Instant)
++        instant(self.0.checked_add(i128::try_from(other.as_nanos()).ok()?)?)
+     }
+ 
+     pub fn checked_sub_duration(&self, other: &Duration) -> Option<Instant> {
+-        self.0.checked_sub(*other).map(Instant)
++        instant(self.0.checked_sub(i128::try_from(other.as_nanos()).ok()?)?)
+     }
+ }
+ 
+diff --git a/library/std/tests/path.rs b/library/std/tests/path.rs
+index 10bfe9eb2bd..08e39a1daff 100644
+--- a/library/std/tests/path.rs
++++ b/library/std/tests/path.rs
+@@ -1677,6 +1677,7 @@ macro_rules! tp (
+ 
+     if cfg!(unix)
+         || cfg!(target_os = "wasi")
++        || cfg!(target_os = "plan9")
+         || cfg!(all(target_env = "sgx", target_vendor = "fortanix"))
+     {
+         tp!("", "foo", "foo");
+@@ -1842,6 +1843,7 @@ macro_rules! tfn (
+     tfn!("", "foo", "foo");
+     if cfg!(unix)
+         || cfg!(target_os = "wasi")
++        || cfg!(target_os = "plan9")
+         || cfg!(all(target_env = "sgx", target_vendor = "fortanix"))
+     {
+         tfn!(".", "foo", "./foo");
+diff --git a/library/std/tests/process_spawning.rs b/library/std/tests/process_spawning.rs
+index b7a9a107769..16b2c160be7 100644
+--- a/library/std/tests/process_spawning.rs
++++ b/library/std/tests/process_spawning.rs
+@@ -22,9 +22,10 @@ fn issue_15149() {
+     let child_path = child_dir.join(&format!("mytest{}", env::consts::EXE_SUFFIX));
+     fs::copy(&my_path, &child_path).unwrap();
+ 
+-    // Append the new directory to our own PATH.
++    // Append the new directory to our own PATH (9front, Plan 9: $path, an rc list).
++    let path_var = if cfg!(target_os = "plan9") { "path" } else { "PATH" };
+     let path = {
+-        let mut paths: Vec<_> = env::split_paths(&env::var_os("PATH").unwrap()).collect();
++        let mut paths: Vec<_> = env::split_paths(&env::var_os(path_var).unwrap()).collect();
+         paths.push(child_dir.to_path_buf());
+         env::join_paths(paths).unwrap()
+     };
+@@ -35,7 +36,7 @@ fn issue_15149() {
+     let args = env::args();
+     let child_output = process::Command::new("mytest")
+         .args(args)
+-        .env("PATH", &path)
++        .env(path_var, &path)
+         .arg("child")
+         .output()
+         .unwrap();
+diff --git a/library/std/tests/sync/rwlock.rs b/library/std/tests/sync/rwlock.rs
+index 9715411a9a6..73d71ce5fc7 100644
+--- a/library/std/tests/sync/rwlock.rs
++++ b/library/std/tests/sync/rwlock.rs
+@@ -918,6 +918,7 @@ fn test_rwlock_max_readers() {
+             all(target_family = "wasm", target_feature = "atomics"),
+             target_os = "hermit",
+             target_os = "motor",
++            target_os = "plan9",
+         ) => (1 << 30) - 2,
+         any(
+             target_family = "unix",
+diff --git a/src/tools/remote-test-server/src/main.rs b/src/tools/remote-test-server/src/main.rs
+index 4c093025bfb..2f189b241e9 100644
+--- a/src/tools/remote-test-server/src/main.rs
++++ b/src/tools/remote-test-server/src/main.rs
+@@ -12,11 +12,14 @@
+ 
+ #[cfg(not(any(windows, target_os = "motor", target_os = "uefi")))]
+ use std::fs::Permissions;
++// 9front (Plan 9): mode bits as unix's, its own ExitStatus (no signals: notes)
++#[cfg(target_os = "plan9")]
++use std::os::plan9::fs::PermissionsExt;
+ use std::fs::{self, File};
+ use std::io::prelude::*;
+ use std::io::{self, BufReader};
+ use std::net::{SocketAddr, TcpListener, TcpStream};
+-#[cfg(not(any(windows, target_os = "motor", target_os = "uefi")))]
++#[cfg(not(any(windows, target_os = "motor", target_os = "uefi", target_os = "plan9")))]
+ use std::os::unix::prelude::*;
+ use std::path::{Path, PathBuf};
+ use std::process::{Command, ExitStatus, Stdio};
+@@ -329,7 +332,7 @@ fn handle_run(socket: TcpStream, work: &Path, tmp: &Path, lock: &Mutex<()>, conf
+     ]));
+ }
+ 
+-#[cfg(not(any(windows, target_os = "motor", target_os = "uefi")))]
++#[cfg(not(any(windows, target_os = "motor", target_os = "uefi", target_os = "plan9")))]
+ fn get_status_code(status: &ExitStatus) -> (u8, i32) {
+     match status.code() {
+         Some(n) => (0, n),
+@@ -337,6 +340,15 @@ fn get_status_code(status: &ExitStatus) -> (u8, i32) {
+     }
+ }
+ 
++/// 9front: a note (a crash's "sys: trap: ...") has no code: as a signal, SIGKILL's number
++#[cfg(target_os = "plan9")]
++fn get_status_code(status: &ExitStatus) -> (u8, i32) {
++    match status.code() {
++        Some(n) => (0, n),
++        None => (1, 9),
++    }
++}
++
+ #[cfg(target_os = "uefi")]
+ fn get_status_code(status: &ExitStatus) -> (u8, i32) {
+     let status = status.code().unwrap();

@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 10:30:47 +0100
+Subject: [PATCH 2/3] 9front (Plan 9): only a file is a Cargo.toml when
+ searching upwards (mntgen on /n makes any name an empty directory)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/util/important_paths.rs | 3 ++-
+ src/workspace/workspace.rs  | 9 ++++++++-
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/src/util/important_paths.rs b/src/util/important_paths.rs
+index 1a2771b86..0518e3732 100644
+--- a/src/util/important_paths.rs
++++ b/src/util/important_paths.rs
+@@ -10,7 +10,8 @@ pub fn find_root_manifest_for_wd(cwd: &Path) -> CargoResult<PathBuf> {
+ 
+     for current in paths::ancestors(cwd, None) {
+         let manifest = current.join(valid_cargo_toml_file_name);
+-        if manifest.exists() {
++        // 9front: mntgen(4) on /n makes any name an empty directory: only a file counts
++        if if cfg!(target_os = "plan9") { manifest.is_file() } else { manifest.exists() } {
+             return Ok(manifest);
+         }
+         if current.join(invalid_cargo_toml_file_name).exists() {
+diff --git a/src/workspace/workspace.rs b/src/workspace/workspace.rs
+index ca56dafaf..b30b47837 100644
+--- a/src/workspace/workspace.rs
++++ b/src/workspace/workspace.rs
+@@ -2258,7 +2258,14 @@ fn find_root_iter<'a>(
+             }
+         })
+         .map(|path| path.curr.join("Cargo.toml"))
+-        .filter(|ances_manifest_path| ances_manifest_path.exists())
++        // 9front: mntgen(4) on /n makes any name an empty directory: only a file counts
++        .filter(|ances_manifest_path| {
++            if cfg!(target_os = "plan9") {
++                ances_manifest_path.is_file()
++            } else {
++                ances_manifest_path.exists()
++            }
++        })
+ }
+ 
+ struct LookBehindWindow<'a, T: ?Sized> {

@@ -1,0 +1,355 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 12:48:24 +0100
+Subject: [PATCH 1/3] 9front (Plan 9): process, read2, terminal, job, flock,
+ FileId, paths, is_executable, $path
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/cargo-util-terminal/src/shell.rs  | 12 +++++
+ crates/cargo-util/src/paths.rs           | 15 ++++++
+ crates/cargo-util/src/process_builder.rs | 24 +++++++++
+ crates/cargo-util/src/process_error.rs   |  6 +++
+ crates/cargo-util/src/read2.rs           | 67 ++++++++++++++++++++++++
+ credential/cargo-credential/src/stdio.rs | 47 +++++++++++++++++
+ src/bin/cargo/main.rs                    | 12 ++++-
+ src/ops/cargo_clean.rs                   |  6 +++
+ src/util/flock.rs                        |  6 +++
+ src/util/job.rs                          | 10 ++++
+ 10 files changed, 204 insertions(+), 1 deletion(-)
+
+diff --git a/crates/cargo-util-terminal/src/shell.rs b/crates/cargo-util-terminal/src/shell.rs
+index ecea8547a..338217a84 100644
+--- a/crates/cargo-util-terminal/src/shell.rs
++++ b/crates/cargo-util-terminal/src/shell.rs
+@@ -631,6 +631,18 @@ fn supports_term_integration(stream: &dyn IsTerminal) -> bool {
+     anstyle_progress::supports_term_progress(stream.is_terminal())
+ }
+ 
++/// 9front (Plan 9): a rio window has no terminal escapes and no width to ask for.
++#[cfg(target_os = "plan9")]
++mod imp {
++    use super::{Shell, TtyWidth};
++
++    pub fn stderr_width() -> TtyWidth {
++        TtyWidth::NoTty
++    }
++
++    pub fn err_erase_line(_shell: &mut Shell) {}
++}
++
+ #[cfg(unix)]
+ mod imp {
+     use super::{Shell, TtyWidth};
+diff --git a/crates/cargo-util/src/paths.rs b/crates/cargo-util/src/paths.rs
+index 1e6f464fa..c93adf198 100644
+--- a/crates/cargo-util/src/paths.rs
++++ b/crates/cargo-util/src/paths.rs
+@@ -399,6 +399,11 @@ pub fn path2bytes(path: &Path) -> Result<&[u8]> {
+         use std::os::unix::prelude::*;
+         Ok(path.as_os_str().as_bytes())
+     }
++    #[cfg(target_os = "plan9")]
++    {
++        use std::os::plan9::prelude::*;
++        Ok(path.as_os_str().as_bytes())
++    }
+     #[cfg(windows)]
+     {
+         match path.as_os_str().to_str() {
+@@ -418,6 +423,11 @@ pub fn bytes2path(bytes: &[u8]) -> Result<PathBuf> {
+         use std::os::unix::prelude::*;
+         Ok(PathBuf::from(OsStr::from_bytes(bytes)))
+     }
++    #[cfg(target_os = "plan9")]
++    {
++        use std::os::plan9::prelude::*;
++        Ok(PathBuf::from(OsStr::from_bytes(bytes)))
++    }
+     #[cfg(windows)]
+     {
+         use std::str;
+@@ -625,6 +635,11 @@ fn _link_or_copy(src: &Path, dst: &Path) -> Result<()> {
+     }
+ 
+     let link_result = if src.is_dir() {
++        // 9front (Plan 9) has no links: an error, which the caller copies over
++        #[cfg(target_os = "plan9")]
++        fn symlink(_: &Path, _: &Path) -> io::Result<()> {
++            Err(io::Error::new(io::ErrorKind::Unsupported, "Plan 9 has no symbolic links"))
++        }
+         #[cfg(unix)]
+         use std::os::unix::fs::symlink;
+         #[cfg(windows)]
+diff --git a/crates/cargo-util/src/process_builder.rs b/crates/cargo-util/src/process_builder.rs
+index 2e9caa103..19e8aa7e2 100644
+--- a/crates/cargo-util/src/process_builder.rs
++++ b/crates/cargo-util/src/process_builder.rs
+@@ -750,6 +750,30 @@ mod imp {
+     }
+ }
+ 
++/// 9front (Plan 9): std's exec does not replace the program; it runs and waits, as on
++/// Windows. No rusage.
++#[cfg(target_os = "plan9")]
++mod imp {
++    use super::ProcessBuilder;
++    use anyhow::Result;
++    use std::io;
++    use std::process::ExitStatus;
++
++    pub fn exec_replace(process_builder: &ProcessBuilder) -> Result<()> {
++        process_builder.exec()
++    }
++
++    pub fn command_line_too_big(_err: &io::Error) -> bool {
++        false
++    }
++
++    pub fn wait_with_peak_rss(
++        mut child: std::process::Child,
++    ) -> io::Result<(ExitStatus, Option<u64>)> {
++        child.wait().map(|status| (status, None))
++    }
++}
++
+ #[cfg(windows)]
+ mod imp {
+     use super::{ProcessBuilder, ProcessError};
+diff --git a/crates/cargo-util/src/process_error.rs b/crates/cargo-util/src/process_error.rs
+index 9b4a38cb5..b62683480 100644
+--- a/crates/cargo-util/src/process_error.rs
++++ b/crates/cargo-util/src/process_error.rs
+@@ -138,6 +138,12 @@ pub fn exit_status_to_string(status: ExitStatus) -> String {
+         }
+     }
+ 
++    /// 9front (Plan 9): the status is the program's message (exits(2)).
++    #[cfg(target_os = "plan9")]
++    fn status_to_string(status: ExitStatus) -> String {
++        status.to_string()
++    }
++
+     #[cfg(windows)]
+     fn status_to_string(status: ExitStatus) -> String {
+         use windows_sys::Win32::Foundation::*;
+diff --git a/crates/cargo-util/src/read2.rs b/crates/cargo-util/src/read2.rs
+index 447c53482..8d3ef060d 100644
+--- a/crates/cargo-util/src/read2.rs
++++ b/crates/cargo-util/src/read2.rs
+@@ -81,6 +81,73 @@ mod imp {
+     }
+ }
+ 
++/// 9front (Plan 9): no non-blocking I/O: a thread reads each pipe, `data` is called here.
++#[cfg(target_os = "plan9")]
++mod imp {
++    use std::io::{self, Read};
++    use std::process::{ChildStderr, ChildStdout};
++    use std::sync::mpsc;
++    use std::thread;
++
++    pub fn read2(
++        out_pipe: ChildStdout,
++        err_pipe: ChildStderr,
++        data: &mut dyn FnMut(bool, &mut Vec<u8>, bool),
++    ) -> io::Result<()> {
++        let (tx, rx) = mpsc::channel::<(bool, io::Result<Vec<u8>>)>();
++        fn reader<R: Read + Send + 'static>(
++            mut r: R,
++            is_out: bool,
++            tx: mpsc::Sender<(bool, io::Result<Vec<u8>>)>,
++        ) -> thread::JoinHandle<()> {
++            thread::spawn(move || {
++                let mut buf = vec![0u8; 8192];
++                loop {
++                    match r.read(&mut buf) {
++                        Ok(n) => {
++                            let done = n == 0;
++                            if tx.send((is_out, Ok(buf[..n].to_vec()))).is_err() || done {
++                                break;
++                            }
++                        }
++                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
++                        Err(e) => {
++                            let _ = tx.send((is_out, Err(e)));
++                            break;
++                        }
++                    }
++                }
++            })
++        }
++        let a = reader(out_pipe, true, tx.clone());
++        let b = reader(err_pipe, false, tx);
++        let (mut out, mut err) = (Vec::new(), Vec::new());
++        let mut open = 2;
++        let mut result = Ok(());
++        while open > 0 {
++            let Ok((is_out, chunk)) = rx.recv() else { break };
++            let dst = if is_out { &mut out } else { &mut err };
++            match chunk {
++                Ok(c) if c.is_empty() => {
++                    open -= 1;
++                    data(is_out, dst, true);
++                }
++                Ok(c) => {
++                    dst.extend_from_slice(&c);
++                    data(is_out, dst, false);
++                }
++                Err(e) => {
++                    open -= 1;
++                    result = Err(e);
++                }
++            }
++        }
++        let _ = a.join();
++        let _ = b.join();
++        result
++    }
++}
++
+ #[cfg(windows)]
+ mod imp {
+     use std::io;
+diff --git a/credential/cargo-credential/src/stdio.rs b/credential/cargo-credential/src/stdio.rs
+index 8ca0e7d1f..9d4575855 100644
+--- a/credential/cargo-credential/src/stdio.rs
++++ b/credential/cargo-credential/src/stdio.rs
+@@ -79,6 +79,53 @@ mod imp {
+     }
+ }
+ 
++/// 9front (Plan 9): the console is /dev/cons; dup(2) takes the new descriptor.
++#[cfg(target_os = "plan9")]
++mod imp {
++    use super::Stdio;
++    use std::{fs::File, io::Error, os::fd::AsRawFd};
++    pub const IN_DEVICE: &str = "/dev/cons";
++    pub const OUT_DEVICE: &str = "/dev/cons";
++    pub const NULL_DEVICE: &str = "/dev/null";
++
++    unsafe extern "C" {
++        fn dup(oldfd: i32, newfd: i32) -> i32;
++        fn close(fd: i32) -> i32;
++    }
++
++    /// Restores previous stdio when dropped.
++    pub struct ReplacementGuard {
++        std_fileno: i32,
++        previous: i32,
++    }
++
++    impl ReplacementGuard {
++        pub(super) fn new(stdio: Stdio, replacement: &mut File) -> Result<ReplacementGuard, Error> {
++            let std_fileno = match stdio {
++                Stdio::Stdin => 0,
++                Stdio::Stdout => 1,
++            };
++            let previous = unsafe { dup(std_fileno, -1) };
++            if previous == -1 {
++                return Err(std::io::Error::last_os_error());
++            }
++            if unsafe { dup(replacement.as_raw_fd(), std_fileno) } == -1 {
++                return Err(std::io::Error::last_os_error());
++            }
++            Ok(ReplacementGuard { previous, std_fileno })
++        }
++    }
++
++    impl Drop for ReplacementGuard {
++        fn drop(&mut self) {
++            unsafe {
++                dup(self.previous, self.std_fileno);
++                close(self.previous);
++            }
++        }
++    }
++}
++
+ #[cfg(unix)]
+ mod imp {
+     use super::Stdio;
+diff --git a/src/bin/cargo/main.rs b/src/bin/cargo/main.rs
+index e9bee4e8e..90a9abd3b 100644
+--- a/src/bin/cargo/main.rs
++++ b/src/bin/cargo/main.rs
+@@ -333,13 +333,23 @@ fn is_executable<P: AsRef<Path>>(path: P) -> bool {
+         .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+         .unwrap_or(false)
+ }
++/// 9front (Plan 9): the execute bits of the mode
++#[cfg(target_os = "plan9")]
++fn is_executable<P: AsRef<Path>>(path: P) -> bool {
++    use std::os::plan9::prelude::*;
++    fs::metadata(path)
++        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
++        .unwrap_or(false)
++}
+ #[cfg(windows)]
+ fn is_executable<P: AsRef<Path>>(path: P) -> bool {
+     path.as_ref().is_file()
+ }
+ 
+ fn search_directories(gctx: &GlobalContext) -> Vec<PathBuf> {
+-    let mut path_dirs = if let Some(val) = gctx.get_env_os("PATH") {
++    // 9front (Plan 9): the commands' path is rc's $path
++    let path_var = if cfg!(target_os = "plan9") { "path" } else { "PATH" };
++    let mut path_dirs = if let Some(val) = gctx.get_env_os(path_var) {
+         env::split_paths(&val).collect()
+     } else {
+         vec![]
+diff --git a/src/ops/cargo_clean.rs b/src/ops/cargo_clean.rs
+index 6647be50b..a0b779d7f 100644
+--- a/src/ops/cargo_clean.rs
++++ b/src/ops/cargo_clean.rs
+@@ -769,6 +769,12 @@ impl FileId {
+         Some((FileId((meta.dev(), meta.ino())), meta.nlink() as u64))
+     }
+ 
++    /// 9front (Plan 9): no hard links, every file counts.
++    #[cfg(target_os = "plan9")]
++    fn new_with_link_count(_meta: &fs::Metadata, _path: &Path) -> Option<(Self, u64)> {
++        None
++    }
++
+     #[cfg(windows)]
+     fn new_with_link_count(_meta: &fs::Metadata, path: &Path) -> Option<(Self, u64)> {
+         use std::os::windows::ffi::OsStrExt;
+diff --git a/src/util/flock.rs b/src/util/flock.rs
+index 14a2fde58..86896821b 100644
+--- a/src/util/flock.rs
++++ b/src/util/flock.rs
+@@ -477,6 +477,12 @@ fn error_unsupported(err: &std::io::Error) -> bool {
+     }
+ }
+ 
++/// 9front (Plan 9) has no file locks (std's are unsupported): as a file system without.
++#[cfg(target_os = "plan9")]
++fn error_unsupported(err: &std::io::Error) -> bool {
++    err.kind() == std::io::ErrorKind::Unsupported
++}
++
+ #[cfg(windows)]
+ fn error_unsupported(err: &std::io::Error) -> bool {
+     use windows_sys::Win32::Foundation::ERROR_INVALID_FUNCTION;
+diff --git a/src/util/job.rs b/src/util/job.rs
+index 835594118..951e21887 100644
+--- a/src/util/job.rs
++++ b/src/util/job.rs
+@@ -22,6 +22,16 @@ pub fn setup() -> Option<Setup> {
+     unsafe { imp::setup() }
+ }
+ 
++/// 9front (Plan 9): an interrupt (DEL) is a note to the whole note group, the children too.
++#[cfg(target_os = "plan9")]
++mod imp {
++    pub type Setup = ();
++
++    pub unsafe fn setup() -> Option<()> {
++        Some(())
++    }
++}
++
+ #[cfg(unix)]
+ mod imp {
+     use std::env;

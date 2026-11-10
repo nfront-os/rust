@@ -1,0 +1,241 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 14:33:58 +0100
+Subject: [PATCH 13/25] plan9: file locks with DMEXCL:
+ std::os::plan9::fs::lock_file (an exclusive-use file opened alone, kept alive
+ against the server's lock timeout as upas does; "file is locked" is
+ WouldBlock), rustc's flock and cargo use it
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../rustc_data_structures/src/flock/plan9.rs  | 27 +++++--
+ library/std/src/os/plan9/fs.rs                | 76 +++++++++++++++++++
+ library/std/src/sys/fs/mod.rs                 |  3 +
+ library/std/src/sys/fs/plan9.rs               | 52 +++++++++++++
+ library/std/src/sys/pal/plan9/mod.rs          |  3 +
+ 5 files changed, 154 insertions(+), 7 deletions(-)
+
+diff --git a/compiler/rustc_data_structures/src/flock/plan9.rs b/compiler/rustc_data_structures/src/flock/plan9.rs
+index 32a64d73945..5fea5098f8c 100644
+--- a/compiler/rustc_data_structures/src/flock/plan9.rs
++++ b/compiler/rustc_data_structures/src/flock/plan9.rs
+@@ -1,17 +1,30 @@
+-//! 9front (Plan 9) has no advisory file locks: the lock is taken without one, as cargo does
+-//! on 9front (a file system without locks). cargo never builds one crate twice at once into
+-//! the same directory; two rustc on one incremental directory by hand are not kept apart.
++//! 9front (Plan 9) has no advisory file locks: a lock is the file opened alone, as an
++//! exclusive-use (DMEXCL) file (`std::os::plan9::fs::lock_file`); another open of it fails
++//! with "file is locked" (`WouldBlock`). There are no shared locks: a shared lock is
++//! exclusive. On a file server that keeps no DMEXCL (ext4srv), nothing is kept apart.
+ use std::fs::File;
+ use std::io;
++use std::os::plan9::fs::{FileLock, lock_file};
+ use std::path::Path;
+ 
+-#[derive(Debug)]
++use crate::marker::IntoDynSyncSend;
++
+ pub struct Lock {
+-    _file: File,
++    // Send and Sync (a File and its keep-alive thread), not on the marker module's list
++    _lock: IntoDynSyncSend<FileLock>,
++}
++
++impl std::fmt::Debug for Lock {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        self._lock.0.fmt(f)
++    }
+ }
+ 
+ impl Lock {
+-    pub fn try_lock(_p: &Path, file: File, _exclusive: bool) -> io::Result<Lock> {
+-        Ok(Lock { _file: file })
++    pub fn try_lock(p: &Path, file: File, _exclusive: bool) -> io::Result<Lock> {
++        // the open of `file` was made before the file was exclusive-use, or it is the lock:
++        // the lock is lock_file's own open
++        drop(file);
++        Ok(Lock { _lock: IntoDynSyncSend(lock_file(p, false)?) })
+     }
+ }
+diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
+index 6503f4e0d86..cd9f9785d72 100644
+--- a/library/std/src/os/plan9/fs.rs
++++ b/library/std/src/os/plan9/fs.rs
+@@ -8,6 +8,11 @@
+ use crate::ffi::OsStr;
+ use crate::fs::{self, DirBuilder, File, Metadata, OpenOptions, Permissions};
+ use crate::io;
++use crate::os::plan9::io::{AsRawFd, FromRawFd};
++use crate::path::Path;
++use crate::sync::{Arc, Condvar, Mutex};
++use crate::time::Duration;
++use crate::{fmt, mem, thread};
+ use crate::sys::{AsInner, AsInnerMut, FromInner};
+ 
+ /// The stat(5) entry of a file.
+@@ -179,3 +184,74 @@ fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
+         self.as_inner().write_at(buf, offset)
+     }
+ }
++
++/// A file lock as Plan 9 has one: `path` opened alone. Its file server lets one open of
++/// an exclusive-use file (`DMEXCL`) at a time; another fails with "file is locked"
++/// ([`io::ErrorKind::WouldBlock`]). `path` is made exclusive-use if it is not (made with it
++/// if it does not exist). `wait`: try again until it is free, else return the error. There
++/// are no shared locks: a reader locks as a writer does. Most of 9front's file servers keep
++/// `DMEXCL` (gefs, cwfs, hjfs, ramfs); on one that does not (ext4srv), nothing is kept apart.
++///
++/// open(5) lets a server break the lock of a file not used for a while (cwfs and hjfs: five
++/// minutes); as upas' locks, a thread of the lock reads the file once a minute. Dropping the
++/// lock ends it and closes the file, which releases the lock.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub fn lock_file<P: AsRef<Path>>(path: P, wait: bool) -> io::Result<FileLock> {
++    let file = File::from_inner(crate::sys::fs::lock_file(path.as_ref(), wait)?);
++    let keep = Arc::new(Keep { stop: Mutex::new(false), cv: Condvar::new() });
++    let fd = file.as_raw_fd();
++    let k = keep.clone();
++    let thread = thread::Builder::new().name("lock_file".into()).spawn(move || {
++        let mut stop = k.stop.lock().unwrap();
++        while !*stop {
++            let (s, r) = k.cv.wait_timeout(stop, Duration::from_secs(60)).unwrap();
++            stop = s;
++            if !*stop && r.timed_out() {
++                // the lock's fd: closed only after this thread ends (FileLock's drop)
++                let f = mem::ManuallyDrop::new(unsafe { File::from_raw_fd(fd) });
++                let _ = f.read_at(&mut [0u8; 1], 0);
++            }
++        }
++    })?;
++    Ok(FileLock { file, keep, thread: Some(thread) })
++}
++
++struct Keep {
++    stop: Mutex<bool>,
++    cv: Condvar,
++}
++
++/// A lock of [`lock_file`]: the locked file, kept in use.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub struct FileLock {
++    file: File,
++    keep: Arc<Keep>,
++    thread: Option<thread::JoinHandle<()>>,
++}
++
++impl FileLock {
++    /// The locked file, open for reading and writing.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub fn file(&self) -> &File {
++        &self.file
++    }
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl fmt::Debug for FileLock {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("FileLock").field("file", &self.file).finish()
++    }
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl Drop for FileLock {
++    fn drop(&mut self) {
++        *self.keep.stop.lock().unwrap() = true;
++        self.keep.cv.notify_one();
++        if let Some(t) = self.thread.take() {
++            let _ = t.join();
++        }
++        // then the file closes: the lock is free
++    }
++}
+diff --git a/library/std/src/sys/fs/mod.rs b/library/std/src/sys/fs/mod.rs
+index 11cbd136027..e42bb52a451 100644
+--- a/library/std/src/sys/fs/mod.rs
++++ b/library/std/src/sys/fs/mod.rs
+@@ -69,6 +69,9 @@ pub fn with_native_path<T>(path: &Path, f: &dyn Fn(&Path) -> io::Result<T>) -> i
+     FileTimes, FileType, OpenOptions, ReadDir,
+ };
+ 
++#[cfg(target_os = "plan9")]
++pub use imp::lock_file;
++
+ pub fn read_dir(path: &Path) -> io::Result<ReadDir> {
+     // FIXME: use with_native_path on all platforms
+     imp::readdir(path)
+diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
+index fbd3dc09b63..054f73bde2f 100644
+--- a/library/std/src/sys/fs/plan9.rs
++++ b/library/std/src/sys/fs/plan9.rs
+@@ -436,6 +436,58 @@ fn wstat(f: impl FnOnce(&mut libc::Dir), w: impl FnOnce(*mut libc::Dir) -> i32)
+     }
+ }
+ 
++/// os::plan9::fs::lock_file: `path` opened alone, as an exclusive-use (DMEXCL) file. A
++/// server that keeps no DMEXCL (or a file that cannot get it): the file, as upas' locks.
++pub fn lock_file(path: &Path, wait: bool) -> io::Result<File> {
++    let c = cstr(path)?;
++    let omode = libc::ORDWR | libc::OCEXEC;
++    let mut made = false;
++    loop {
++        let fd = unsafe { libc::open(c.as_ptr(), omode) };
++        let r = if fd >= 0 {
++            Ok(File(unsafe { FileDesc::from_raw_fd(fd) }))
++        } else {
++            let e = last_error();
++            if e.kind() == io::ErrorKind::NotFound {
++                // made exclusive-use; made meanwhile by another: open it
++                let fd = unsafe { libc::create(c.as_ptr(), omode | libc::OEXCL, libc::DMEXCL | 0o666) };
++                if fd >= 0 {
++                    Ok(File(unsafe { FileDesc::from_raw_fd(fd) }))
++                } else {
++                    let e = last_error();
++                    if e.kind() == io::ErrorKind::AlreadyExists {
++                        continue;
++                    }
++                    Err(e)
++                }
++            } else {
++                Err(e)
++            }
++        };
++        match r {
++            Ok(f) => {
++                set_state(f.0.as_raw_fd(), FdState::default());
++                let mode = f.file_attr()?.mode;
++                if mode & libc::DMEXCL != 0 || made {
++                    return Ok(f);
++                }
++                // made before without DMEXCL: it gets it, then the open that counts
++                let fd = f.0.as_raw_fd();
++                if wstat(|d| d.mode = mode | libc::DMEXCL, |d| unsafe { libc::dirfwstat(fd, d) })
++                    .is_err()
++                {
++                    return Ok(f);
++                }
++                made = true;
++            }
++            Err(e) if e.kind() == io::ErrorKind::WouldBlock && wait => {
++                crate::thread::sleep(crate::time::Duration::from_millis(100));
++            }
++            Err(e) => return Err(e),
++        }
++    }
++}
++
+ fn times(times: &FileTimes, d: &mut libc::Dir) {
+     if let Some(t) = times.accessed {
+         d.atime = t.to_secs();
+diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
+index b191f5c0af3..cfa0993199d 100644
+--- a/library/std/src/sys/pal/plan9/mod.rs
++++ b/library/std/src/sys/pal/plan9/mod.rs
+@@ -115,6 +115,9 @@ pub fn error_kind(s: &[u8]) -> io::ErrorKind {
+         ReadOnlyFilesystem
+     } else if has("name too long") {
+         InvalidFilename
++    } else if has("file is locked") || has("file locked") {
++        // an exclusive-use file (DMEXCL) open elsewhere: os::plan9::fs::lock_file
++        WouldBlock
+     } else if has("in use") {
+         ResourceBusy
+     } else if has("bad arg") || has("bad character") || has("file name syntax") {

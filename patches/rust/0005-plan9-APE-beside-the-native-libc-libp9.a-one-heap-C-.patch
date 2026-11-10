@@ -1,0 +1,264 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 22:00:59 +0100
+Subject: [PATCH 05/25] plan9: APE beside the native libc (libp9.a), one heap,
+ C threads on std's
+
+The target links libc as libp9.a (9front: every name __p9_*), the entry
+__p9__main, and APE with it in one group: the C and C++ of crates are APE
+programs as any, and libgcc's and the compiler's C names (memcpy, abort)
+are APE's. std provides malloc, free, realloc, aligned_alloc, memalign,
+posix_memalign (16-byte aligned, on libc's: one heap; APE's malloc.o is
+not linked) and calls APE's __ape_exit when the program ends (9front's
+ap/gnu/native.c attaches APE from a constructor). For APE's pthreads:
+__plan9_thread_spawn, _join, _detach, threads of std's.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ compiler/rustc_target/src/spec/base/plan9.rs | 18 ++--
+ library/std/src/sys/alloc/mod.rs             |  2 +
+ library/std/src/sys/alloc/plan9.rs           | 86 ++++++++++++++++++++
+ library/std/src/sys/pal/plan9/mod.rs         |  1 +
+ library/std/src/sys/pal/plan9/proc.rs        | 61 ++++++++++++++
+ 5 files changed, 163 insertions(+), 5 deletions(-)
+
+diff --git a/compiler/rustc_target/src/spec/base/plan9.rs b/compiler/rustc_target/src/spec/base/plan9.rs
+index 104e9f300c1..8b8e16ded17 100644
+--- a/compiler/rustc_target/src/spec/base/plan9.rs
++++ b/compiler/rustc_target/src/spec/base/plan9.rs
+@@ -1,6 +1,9 @@
+ //! 9front (Plan 9): native Plan 9 programs, linked by the gcc of 9front's gcc port
+-//! (`x86_64-pc-plan9-gcc`) against the system's own libc (`/$objtype/lib.gcc/libc.a`),
+-//! not APE (its POSIX layer).
++//! (`x86_64-pc-plan9-gcc`) against the system's own libc as `libp9.a` (`/$objtype/lib.gcc`:
++//! libc.a with every name renamed `__p9_*`), so that APE, Plan 9's POSIX layer, can be in
++//! the program beside it: the C and C++ of crates, built as for any APE program, and what
++//! libgcc and the compiler call by C names (memcpy, abort). APE attaches itself to the
++//! native program (9front's `ap/gnu/native.c`); its allocator is std's (one heap).
+ //!
+ //! The driver's linker script (`/$objtype/plan9.ld`) gives a static ELF executable with
+ //! a text and a data segment, which the kernel loads. Without `-nodefaultlibs` the driver
+@@ -30,9 +33,14 @@ pub(crate) fn opts() -> TargetOptions {
+         // locals are kept by std (no TLS segment in Plan 9's executables)
+         has_thread_local: false,
+         no_default_libraries: true,
+-        pre_link_args: TargetOptions::link_args(flavor, &["-Wl,--wrap=main"]),
+-        // libgcc: __wrap_main, the unwinder; it needs libc's malloc and friends
+-        late_link_args: TargetOptions::link_args(flavor, &["-lgcc", "-lc"]),
++        // the entry is libc's _main (renamed)
++        pre_link_args: TargetOptions::link_args(flavor, &["-Wl,--wrap=main", "-Wl,-e,__p9__main"]),
++        // one group, they call each other: libc's _main libgcc's __wrap_main, libgcc (the
++        // unwinder) APE's abort and memcpy, APE libc's privalloc
++        late_link_args: TargetOptions::link_args(
++            flavor,
++            &["-Wl,--start-group", "-lp9", "-lbsd", "-lap", "-lgcc", "-Wl,--end-group"],
++        ),
+         // no dl_iterate_phdr: the unwinder finds the frames registered by crtbegin.o
+         eh_frame_header: false,
+         // libgcc's DWARF unwinder, the tables registered by crtbegin.o
+diff --git a/library/std/src/sys/alloc/mod.rs b/library/std/src/sys/alloc/mod.rs
+index 3148a19ff76..3c13c55214e 100644
+--- a/library/std/src/sys/alloc/mod.rs
++++ b/library/std/src/sys/alloc/mod.rs
+@@ -115,6 +115,8 @@ unsafe fn realloc_fallback(ptr: *mut u8, old_layout: Layout, new_size: usize) ->
+ }
+ 
+ pub use imp::{alloc, dealloc, realloc};
++#[cfg(target_os = "plan9")]
++pub use imp::keep_c_alloc;
+ 
+ cfg_select! {
+     any(
+diff --git a/library/std/src/sys/alloc/plan9.rs b/library/std/src/sys/alloc/plan9.rs
+index c89dd325077..071aa6f8ed6 100644
+--- a/library/std/src/sys/alloc/plan9.rs
++++ b/library/std/src/sys/alloc/plan9.rs
+@@ -39,3 +39,89 @@ pub unsafe fn realloc(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8
+         }
+     }
+ }
++
++/*
++ * The C allocator of the program (APE's names: malloc.o of libap is not linked, its
++ * functions are these), on libc's, so that Rust and the C of crates (APE, libstdc++)
++ * share one heap: two allocators would both move the break. gcc's C and C++ take
++ * 16-byte alignment from malloc (max_align_t, new).
++ */
++const C_ALIGN: libc::ulong = 16;
++
++unsafe fn c_aligned(align: usize, size: usize) -> *mut libc::c_void {
++    let (Ok(n), Ok(a)) = (libc::ulong::try_from(size), libc::ulong::try_from(align)) else {
++        return ptr::null_mut();
++    };
++    unsafe { libc::mallocalign(n, a.max(C_ALIGN), 0, 0) }
++}
++
++#[unsafe(export_name = "malloc")]
++pub unsafe extern "C" fn c_malloc(size: usize) -> *mut libc::c_void {
++    unsafe { c_aligned(16, size) }
++}
++
++#[unsafe(export_name = "free")]
++pub unsafe extern "C" fn c_free(p: *mut libc::c_void) {
++    unsafe { libc::free(p) }
++}
++
++#[unsafe(export_name = "realloc")]
++pub unsafe extern "C" fn c_realloc(p: *mut libc::c_void, size: usize) -> *mut libc::c_void {
++    unsafe {
++        if p.is_null() {
++            return c_malloc(size);
++        }
++        let Ok(n) = libc::ulong::try_from(size) else { return ptr::null_mut() };
++        let q = libc::realloc(p, n);
++        if q.is_null() || q.addr() % C_ALIGN as usize == 0 {
++            return q;
++        }
++        // libc's realloc keeps 8 bytes of alignment: moved where the 16 are
++        let r = c_aligned(16, size);
++        if !r.is_null() {
++            ptr::copy_nonoverlapping(q.cast::<u8>(), r.cast::<u8>(), size);
++        }
++        libc::free(q);
++        r
++    }
++}
++
++#[unsafe(export_name = "aligned_alloc")]
++pub unsafe extern "C" fn c_aligned_alloc(align: usize, size: usize) -> *mut libc::c_void {
++    if !align.is_power_of_two() {
++        return ptr::null_mut();
++    }
++    unsafe { c_aligned(align, size) }
++}
++
++#[unsafe(export_name = "memalign")]
++pub unsafe extern "C" fn c_memalign(align: usize, size: usize) -> *mut libc::c_void {
++    unsafe { c_aligned_alloc(align, size) }
++}
++
++#[unsafe(export_name = "posix_memalign")]
++pub unsafe extern "C" fn c_posix_memalign(
++    p: *mut *mut libc::c_void,
++    align: usize,
++    size: usize,
++) -> libc::c_int {
++    if !align.is_power_of_two() || align < size_of::<usize>() {
++        return libc::EINVAL;
++    }
++    let q = unsafe { c_aligned(align, size) };
++    if q.is_null() {
++        return libc::ENOMEM;
++    }
++    unsafe { *p = q };
++    0
++}
++
++/// Keeps the C allocator in the link: APE and libgcc refer to it after std.
++pub fn keep_c_alloc() {
++    crate::hint::black_box((c_malloc as *const ()).expose_provenance());
++    crate::hint::black_box((c_free as *const ()).expose_provenance());
++    crate::hint::black_box((c_realloc as *const ()).expose_provenance());
++    crate::hint::black_box((c_aligned_alloc as *const ()).expose_provenance());
++    crate::hint::black_box((c_memalign as *const ()).expose_provenance());
++    crate::hint::black_box((c_posix_memalign as *const ()).expose_provenance());
++}
+diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
+index 5ba5cc96f41..07e67636747 100644
+--- a/library/std/src/sys/pal/plan9/mod.rs
++++ b/library/std/src/sys/pal/plan9/mod.rs
+@@ -32,6 +32,7 @@ pub fn unsupported_err() -> io::Error {
+ // NOTE: this is not guaranteed to run, for example when Rust code is called externally.
+ pub unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
+     proc::keep_mainstack();
++    crate::sys::alloc::keep_c_alloc();
+     unsafe {
+         crate::sys::args::init(argc, argv);
+         // sigpipe: DEFAULT (0) ignores it, as on unix; INHERIT (1) and SIG_DFL (3) keep
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index f8c062ff481..931ccd53997 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -177,9 +177,17 @@ fn kill_proc(pid: i32) {
+     }
+ }
+ 
++unsafe extern "C" {
++    /// APE in the program (ap/gnu/native.c, linked through this: it attaches APE from a
++    /// constructor); runs APE's atexit functions.
++    fn __ape_exit();
++}
++
+ /// The program ends with `status` (exits(2)): the other threads go; from a thread, the
+ /// proc that runs `main` ends with a note of the status, so that its parent sees that.
+ pub fn end_program(status: &crate::ffi::CStr) -> ! {
++    // APE's atexit functions (the C's; stdio's flush): ap/gnu/native.c of 9front
++    unsafe { __ape_exit() };
+     let me = unsafe { libc::getpid() };
+     let main = MAIN_PID.load(Relaxed);
+     ALL_LOCK.lock();
+@@ -587,11 +595,64 @@ struct MainArgs {
+ }
+ 
+ /// Keeps `__plan9_mainstack` in the link: libgcc refers to it only weakly.
++struct CThread {
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++}
++
++unsafe fn cthread_main(v: *mut c_void) {
++    unsafe {
++        let c = v as *mut CThread;
++        let CThread { f, arg } = ptr::read(c);
++        libc::free(c.cast());
++        f(arg);
++    }
++}
++
++/// For C in the program (APE's POSIX threads, ap/gnu/pthread.c): a thread as std's, on a stack
++/// of `stack_size` bytes (0: std's default), running `f(arg)`; its handle, or null and the
++/// error string. The handle goes to `__plan9_thread_join` or `__plan9_thread_detach`.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __plan9_thread_spawn(
++    stack_size: usize,
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++) -> *mut c_void {
++    unsafe {
++        let c = libc::malloc(size_of::<CThread>() as libc::ulong) as *mut CThread;
++        if c.is_null() {
++            return ptr::null_mut();
++        }
++        ptr::write(c, CThread { f, arg });
++        let size = if stack_size == 0 { crate::sys::thread::DEFAULT_MIN_STACK_SIZE } else { stack_size };
++        let p = spawn(size, cthread_main, c.cast());
++        if p.is_null() {
++            libc::free(c.cast());
++        }
++        p.cast()
++    }
++}
++
++/// Waits for a thread of `__plan9_thread_spawn`.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __plan9_thread_join(p: *mut c_void) {
++    unsafe { join(p.cast()) }
++}
++
++/// A thread of `__plan9_thread_spawn` goes on without anyone waiting for it.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __plan9_thread_detach(p: *mut c_void) {
++    unsafe { detach(p.cast()) }
++}
++
+ /// Keeps `__plan9_mainstack` and `__plan9_rforkproc` in the link: libgcc refers to the one
+ /// only weakly, the other the C after std in the link.
+ pub fn keep_mainstack() {
+     crate::hint::black_box((__plan9_mainstack as *const ()).expose_provenance());
+     crate::hint::black_box((__plan9_rforkproc as *const ()).expose_provenance());
++    crate::hint::black_box((__plan9_thread_spawn as *const ()).expose_provenance());
++    crate::hint::black_box((__plan9_thread_join as *const ()).expose_provenance());
++    crate::hint::black_box((__plan9_thread_detach as *const ()).expose_provenance());
+ }
+ 
+ /* futex */

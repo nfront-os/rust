@@ -1,0 +1,3540 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 11:42:33 +0100
+Subject: [PATCH 02/25] plan9: std's fs, env, paths, pipes, processes, network;
+ os::fd, os::plan9
+
+Files on open/create and stat(5) entries (rename stays in a directory, across
+them a file is copied); /env; processes forked off the shared stacks onto the
+child's own segment, waited for through /proc/n/wait from any thread; the
+network of /net (dial, announce, listen, accept; UDP with headers; names
+through /net/cs); close-on-exec for pipes and network descriptors through #d.
+What a descriptor has beyond the kernel's (append mode, timeouts, UDP peer) is
+kept beside it: std views a File or TcpStream as only its descriptor.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/os/fd/owned.rs              |  12 +
+ library/std/src/os/fd/raw.rs                |   2 +-
+ library/std/src/os/mod.rs                   |   1 +
+ library/std/src/os/plan9/fs.rs              | 181 ++++
+ library/std/src/os/plan9/io.rs              |   6 +
+ library/std/src/os/plan9/mod.rs             |  14 +
+ library/std/src/os/plan9/process.rs         |  23 +
+ library/std/src/sys/env/mod.rs              |   5 +
+ library/std/src/sys/env/plan9.rs            |  91 ++
+ library/std/src/sys/fd/mod.rs               |   4 +
+ library/std/src/sys/fd/plan9.rs             | 207 +++++
+ library/std/src/sys/fs/mod.rs               |   4 +
+ library/std/src/sys/fs/plan9.rs             | 896 ++++++++++++++++++++
+ library/std/src/sys/net/connection/mod.rs   |   4 +
+ library/std/src/sys/net/connection/plan9.rs | 783 +++++++++++++++++
+ library/std/src/sys/net/hostname/mod.rs     |   4 +
+ library/std/src/sys/net/hostname/plan9.rs   |  12 +
+ library/std/src/sys/pal/plan9/mod.rs        |  14 +-
+ library/std/src/sys/pal/plan9/proc.rs       |  46 +
+ library/std/src/sys/paths/mod.rs            |   4 +
+ library/std/src/sys/paths/plan9.rs          | 131 +++
+ library/std/src/sys/pipe/mod.rs             |   4 +
+ library/std/src/sys/pipe/plan9.rs           |  25 +
+ library/std/src/sys/process/mod.rs          |   4 +
+ library/std/src/sys/process/plan9.rs        | 715 ++++++++++++++++
+ library/std/src/sys/time/plan9.rs           |  10 +
+ 26 files changed, 3198 insertions(+), 4 deletions(-)
+ create mode 100644 library/std/src/os/plan9/fs.rs
+ create mode 100644 library/std/src/os/plan9/io.rs
+ create mode 100644 library/std/src/os/plan9/process.rs
+ create mode 100644 library/std/src/sys/env/plan9.rs
+ create mode 100644 library/std/src/sys/fd/plan9.rs
+ create mode 100644 library/std/src/sys/fs/plan9.rs
+ create mode 100644 library/std/src/sys/net/connection/plan9.rs
+ create mode 100644 library/std/src/sys/net/hostname/plan9.rs
+ create mode 100644 library/std/src/sys/paths/plan9.rs
+ create mode 100644 library/std/src/sys/pipe/plan9.rs
+ create mode 100644 library/std/src/sys/process/plan9.rs
+
+diff --git a/library/std/src/os/fd/owned.rs b/library/std/src/os/fd/owned.rs
+index fa775a93734..1124be4d370 100644
+--- a/library/std/src/os/fd/owned.rs
++++ b/library/std/src/os/fd/owned.rs
+@@ -129,6 +129,7 @@ impl BorrowedFd<'_> {
+     #[cfg(not(any(
+         all(target_family = "wasm", not(target_os = "emscripten")),
+         target_os = "hermit",
++        target_os = "plan9",
+         target_os = "trusty",
+         target_os = "motor"
+     )))]
+@@ -167,6 +168,15 @@ pub fn try_clone_to_owned(&self) -> io::Result<OwnedFd> {
+ 
+     /// Creates a new `OwnedFd` instance that shares the same underlying file
+     /// description as the existing `BorrowedFd` instance.
++    /// Creates a new `OwnedFd` instance that shares the same underlying file
++    /// description as the existing `BorrowedFd` instance: dup(2), the lowest free one.
++    #[cfg(target_os = "plan9")]
++    #[stable(feature = "io_safety", since = "1.63.0")]
++    pub fn try_clone_to_owned(&self) -> io::Result<OwnedFd> {
++        let fd = cvt(unsafe { libc::dup(self.as_raw_fd(), -1) })?;
++        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
++    }
++
+     #[cfg(target_os = "motor")]
+     #[stable(feature = "io_safety", since = "1.63.0")]
+     pub fn try_clone_to_owned(&self) -> io::Result<OwnedFd> {
+@@ -241,6 +251,8 @@ fn drop(&mut self) {
+             {
+                 #[cfg(unix)]
+                 crate::sys::fs::debug_assert_fd_is_open(self.fd.as_inner());
++                #[cfg(target_os = "plan9")]
++                crate::sys::fd::forget_state(self.fd.as_inner());
+ 
+                 let _ = libc::close(self.fd.as_inner());
+             }
+diff --git a/library/std/src/os/fd/raw.rs b/library/std/src/os/fd/raw.rs
+index 41904018d09..0ddf94a6102 100644
+--- a/library/std/src/os/fd/raw.rs
++++ b/library/std/src/os/fd/raw.rs
+@@ -7,7 +7,7 @@
+ #[cfg(target_os = "motor")]
+ use moto_rt::libc;
+ 
+-#[cfg(target_os = "motor")]
++#[cfg(any(target_os = "motor", target_os = "plan9"))]
+ use super::owned::OwnedFd;
+ use crate::alloc::Allocator;
+ #[cfg(not(target_os = "trusty"))]
+diff --git a/library/std/src/os/mod.rs b/library/std/src/os/mod.rs
+index 7d52b86cb58..05920b34512 100644
+--- a/library/std/src/os/mod.rs
++++ b/library/std/src/os/mod.rs
+@@ -70,6 +70,7 @@ pub mod windows {}
+ #[cfg(any(
+     unix,
+     target_os = "hermit",
++    target_os = "plan9",
+     target_os = "trusty",
+     target_os = "wasi",
+     target_os = "motor",
+diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
+new file mode 100644
+index 00000000000..6503f4e0d86
+--- /dev/null
++++ b/library/std/src/os/plan9/fs.rs
+@@ -0,0 +1,181 @@
++//! Plan 9-specific extensions to primitives in the [`std::fs`] module: the fields of a
++//! file's stat(5) entry, permissions, `pread`/`pwrite`.
++//!
++//! [`std::fs`]: crate::fs
++
++#![stable(feature = "rust1", since = "1.0.0")]
++
++use crate::ffi::OsStr;
++use crate::fs::{self, DirBuilder, File, Metadata, OpenOptions, Permissions};
++use crate::io;
++use crate::sys::{AsInner, AsInnerMut, FromInner};
++
++/// The stat(5) entry of a file.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub trait MetadataExt {
++    /// `mode`: the permission bits and the `DM*` bits (directory, append-only, ...).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn mode(&self) -> u32;
++    /// `qid.type`: the `QT*` bits.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn qid_type(&self) -> u8;
++    /// `qid.path`: unique on its server.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn qid_path(&self) -> u64;
++    /// `qid.vers`: changes with the file.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn qid_vers(&self) -> u32;
++    /// `type`: the kernel device of the server.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn server_type(&self) -> u16;
++    /// `dev`: which of the device's servers.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn server_dev(&self) -> u32;
++    /// The owner.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn uid(&self) -> &OsStr;
++    /// The group.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn gid(&self) -> &OsStr;
++    /// Who changed it last.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn muid(&self) -> &OsStr;
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl MetadataExt for Metadata {
++    fn mode(&self) -> u32 {
++        self.as_inner().mode()
++    }
++    fn qid_type(&self) -> u8 {
++        self.as_inner().qid_type()
++    }
++    fn qid_path(&self) -> u64 {
++        self.as_inner().qid_path()
++    }
++    fn qid_vers(&self) -> u32 {
++        self.as_inner().qid_vers()
++    }
++    fn server_type(&self) -> u16 {
++        self.as_inner().server_type()
++    }
++    fn server_dev(&self) -> u32 {
++        self.as_inner().server_dev()
++    }
++    fn uid(&self) -> &OsStr {
++        self.as_inner().uid()
++    }
++    fn gid(&self) -> &OsStr {
++        self.as_inner().gid()
++    }
++    fn muid(&self) -> &OsStr {
++        self.as_inner().muid()
++    }
++}
++
++/// Plan 9's file types beyond directory and file.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub trait FileTypeExt {
++    /// Writes go to the end (DMAPPEND).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn is_append(&self) -> bool;
++    /// One open at a time (DMEXCL).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn is_exclusive(&self) -> bool;
++    /// Not backed up (DMTMP).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn is_tmp(&self) -> bool;
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl FileTypeExt for fs::FileType {
++    fn is_append(&self) -> bool {
++        self.as_inner().is_append()
++    }
++    fn is_exclusive(&self) -> bool {
++        self.as_inner().is_exclusive()
++    }
++    fn is_tmp(&self) -> bool {
++        self.as_inner().is_tmp()
++    }
++}
++
++/// The permission bits of a file's mode.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub trait PermissionsExt {
++    /// The mode, with the `DM*` bits.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn mode(&self) -> u32;
++    /// Sets the permission bits (0o777).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn set_mode(&mut self, mode: u32);
++    /// Permissions of these bits.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn from_mode(mode: u32) -> Self;
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl PermissionsExt for Permissions {
++    fn mode(&self) -> u32 {
++        self.as_inner().mode()
++    }
++    fn set_mode(&mut self, mode: u32) {
++        *self = Permissions::from_inner(FromInner::from_inner(mode));
++    }
++    fn from_mode(mode: u32) -> Permissions {
++        Permissions::from_inner(FromInner::from_inner(mode))
++    }
++}
++
++/// The permission of a new file.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub trait OpenOptionsExt {
++    /// For create(2), which takes the directory's into account; 0o666 if not set.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn mode(&mut self, mode: u32) -> &mut Self;
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl OpenOptionsExt for OpenOptions {
++    fn mode(&mut self, mode: u32) -> &mut OpenOptions {
++        self.as_inner_mut().mode(mode);
++        self
++    }
++}
++
++/// The permission of a new directory.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub trait DirBuilderExt {
++    /// 0o777 if not set.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn mode(&mut self, mode: u32) -> &mut Self;
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl DirBuilderExt for DirBuilder {
++    fn mode(&mut self, mode: u32) -> &mut DirBuilder {
++        self.as_inner_mut().set_mode(mode);
++        self
++    }
++}
++
++/// I/O at an offset: pread(2), pwrite(2).
++#[stable(feature = "rust1", since = "1.0.0")]
++pub trait FileExt {
++    /// Reads at `offset`, not moving the file's.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize>;
++    /// Writes at `offset`, not moving the file's.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize>;
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl FileExt for File {
++    fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
++        self.as_inner().read_at(buf, offset)
++    }
++    fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
++        self.as_inner().write_at(buf, offset)
++    }
++}
+diff --git a/library/std/src/os/plan9/io.rs b/library/std/src/os/plan9/io.rs
+new file mode 100644
+index 00000000000..5500cfded4f
+--- /dev/null
++++ b/library/std/src/os/plan9/io.rs
+@@ -0,0 +1,6 @@
++//! Plan 9-specific extensions to general I/O primitives: file descriptors.
++
++#![stable(feature = "rust1", since = "1.0.0")]
++
++#[stable(feature = "rust1", since = "1.0.0")]
++pub use crate::os::fd::*;
+diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
+index 7a86de9b9be..12507a44a6f 100644
+--- a/library/std/src/os/plan9/mod.rs
++++ b/library/std/src/os/plan9/mod.rs
+@@ -4,6 +4,9 @@
+ #![deny(unsafe_op_in_unsafe_fn)]
+ 
+ pub mod ffi;
++pub mod fs;
++pub mod io;
++pub mod process;
+ 
+ /// A prelude for conveniently writing platform-specific code.
+ ///
+@@ -13,4 +16,15 @@ pub mod prelude {
+     #[doc(no_inline)]
+     #[stable(feature = "rust1", since = "1.0.0")]
+     pub use super::ffi::{OsStrExt, OsStringExt};
++    #[doc(no_inline)]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub use super::fs::{
++        DirBuilderExt, FileExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt,
++    };
++    #[doc(no_inline)]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub use super::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
++    #[doc(no_inline)]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub use super::process::ExitStatusExt;
+ }
+diff --git a/library/std/src/os/plan9/process.rs b/library/std/src/os/plan9/process.rs
+new file mode 100644
+index 00000000000..01c229acfdc
+--- /dev/null
++++ b/library/std/src/os/plan9/process.rs
+@@ -0,0 +1,23 @@
++//! Plan 9-specific extensions to primitives in the [`std::process`] module.
++//!
++//! [`std::process`]: crate::process
++
++#![stable(feature = "rust1", since = "1.0.0")]
++
++use crate::process;
++use crate::sys::AsInner;
++
++/// A Plan 9 program ends with a message (exits(2)), not a number.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub trait ExitStatusExt {
++    /// The Waitmsg's message: empty for success, else `"prog pid: message"`.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    fn msg(&self) -> &[u8];
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl ExitStatusExt for process::ExitStatus {
++    fn msg(&self) -> &[u8] {
++        self.as_inner().msg()
++    }
++}
+diff --git a/library/std/src/sys/env/mod.rs b/library/std/src/sys/env/mod.rs
+index 89856516b6d..9e5deb73f27 100644
+--- a/library/std/src/sys/env/mod.rs
++++ b/library/std/src/sys/env/mod.rs
+@@ -5,6 +5,7 @@
+ #[cfg(any(
+     target_family = "unix",
+     target_os = "hermit",
++    target_os = "plan9",
+     target_os = "motor",
+     all(target_vendor = "fortanix", target_env = "sgx"),
+     target_os = "solid_asp3",
+@@ -27,6 +28,10 @@
+         mod hermit;
+         pub use hermit::*;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::*;
++    }
+     target_os = "motor" => {
+         mod motor;
+         pub use motor::*;
+diff --git a/library/std/src/sys/env/plan9.rs b/library/std/src/sys/env/plan9.rs
+new file mode 100644
+index 00000000000..6d2a5900e19
+--- /dev/null
++++ b/library/std/src/sys/env/plan9.rs
+@@ -0,0 +1,91 @@
++//! The environment is env(3), the files of `/env`, shared by the procs of an
++//! environment group (the threads, and children unless they make their own). A value is
++//! the file's bytes: rc's lists keep their elements apart with NUL bytes (`$path`), the
++//! final NUL is dropped, as getenv(2) does (which makes the inner ones spaces; here they
++//! stay, for `env::split_paths`).
++
++pub use super::common::Env;
++use crate::ffi::{CString, OsStr, OsString};
++use crate::io;
++use crate::os::plan9::ffi::{OsStrExt, OsStringExt};
++use crate::path::Path;
++
++fn bad_name(k: &[u8]) -> bool {
++    k.is_empty() || k == b"." || k == b".." || k.contains(&b'/') || k.contains(&0)
++}
++
++fn path(k: &[u8]) -> Option<CString> {
++    if bad_name(k) {
++        return None;
++    }
++    let mut p = b"/env/".to_vec();
++    p.extend_from_slice(k);
++    CString::new(p).ok()
++}
++
++fn read_value(p: &CString) -> Option<Vec<u8>> {
++    unsafe {
++        let fd = libc::open(p.as_ptr(), libc::OREAD | libc::OCEXEC);
++        if fd < 0 {
++            return None;
++        }
++        let mut v = Vec::new();
++        let mut buf = [0u8; 1024];
++        loop {
++            let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len() as _);
++            if n <= 0 {
++                break;
++            }
++            v.extend_from_slice(&buf[..n as usize]);
++        }
++        libc::close(fd);
++        while v.last() == Some(&0) {
++            v.pop();
++        }
++        Some(v)
++    }
++}
++
++pub fn env() -> Env {
++    let mut vars = Vec::new();
++    if let Ok(dir) = crate::sys::fs::read_dir(Path::new("/env")) {
++        for e in dir.flatten() {
++            let name = e.file_name();
++            if e.file_type().map(|t| t.is_dir()).unwrap_or(true) {
++                continue;
++            }
++            if let Some(p) = path(name.as_bytes()) {
++                if let Some(v) = read_value(&p) {
++                    vars.push((name, OsString::from_vec(v)));
++                }
++            }
++        }
++    }
++    Env::new(vars)
++}
++
++pub fn getenv(k: &OsStr) -> Option<OsString> {
++    read_value(&path(k.as_bytes())?).map(OsString::from_vec)
++}
++
++pub unsafe fn setenv(k: &OsStr, v: &OsStr) -> io::Result<()> {
++    let p = path(k.as_bytes())
++        .ok_or(io::const_error!(io::ErrorKind::InvalidInput, "invalid environment variable name"))?;
++    unsafe {
++        let fd = crate::sys::cvt(libc::create(p.as_ptr(), libc::OWRITE | libc::OCEXEC, 0o664))?;
++        let v = v.as_bytes();
++        let n = libc::write(fd, v.as_ptr().cast(), v.len() as _);
++        libc::close(fd);
++        if n < 0 || n as usize != v.len() {
++            return Err(crate::sys::last_error());
++        }
++    }
++    Ok(())
++}
++
++pub unsafe fn unsetenv(k: &OsStr) -> io::Result<()> {
++    let p = path(k.as_bytes())
++        .ok_or(io::const_error!(io::ErrorKind::InvalidInput, "invalid environment variable name"))?;
++    unsafe { libc::remove(p.as_ptr()) };
++    Ok(())
++}
+diff --git a/library/std/src/sys/fd/mod.rs b/library/std/src/sys/fd/mod.rs
+index 02d61a62f4e..befb8d15d7a 100644
+--- a/library/std/src/sys/fd/mod.rs
++++ b/library/std/src/sys/fd/mod.rs
+@@ -7,6 +7,10 @@
+         mod unix;
+         pub use unix::*;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::*;
++    }
+     target_os = "hermit" => {
+         mod hermit;
+         pub use hermit::*;
+diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
+new file mode 100644
+index 00000000000..b48de364dcd
+--- /dev/null
++++ b/library/std/src/sys/fd/plan9.rs
+@@ -0,0 +1,207 @@
++//! A file descriptor of 9front's: read(2), pread, seek, dup.
++
++#![unstable(reason = "not public", issue = "none", feature = "fd")]
++
++use crate::collections::BTreeMap;
++use crate::io::{self, BorrowedCursor, IoSlice, IoSliceMut, Read, SeekFrom};
++use crate::sync::Mutex;
++use crate::sync::atomic::{AtomicBool, Ordering};
++use crate::os::plan9::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
++use crate::sys::{AsInner, FromInner, IntoInner, cvt};
++
++/// What a descriptor has beyond the kernel's, kept beside it (a `File` or `TcpStream` is
++/// only its descriptor, `os::fd` views them as such): the append mode of a file (Plan 9's
++/// open has none), timeouts of a connection, the peer of a "connected" UDP socket. Who makes
++/// a descriptor sets it, closing it drops it.
++#[derive(Clone, Copy, Default, Debug)]
++pub struct FdState {
++    pub append: bool,
++    pub read_ms: u32,
++    pub write_ms: u32,
++    pub peer: Option<crate::net::SocketAddr>,
++}
++
++static STATES: Mutex<BTreeMap<RawFd, FdState>> = Mutex::new(BTreeMap::new());
++static ANY_STATE: AtomicBool = AtomicBool::new(false);
++
++pub fn state(fd: RawFd) -> FdState {
++    if !ANY_STATE.load(Ordering::Relaxed) {
++        return FdState::default();
++    }
++    STATES.lock().unwrap_or_else(|e| e.into_inner()).get(&fd).copied().unwrap_or_default()
++}
++
++pub fn set_state(fd: RawFd, s: FdState) {
++    let mut t = STATES.lock().unwrap_or_else(|e| e.into_inner());
++    if s.append || s.read_ms != 0 || s.write_ms != 0 || s.peer.is_some() {
++        t.insert(fd, s);
++        ANY_STATE.store(true, Ordering::Relaxed);
++    } else {
++        t.remove(&fd);
++    }
++}
++
++/// The descriptor is closed (OwnedFd's drop).
++pub fn forget_state(fd: RawFd) {
++    if ANY_STATE.load(Ordering::Relaxed) {
++        STATES.lock().unwrap_or_else(|e| e.into_inner()).remove(&fd);
++    }
++}
++
++/// A copy of `fd` that closes on exec (an open of dup(3)'s `#d/n` with OCEXEC; pipe(2) and
++/// dial(2) give none), in place of it.
++pub fn cloexec(fd: RawFd, mode: i32) -> io::Result<RawFd> {
++    let path = crate::ffi::CString::new(format!("#d/{fd}")).unwrap();
++    let n = unsafe { libc::open(path.as_ptr(), mode | libc::OCEXEC) };
++    let r = if n < 0 { Err(crate::sys::last_error()) } else { Ok(n) };
++    unsafe { libc::close(fd) };
++    r
++}
++
++#[derive(Debug)]
++pub struct FileDesc {
++    fd: OwnedFd,
++}
++
++/// read(2) takes a `long`; the kernel's i/o is at most a few MB at a time anyway.
++const MAX_IO: usize = i32::MAX as usize;
++
++impl FileDesc {
++    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
++        let n = buf.len().min(MAX_IO);
++        let r = cvt(unsafe { libc::read(self.as_raw_fd(), buf.as_mut_ptr().cast(), n as _) })?;
++        Ok(r as usize)
++    }
++
++    pub fn read_buf(&self, mut cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        let n = cursor.capacity().min(MAX_IO);
++        let r = cvt(unsafe {
++            libc::read(self.as_raw_fd(), cursor.as_mut().as_mut_ptr().cast(), n as _)
++        })?;
++        unsafe { cursor.advance(r as usize) };
++        Ok(())
++    }
++
++    pub fn read_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
++        io::default_read_vectored(|b| self.read(b), bufs)
++    }
++
++    #[inline]
++    pub fn is_read_vectored(&self) -> bool {
++        false
++    }
++
++    pub fn read_to_end(&self, buf: &mut Vec<u8>) -> io::Result<usize> {
++        let mut me = self;
++        (&mut me).read_to_end(buf)
++    }
++
++    pub fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
++        let n = buf.len().min(MAX_IO);
++        let r = cvt(unsafe {
++            libc::pread(self.as_raw_fd(), buf.as_mut_ptr().cast(), n as _, offset as i64)
++        })?;
++        Ok(r as usize)
++    }
++
++    pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
++        let n = buf.len().min(MAX_IO);
++        let r = cvt(unsafe { libc::write(self.as_raw_fd(), buf.as_ptr().cast(), n as _) })?;
++        Ok(r as usize)
++    }
++
++    pub fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
++        io::default_write_vectored(|b| self.write(b), bufs)
++    }
++
++    #[inline]
++    pub fn is_write_vectored(&self) -> bool {
++        false
++    }
++
++    pub fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
++        let n = buf.len().min(MAX_IO);
++        let r = cvt(unsafe {
++            libc::pwrite(self.as_raw_fd(), buf.as_ptr().cast(), n as _, offset as i64)
++        })?;
++        Ok(r as usize)
++    }
++
++    pub fn seek(&self, pos: SeekFrom) -> io::Result<u64> {
++        let (whence, pos) = match pos {
++            SeekFrom::Start(off) => (libc::SEEK_SET, off as i64),
++            SeekFrom::End(off) => (libc::SEEK_END, off),
++            SeekFrom::Current(off) => (libc::SEEK_CUR, off),
++        };
++        let n = cvt(unsafe { libc::seek(self.as_raw_fd(), pos, whence) })?;
++        Ok(n as u64)
++    }
++
++    pub fn tell(&self) -> io::Result<u64> {
++        self.seek(SeekFrom::Current(0))
++    }
++
++    pub fn duplicate(&self) -> io::Result<FileDesc> {
++        let fd = Self { fd: self.fd.try_clone()? };
++        set_state(fd.as_raw_fd(), state(self.as_raw_fd()));
++        Ok(fd)
++    }
++
++    pub fn try_clone(&self) -> io::Result<FileDesc> {
++        self.duplicate()
++    }
++}
++
++impl<'a> Read for &'a FileDesc {
++    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
++        (**self).read(buf)
++    }
++
++    fn read_buf(&mut self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        (**self).read_buf(cursor)
++    }
++}
++
++impl AsInner<OwnedFd> for FileDesc {
++    #[inline]
++    fn as_inner(&self) -> &OwnedFd {
++        &self.fd
++    }
++}
++
++impl IntoInner<OwnedFd> for FileDesc {
++    fn into_inner(self) -> OwnedFd {
++        self.fd
++    }
++}
++
++impl FromInner<OwnedFd> for FileDesc {
++    fn from_inner(owned_fd: OwnedFd) -> Self {
++        Self { fd: owned_fd }
++    }
++}
++
++impl AsFd for FileDesc {
++    fn as_fd(&self) -> BorrowedFd<'_> {
++        self.fd.as_fd()
++    }
++}
++
++impl AsRawFd for FileDesc {
++    #[inline]
++    fn as_raw_fd(&self) -> RawFd {
++        self.fd.as_raw_fd()
++    }
++}
++
++impl IntoRawFd for FileDesc {
++    fn into_raw_fd(self) -> RawFd {
++        self.fd.into_raw_fd()
++    }
++}
++
++impl FromRawFd for FileDesc {
++    unsafe fn from_raw_fd(raw_fd: RawFd) -> Self {
++        Self { fd: unsafe { FromRawFd::from_raw_fd(raw_fd) } }
++    }
++}
+diff --git a/library/std/src/sys/fs/mod.rs b/library/std/src/sys/fs/mod.rs
+index e15841b363d..11cbd136027 100644
+--- a/library/std/src/sys/fs/mod.rs
++++ b/library/std/src/sys/fs/mod.rs
+@@ -31,6 +31,10 @@
+         mod hermit;
+         use hermit as imp;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        use plan9 as imp;
++    }
+     target_os = "motor" => {
+         mod motor;
+         use motor as imp;
+diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
+new file mode 100644
+index 00000000000..d47c3947359
+--- /dev/null
++++ b/library/std/src/sys/fs/plan9.rs
+@@ -0,0 +1,896 @@
++//! Files of 9front: open(2), create, the directory entries of stat(5) (`Dir`: dirstat,
++//! dirfstat, dirwstat, dirread).
++//!
++//! What Plan 9 has not: links (hard or symbolic), file locks, fsync (a write is done when
++//! the file server answers it), an append mode of open (a file can be append-only, DMAPPEND;
++//! here a write in append mode seeks to the end first). A rename (a wstat of the name) stays
++//! in its directory and does not replace a file; across directories a file is copied and
++//! removed.
++
++use crate::ffi::{CStr, CString, OsStr, OsString};
++use crate::fmt;
++use crate::fs::TryLockError;
++use crate::hash::{Hash, Hasher};
++use crate::io::{self, BorrowedCursor, IoSlice, IoSliceMut, SeekFrom};
++use crate::os::plan9::ffi::{OsStrExt, OsStringExt};
++use crate::os::plan9::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
++use crate::path::{Path, PathBuf};
++use crate::sync::Arc;
++pub use crate::sys::fs::common::{Dir, ExtraHomeDirs, ExtraMediaDirs, copy, exists};
++use crate::sys::fd::{FdState, FileDesc, set_state, state};
++use crate::sys::time::SystemTime;
++use crate::sys::{AsInner, AsInnerMut, FromInner, IntoInner, cvt, last_error, unsupported};
++use crate::{mem, ptr};
++
++fn cstr(p: &Path) -> io::Result<CString> {
++    CString::new(p.as_os_str().as_bytes()).map_err(|_| io::const_error!(io::ErrorKind::InvalidInput, "file name contains a NUL byte"))
++}
++
++fn no_links() -> io::Error {
++    io::const_error!(io::ErrorKind::Unsupported, "Plan 9 has no links")
++}
++
++pub struct File(FileDesc);
++
++#[derive(Clone)]
++pub struct FileAttr {
++    mode: u32,
++    qtype: u8,
++    length: u64,
++    atime: u32,
++    mtime: u32,
++    /// server type, subtype, qid path and version
++    ty: u16,
++    dev: u32,
++    qpath: u64,
++    vers: u32,
++    uid: Arc<OsStr>,
++    gid: Arc<OsStr>,
++    muid: Arc<OsStr>,
++}
++
++#[derive(Clone, PartialEq, Eq, Debug)]
++pub struct FilePermissions {
++    mode: u32,
++}
++
++#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
++pub struct FileType {
++    mode: u32,
++}
++
++#[derive(Copy, Clone, Debug, Default)]
++pub struct FileTimes {
++    accessed: Option<SystemTime>,
++    modified: Option<SystemTime>,
++}
++
++#[derive(Clone, Debug)]
++pub struct OpenOptions {
++    read: bool,
++    write: bool,
++    append: bool,
++    truncate: bool,
++    create: bool,
++    create_new: bool,
++    mode: u32,
++}
++
++#[derive(Debug)]
++pub struct DirBuilder {
++    mode: u32,
++}
++
++pub struct ReadDir {
++    root: Arc<PathBuf>,
++    fd: FileDesc,
++    buf: *mut libc::Dir,
++    n: usize,
++    i: usize,
++    end: bool,
++}
++
++unsafe impl Send for ReadDir {}
++unsafe impl Sync for ReadDir {}
++
++pub struct DirEntry {
++    root: Arc<PathBuf>,
++    name: OsString,
++    attr: FileAttr,
++}
++
++unsafe fn str_of(p: *const libc::c_char) -> Arc<OsStr> {
++    if p.is_null() {
++        return Arc::from(OsStr::new(""));
++    }
++    Arc::from(OsStr::from_bytes(unsafe { CStr::from_ptr(p) }.to_bytes()))
++}
++
++impl FileAttr {
++    unsafe fn from_dir(d: *const libc::Dir) -> FileAttr {
++        unsafe {
++            let d = &*d;
++            FileAttr {
++                mode: d.mode,
++                qtype: d.qid.type_,
++                length: d.length as u64,
++                atime: d.atime,
++                mtime: d.mtime,
++                ty: d.type_,
++                dev: d.dev,
++                qpath: d.qid.path,
++                vers: d.qid.vers,
++                uid: str_of(d.uid),
++                gid: str_of(d.gid),
++                muid: str_of(d.muid),
++            }
++        }
++    }
++
++    pub fn size(&self) -> u64 {
++        self.length
++    }
++
++    pub fn perm(&self) -> FilePermissions {
++        FilePermissions { mode: self.mode }
++    }
++
++    pub fn file_type(&self) -> FileType {
++        FileType { mode: self.mode }
++    }
++
++    pub fn modified(&self) -> io::Result<SystemTime> {
++        Ok(SystemTime::from_secs(self.mtime))
++    }
++
++    pub fn accessed(&self) -> io::Result<SystemTime> {
++        Ok(SystemTime::from_secs(self.atime))
++    }
++
++    pub fn created(&self) -> io::Result<SystemTime> {
++        unsupported()
++    }
++
++    /* os::plan9::fs::MetadataExt */
++    pub fn mode(&self) -> u32 {
++        self.mode
++    }
++    pub fn qid_type(&self) -> u8 {
++        self.qtype
++    }
++    pub fn qid_path(&self) -> u64 {
++        self.qpath
++    }
++    pub fn qid_vers(&self) -> u32 {
++        self.vers
++    }
++    pub fn server_type(&self) -> u16 {
++        self.ty
++    }
++    pub fn server_dev(&self) -> u32 {
++        self.dev
++    }
++    pub fn uid(&self) -> &OsStr {
++        &self.uid
++    }
++    pub fn gid(&self) -> &OsStr {
++        &self.gid
++    }
++    pub fn muid(&self) -> &OsStr {
++        &self.muid
++    }
++}
++
++impl FilePermissions {
++    pub fn readonly(&self) -> bool {
++        self.mode & 0o222 == 0
++    }
++
++    pub fn set_readonly(&mut self, readonly: bool) {
++        if readonly {
++            self.mode &= !0o222;
++        } else {
++            self.mode |= 0o222;
++        }
++    }
++
++    pub fn mode(&self) -> u32 {
++        self.mode
++    }
++}
++
++impl FromInner<u32> for FilePermissions {
++    fn from_inner(mode: u32) -> FilePermissions {
++        FilePermissions { mode }
++    }
++}
++
++impl FileTimes {
++    pub fn set_accessed(&mut self, t: SystemTime) {
++        self.accessed = Some(t);
++    }
++
++    pub fn set_modified(&mut self, t: SystemTime) {
++        self.modified = Some(t);
++    }
++}
++
++impl FileType {
++    pub fn is_dir(&self) -> bool {
++        self.mode & libc::DMDIR != 0
++    }
++
++    pub fn is_file(&self) -> bool {
++        !self.is_dir() && self.mode & (libc::DMAUTH | libc::DMMOUNT) == 0
++    }
++
++    pub fn is_symlink(&self) -> bool {
++        false
++    }
++
++    pub fn is_append(&self) -> bool {
++        self.mode & libc::DMAPPEND != 0
++    }
++
++    pub fn is_exclusive(&self) -> bool {
++        self.mode & libc::DMEXCL != 0
++    }
++
++    pub fn is_tmp(&self) -> bool {
++        self.mode & libc::DMTMP != 0
++    }
++}
++
++impl fmt::Debug for FileAttr {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("FileAttr")
++            .field("mode", &format_args!("{:#o}", self.mode))
++            .field("length", &self.length)
++            .field("mtime", &self.mtime)
++            .field("uid", &self.uid)
++            .finish_non_exhaustive()
++    }
++}
++
++/* directories */
++
++impl ReadDir {
++    pub fn dir(&self) -> io::Result<Dir> {
++        Dir::open_for_traversal(&self.root)
++    }
++
++    fn fill(&mut self) -> io::Result<bool> {
++        unsafe {
++            if !self.buf.is_null() {
++                libc::free(self.buf.cast());
++                self.buf = ptr::null_mut();
++            }
++            let n = libc::dirread(self.fd.as_raw_fd(), &mut self.buf);
++            if n < 0 {
++                return Err(last_error());
++            }
++            self.n = n as usize;
++            self.i = 0;
++            Ok(n > 0)
++        }
++    }
++}
++
++impl Drop for ReadDir {
++    fn drop(&mut self) {
++        if !self.buf.is_null() {
++            unsafe { libc::free(self.buf.cast()) };
++        }
++    }
++}
++
++impl fmt::Debug for ReadDir {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        fmt::Debug::fmt(&*self.root, f)
++    }
++}
++
++impl Iterator for ReadDir {
++    type Item = io::Result<DirEntry>;
++
++    fn next(&mut self) -> Option<io::Result<DirEntry>> {
++        if self.end {
++            return None;
++        }
++        if self.i >= self.n {
++            match self.fill() {
++                Ok(true) => {}
++                Ok(false) => {
++                    self.end = true;
++                    return None;
++                }
++                Err(e) => {
++                    self.end = true;
++                    return Some(Err(e));
++                }
++            }
++        }
++        unsafe {
++            let d = self.buf.add(self.i);
++            self.i += 1;
++            let name = OsString::from_vec(CStr::from_ptr((*d).name).to_bytes().to_vec());
++            Some(Ok(DirEntry { root: self.root.clone(), name, attr: FileAttr::from_dir(d) }))
++        }
++    }
++}
++
++impl DirEntry {
++    pub fn path(&self) -> PathBuf {
++        self.root.join(&self.name)
++    }
++
++    pub fn file_name(&self) -> OsString {
++        self.name.clone()
++    }
++
++    /// The entry's own: a directory's entries are its files' stat(5) entries.
++    pub fn metadata(&self) -> io::Result<FileAttr> {
++        Ok(self.attr.clone())
++    }
++
++    pub fn file_type(&self) -> io::Result<FileType> {
++        Ok(self.attr.file_type())
++    }
++}
++
++pub fn readdir(p: &Path) -> io::Result<ReadDir> {
++    let c = cstr(p)?;
++    let fd = cvt(unsafe { libc::open(c.as_ptr(), libc::OREAD | libc::OCEXEC) })?;
++    let fd = unsafe { FileDesc::from_raw_fd(fd) };
++    let attr = dirfstat(fd.as_raw_fd())?;
++    if !attr.file_type().is_dir() {
++        return Err(io::const_error!(io::ErrorKind::NotADirectory, "not a directory"));
++    }
++    Ok(ReadDir {
++        root: Arc::new(p.to_path_buf()),
++        fd,
++        buf: ptr::null_mut(),
++        n: 0,
++        i: 0,
++        end: false,
++    })
++}
++
++/* files */
++
++impl OpenOptions {
++    pub fn new() -> OpenOptions {
++        OpenOptions {
++            read: false,
++            write: false,
++            append: false,
++            truncate: false,
++            create: false,
++            create_new: false,
++            mode: 0o666,
++        }
++    }
++
++    pub fn read(&mut self, read: bool) {
++        self.read = read;
++    }
++    pub fn write(&mut self, write: bool) {
++        self.write = write;
++    }
++    pub fn append(&mut self, append: bool) {
++        self.append = append;
++    }
++    pub fn truncate(&mut self, truncate: bool) {
++        self.truncate = truncate;
++    }
++    pub fn create(&mut self, create: bool) {
++        self.create = create;
++    }
++    pub fn create_new(&mut self, create_new: bool) {
++        self.create_new = create_new;
++    }
++    /// The permission of a new file (create(2) takes the directory's into account).
++    pub fn mode(&mut self, mode: u32) {
++        self.mode = mode;
++    }
++
++    fn omode(&self) -> io::Result<i32> {
++        let write = self.write || self.append;
++        let mut m = match (self.read, write) {
++            (true, false) => libc::OREAD,
++            (false, true) => libc::OWRITE,
++            (true, true) => libc::ORDWR,
++            (false, false) => return Err(io::Error::from(io::ErrorKind::InvalidInput)),
++        };
++        if self.truncate || self.create || self.create_new {
++            if !write {
++                return Err(io::Error::from(io::ErrorKind::InvalidInput));
++            }
++        }
++        if self.truncate && !self.append {
++            m |= libc::OTRUNC;
++        }
++        Ok(m | libc::OCEXEC)
++    }
++}
++
++fn dirfstat(fd: RawFd) -> io::Result<FileAttr> {
++    unsafe {
++        let d = libc::dirfstat(fd);
++        if d.is_null() {
++            return Err(last_error());
++        }
++        let a = FileAttr::from_dir(d);
++        libc::free(d.cast());
++        Ok(a)
++    }
++}
++
++/// A Dir that changes nothing (nulldir), changed by `f`, written with `w`.
++fn wstat(f: impl FnOnce(&mut libc::Dir), w: impl FnOnce(*mut libc::Dir) -> i32) -> io::Result<()> {
++    unsafe {
++        let mut d: libc::Dir = mem::zeroed();
++        libc::nulldir(&mut d);
++        f(&mut d);
++        cvt(w(&mut d)).map(drop)
++    }
++}
++
++fn times(times: &FileTimes, d: &mut libc::Dir) {
++    if let Some(t) = times.accessed {
++        d.atime = t.to_secs();
++    }
++    if let Some(t) = times.modified {
++        d.mtime = t.to_secs();
++    }
++}
++
++impl File {
++    pub fn open(path: &Path, opts: &OpenOptions) -> io::Result<File> {
++        let c = cstr(path)?;
++        let omode = opts.omode()?;
++        let perm = opts.mode & 0o777;
++        let fd = unsafe {
++            if opts.create_new {
++                // create(2) of an existing file truncates it; OEXCL refuses it
++                cvt(libc::create(c.as_ptr(), omode | libc::OEXCL, perm))?
++            } else if opts.create {
++                loop {
++                    let fd = libc::open(c.as_ptr(), omode);
++                    if fd >= 0 {
++                        break fd;
++                    }
++                    let e = last_error();
++                    if e.kind() != io::ErrorKind::NotFound {
++                        return Err(e);
++                    }
++                    let fd = libc::create(c.as_ptr(), omode | libc::OEXCL, perm);
++                    if fd >= 0 {
++                        break fd;
++                    }
++                    let e = last_error();
++                    if e.kind() != io::ErrorKind::AlreadyExists {
++                        return Err(e);
++                    }
++                    // made meanwhile: open it
++                }
++            } else {
++                cvt(libc::open(c.as_ptr(), omode))?
++            }
++        };
++        let f = File(unsafe { FileDesc::from_raw_fd(fd) });
++        set_state(fd, FdState { append: opts.append, ..FdState::default() });
++        Ok(f)
++    }
++
++    pub fn file_attr(&self) -> io::Result<FileAttr> {
++        dirfstat(self.0.as_raw_fd())
++    }
++
++    /// The file server has every write when it answers it.
++    pub fn fsync(&self) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn datasync(&self) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn lock(&self) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn lock_shared(&self) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn try_lock(&self) -> Result<(), TryLockError> {
++        Err(TryLockError::Error(io::Error::UNSUPPORTED_PLATFORM))
++    }
++
++    pub fn try_lock_shared(&self) -> Result<(), TryLockError> {
++        Err(TryLockError::Error(io::Error::UNSUPPORTED_PLATFORM))
++    }
++
++    pub fn unlock(&self) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn truncate(&self, size: u64) -> io::Result<()> {
++        let fd = self.0.as_raw_fd();
++        wstat(|d| d.length = size as i64, |d| unsafe { libc::dirfwstat(fd, d) })
++    }
++
++    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
++        self.0.read(buf)
++    }
++
++    pub fn read_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
++        self.0.read_vectored(bufs)
++    }
++
++    pub fn is_read_vectored(&self) -> bool {
++        self.0.is_read_vectored()
++    }
++
++    pub fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        self.0.read_buf(cursor)
++    }
++
++    pub fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
++        self.0.read_at(buf, offset)
++    }
++
++    pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
++        if state(self.0.as_raw_fd()).append {
++            self.0.seek(SeekFrom::End(0))?;
++        }
++        self.0.write(buf)
++    }
++
++    pub fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
++        io::default_write_vectored(|b| self.write(b), bufs)
++    }
++
++    pub fn is_write_vectored(&self) -> bool {
++        false
++    }
++
++    pub fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
++        self.0.write_at(buf, offset)
++    }
++
++    pub fn flush(&self) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn seek(&self, pos: SeekFrom) -> io::Result<u64> {
++        self.0.seek(pos)
++    }
++
++    pub fn size(&self) -> Option<io::Result<u64>> {
++        Some(self.file_attr().map(|a| a.size()))
++    }
++
++    pub fn tell(&self) -> io::Result<u64> {
++        self.0.tell()
++    }
++
++    pub fn duplicate(&self) -> io::Result<File> {
++        Ok(File(self.0.duplicate()?))
++    }
++
++    pub fn set_permissions(&self, perm: FilePermissions) -> io::Result<()> {
++        let old = self.file_attr()?.mode;
++        let fd = self.0.as_raw_fd();
++        wstat(|d| d.mode = (old & !0o777) | (perm.mode & 0o777), |d| unsafe {
++            libc::dirfwstat(fd, d)
++        })
++    }
++
++    pub fn set_times(&self, t: FileTimes) -> io::Result<()> {
++        let fd = self.0.as_raw_fd();
++        wstat(|d| times(&t, d), |d| unsafe { libc::dirfwstat(fd, d) })
++    }
++
++    /// The name it was opened by (fd2path(2)).
++    pub fn path(&self) -> io::Result<PathBuf> {
++        fd2path(self.0.as_raw_fd())
++    }
++}
++
++fn fd2path(fd: RawFd) -> io::Result<PathBuf> {
++    let mut buf = vec![0u8; 1024];
++    loop {
++        cvt(unsafe { libc::fd2path(fd, buf.as_mut_ptr().cast(), buf.len() as i32) })?;
++        let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
++        if n + 1 < buf.len() {
++            buf.truncate(n);
++            return Ok(PathBuf::from(OsString::from_vec(buf)));
++        }
++        let l = buf.len() * 2;
++        buf.resize(l, 0);
++    }
++}
++
++impl DirBuilder {
++    pub fn new() -> DirBuilder {
++        DirBuilder { mode: 0o777 }
++    }
++
++    pub fn set_mode(&mut self, mode: u32) {
++        self.mode = mode;
++    }
++
++    pub fn mkdir(&self, p: &Path) -> io::Result<()> {
++        let c = cstr(p)?;
++        let fd = cvt(unsafe {
++            libc::create(c.as_ptr(), libc::OREAD | libc::OEXCL, libc::DMDIR | (self.mode & 0o777))
++        })?;
++        unsafe { libc::close(fd) };
++        Ok(())
++    }
++}
++
++impl fmt::Debug for File {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        let mut b = f.debug_struct("File");
++        b.field("fd", &self.0.as_raw_fd());
++        if let Ok(path) = self.path() {
++            b.field("path", &path);
++        }
++        b.finish()
++    }
++}
++
++impl AsInner<FileDesc> for File {
++    #[inline]
++    fn as_inner(&self) -> &FileDesc {
++        &self.0
++    }
++}
++
++impl AsInnerMut<FileDesc> for File {
++    #[inline]
++    fn as_inner_mut(&mut self) -> &mut FileDesc {
++        &mut self.0
++    }
++}
++
++impl IntoInner<FileDesc> for File {
++    fn into_inner(self) -> FileDesc {
++        self.0
++    }
++}
++
++impl FromInner<FileDesc> for File {
++    fn from_inner(fd: FileDesc) -> File {
++        File(fd)
++    }
++}
++
++impl AsFd for File {
++    fn as_fd(&self) -> BorrowedFd<'_> {
++        self.0.as_fd()
++    }
++}
++
++impl AsRawFd for File {
++    #[inline]
++    fn as_raw_fd(&self) -> RawFd {
++        self.0.as_raw_fd()
++    }
++}
++
++impl IntoRawFd for File {
++    fn into_raw_fd(self) -> RawFd {
++        self.0.into_raw_fd()
++    }
++}
++
++impl FromRawFd for File {
++    unsafe fn from_raw_fd(raw_fd: RawFd) -> Self {
++        File(unsafe { FileDesc::from_raw_fd(raw_fd) })
++    }
++}
++
++impl Hash for FileAttr {
++    fn hash<H: Hasher>(&self, h: &mut H) {
++        (self.ty, self.dev, self.qpath).hash(h)
++    }
++}
++
++/* paths */
++
++pub fn stat(p: &Path) -> io::Result<FileAttr> {
++    let c = cstr(p)?;
++    unsafe {
++        let d = libc::dirstat(c.as_ptr());
++        if d.is_null() {
++            return Err(last_error());
++        }
++        let a = FileAttr::from_dir(d);
++        libc::free(d.cast());
++        Ok(a)
++    }
++}
++
++/// No symbolic links: the file itself.
++pub fn lstat(p: &Path) -> io::Result<FileAttr> {
++    stat(p)
++}
++
++fn remove(p: &Path) -> io::Result<()> {
++    let c = cstr(p)?;
++    cvt(unsafe { libc::remove(c.as_ptr()) }).map(drop)
++}
++
++/// remove(2) takes files and empty directories: a directory is refused here.
++pub fn unlink(p: &Path) -> io::Result<()> {
++    if stat(p)?.file_type().is_dir() {
++        return Err(io::const_error!(io::ErrorKind::IsADirectory, "is a directory"));
++    }
++    remove(p)
++}
++
++pub fn rmdir(p: &Path) -> io::Result<()> {
++    if !stat(p)?.file_type().is_dir() {
++        return Err(io::const_error!(io::ErrorKind::NotADirectory, "not a directory"));
++    }
++    remove(p)
++}
++
++pub fn remove_dir_all(path: &Path) -> io::Result<()> {
++    crate::sys::fs::common::remove_dir_all(path)
++}
++
++fn parent(p: &Path) -> &Path {
++    match p.parent() {
++        Some(d) if !d.as_os_str().is_empty() => d,
++        _ => Path::new("."),
++    }
++}
++
++fn same_file(a: &FileAttr, b: &FileAttr) -> bool {
++    (a.ty, a.dev, a.qpath) == (b.ty, b.dev, b.qpath)
++}
++
++fn rename_impl(old: &Path, new: &Path, replace: bool) -> io::Result<()> {
++    let from = stat(old)?;
++    let target = stat(new);
++    if let Ok(t) = &target {
++        if same_file(&from, t) {
++            return Ok(());
++        }
++        if !replace {
++            return Err(io::const_error!(io::ErrorKind::AlreadyExists, "file exists"));
++        }
++        if t.file_type().is_dir() != from.file_type().is_dir() {
++            return Err(if t.file_type().is_dir() {
++                io::const_error!(io::ErrorKind::IsADirectory, "is a directory")
++            } else {
++                io::const_error!(io::ErrorKind::NotADirectory, "not a directory")
++            });
++        }
++    }
++    let Some(name) = new.file_name() else {
++        return Err(io::Error::from(io::ErrorKind::InvalidInput));
++    };
++    if same_file(&stat(parent(old))?, &stat(parent(new))?) {
++        // the same directory: a wstat of the name, which refuses an existing one
++        if target.is_ok() {
++            remove(new)?;
++        }
++        let c = cstr(old)?;
++        let n = CString::new(name.as_bytes()).map_err(|_| io::const_error!(io::ErrorKind::InvalidInput, "file name contains a NUL byte"))?;
++        return wstat(|d| d.name = n.as_ptr().cast_mut(), |d| unsafe {
++            libc::dirwstat(c.as_ptr(), d)
++        });
++    }
++    if from.file_type().is_dir() {
++        return Err(io::const_error!(
++            io::ErrorKind::CrossesDevices,
++            "Plan 9 renames a directory only in its directory",
++        ));
++    }
++    // another directory: copied with its permissions and times, the old one removed
++    let mut src = File::open(old, &{
++        let mut o = OpenOptions::new();
++        o.read(true);
++        o
++    })?;
++    let mut o = OpenOptions::new();
++    o.write(true);
++    o.truncate(true);
++    o.create(true);
++    o.mode(from.mode & 0o777);
++    let mut dst = File::open(new, &o)?;
++    io::copy(&mut FileRw(&mut src), &mut FileRw(&mut dst))?;
++    dst.set_times(FileTimes {
++        accessed: Some(SystemTime::from_secs(from.atime)),
++        modified: Some(SystemTime::from_secs(from.mtime)),
++    })?;
++    remove(old)
++}
++
++struct FileRw<'a>(&'a mut File);
++
++impl io::Read for FileRw<'_> {
++    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
++        self.0.read(buf)
++    }
++}
++
++impl io::Write for FileRw<'_> {
++    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
++        self.0.write(buf)
++    }
++    fn flush(&mut self) -> io::Result<()> {
++        Ok(())
++    }
++}
++
++pub fn rename(old: &Path, new: &Path) -> io::Result<()> {
++    rename_impl(old, new, true)
++}
++
++pub fn rename_noreplace(old: &Path, new: &Path) -> io::Result<()> {
++    rename_impl(old, new, false)
++}
++
++pub fn set_perm(p: &Path, perm: FilePermissions) -> io::Result<()> {
++    let old = stat(p)?.mode;
++    let c = cstr(p)?;
++    wstat(|d| d.mode = (old & !0o777) | (perm.mode & 0o777), |d| unsafe {
++        libc::dirwstat(c.as_ptr(), d)
++    })
++}
++
++pub fn set_perm_nofollow(p: &Path, perm: FilePermissions) -> io::Result<()> {
++    set_perm(p, perm)
++}
++
++pub fn set_times(p: &Path, t: FileTimes) -> io::Result<()> {
++    let c = cstr(p)?;
++    wstat(|d| times(&t, d), |d| unsafe { libc::dirwstat(c.as_ptr(), d) })
++}
++
++pub fn set_times_nofollow(p: &Path, t: FileTimes) -> io::Result<()> {
++    set_times(p, t)
++}
++
++pub fn readlink(_p: &Path) -> io::Result<PathBuf> {
++    Err(no_links())
++}
++
++pub fn symlink(_original: &Path, _link: &Path) -> io::Result<()> {
++    Err(no_links())
++}
++
++pub fn link(_src: &Path, _dst: &Path) -> io::Result<()> {
++    Err(no_links())
++}
++
++/// The name the kernel has for it (fd2path(2) of the file opened), else cleaned up
++/// against the working directory.
++pub fn canonicalize(p: &Path) -> io::Result<PathBuf> {
++    let c = cstr(p)?;
++    let fd = unsafe { libc::open(c.as_ptr(), libc::OREAD | libc::OCEXEC) };
++    if fd >= 0 {
++        let fd = unsafe { FileDesc::from_raw_fd(fd) };
++        return fd2path(fd.as_raw_fd());
++    }
++    stat(p)?;
++    let abs = if p.is_absolute() { p.to_path_buf() } else { crate::env::current_dir()?.join(p) };
++    let mut out = PathBuf::from("/");
++    for c in abs.components() {
++        match c {
++            crate::path::Component::ParentDir => {
++                out.pop();
++            }
++            crate::path::Component::Normal(n) => out.push(n),
++            _ => {}
++        }
++    }
++    Ok(out)
++}
+diff --git a/library/std/src/sys/net/connection/mod.rs b/library/std/src/sys/net/connection/mod.rs
+index 49a0f47c959..9f5016f1175 100644
+--- a/library/std/src/sys/net/connection/mod.rs
++++ b/library/std/src/sys/net/connection/mod.rs
+@@ -21,6 +21,10 @@
+         mod motor;
+         pub use motor::*;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::*;
++    }
+     target_os = "xous" => {
+         mod xous;
+         pub use xous::*;
+diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
+new file mode 100644
+index 00000000000..7e4d05a8fb4
+--- /dev/null
++++ b/library/std/src/sys/net/connection/plan9.rs
+@@ -0,0 +1,783 @@
++//! The network of 9front: ip(3)'s conversations under `/net`, with dial(2), announce,
++//! listen and accept; names through ndb's `/net/cs`.
++//!
++//! A [`Socket`] is a file descriptor of a conversation: its `data` (TCP streams, UDP), or its
++//! `ctl` (a listener, whose announcement lives as long as the ctl file is open; opened by
++//! name, not announce's clone). The conversation's directory (`/net/tcp/4`) is the
++//! descriptor's name (fd2path), so a socket made from a raw descriptor works the same. A UDP socket reads and writes its datagrams
++//! with the `headers` of udp: 52 bytes, the remote, local and interface address (16 bytes
++//! each, IPv4 as v4-in-v6), the remote and local port (big-endian). Timeouts: alarm(2)
++//! around the call, which a note ends ("interrupted"). Plan 9 has no non-blocking I/O, no
++//! peeking, no socket options but a few ctl messages.
++
++use crate::ffi::CString;
++use crate::fmt;
++use crate::io::{self, BorrowedCursor, IoSlice, IoSliceMut};
++use crate::net::{
++    Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs,
++};
++use crate::os::plan9::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
++use crate::sys::fd::{FdState, FileDesc, cloexec, set_state, state};
++use crate::sys::{AsInner, FromInner, IntoInner, cvt, last_error, unsupported};
++use crate::time::Duration;
++
++fn err(kind: io::ErrorKind, msg: &'static str) -> io::Error {
++    io::Error::new(kind, msg)
++}
++
++/// `tcp!1.2.3.4!80`; the unspecified address is `*`.
++fn netaddr(proto: &str, addr: &SocketAddr) -> CString {
++    let s = if addr.ip().is_unspecified() {
++        format!("{proto}!*!{}", addr.port())
++    } else {
++        format!("{proto}!{}!{}", addr.ip(), addr.port())
++    };
++    CString::new(s).unwrap()
++}
++
++/// `1.2.3.4!80` (a conversation's `local` or `remote`, `/net/cs`'s answer).
++fn parse_addr(s: &str) -> io::Result<SocketAddr> {
++    let s = s.trim();
++    let (ip, port) =
++        s.rsplit_once('!').ok_or(err(io::ErrorKind::InvalidData, "bad network address"))?;
++    let port: u16 = port.parse().map_err(|_| err(io::ErrorKind::InvalidData, "bad port"))?;
++    let ip = if ip == "*" || ip == "::" {
++        crate::net::IpAddr::V4(Ipv4Addr::UNSPECIFIED)
++    } else {
++        ip.parse().map_err(|_| err(io::ErrorKind::InvalidData, "bad ip address"))?
++    };
++    Ok(match ip {
++        crate::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
++            Some(v4) => SocketAddr::V4(SocketAddrV4::new(v4, port)),
++            None => SocketAddr::V6(SocketAddrV6::new(v6, port, 0, 0)),
++        },
++        v4 => SocketAddr::new(v4, port),
++    })
++}
++
++fn read_file(path: &str) -> io::Result<String> {
++    let c = CString::new(path).unwrap();
++    let fd = cvt(unsafe { libc::open(c.as_ptr(), libc::OREAD | libc::OCEXEC) })?;
++    let fd = unsafe { FileDesc::from_raw_fd(fd) };
++    let mut buf = [0u8; 256];
++    let n = fd.read(&mut buf)?;
++    Ok(String::from_utf8_lossy(&buf[..n]).into_owned())
++}
++
++fn write_ctl(dir: &str, msg: &str) -> io::Result<()> {
++    let c = CString::new(format!("{dir}/ctl")).unwrap();
++    let fd = cvt(unsafe { libc::open(c.as_ptr(), libc::OWRITE | libc::OCEXEC) })?;
++    let fd = unsafe { FileDesc::from_raw_fd(fd) };
++    fd.write(msg.as_bytes()).map(drop)
++}
++
++/// A note "alarm" after `ms` (0: none) around `f`; its end is a timeout.
++fn with_alarm<T>(ms: u32, f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
++    if ms == 0 {
++        return f();
++    }
++    unsafe { libc::alarm(ms) };
++    let r = f();
++    unsafe { libc::alarm(0) };
++    match r {
++        Err(e) if e.kind() == io::ErrorKind::Interrupted => {
++            Err(err(io::ErrorKind::TimedOut, "timed out"))
++        }
++        r => r,
++    }
++}
++
++fn ms_of(t: Option<Duration>) -> io::Result<u32> {
++    match t {
++        None => Ok(0),
++        Some(d) if d.is_zero() => Err(io::Error::ZERO_TIMEOUT),
++        Some(d) => Ok(d.as_millis().clamp(1, u32::MAX as u128) as u32),
++    }
++}
++
++fn dur_of(ms: u32) -> Option<Duration> {
++    if ms == 0 { None } else { Some(Duration::from_millis(ms as u64)) }
++}
++
++/// The descriptor only (`os::fd` views a socket as one): timeouts and a UDP socket's
++/// peer are its `FdState`.
++pub struct Socket {
++    fd: FileDesc,
++}
++
++/// A descriptor of dial(2), announce or accept, made close-on-exec.
++fn socket_of(fd: RawFd) -> io::Result<Socket> {
++    let fd = cloexec(fd, libc::ORDWR)?;
++    set_state(fd, FdState::default());
++    Ok(Socket::new(unsafe { FileDesc::from_raw_fd(fd) }))
++}
++
++impl Socket {
++    fn new(fd: FileDesc) -> Socket {
++        Socket { fd }
++    }
++
++    fn state(&self) -> FdState {
++        state(self.fd.as_raw_fd())
++    }
++
++    fn update(&self, f: impl FnOnce(&mut FdState)) {
++        let mut s = self.state();
++        f(&mut s);
++        set_state(self.fd.as_raw_fd(), s);
++    }
++
++    /// The conversation's directory: the name of its data or ctl file without it.
++    fn dir(&self) -> io::Result<String> {
++        let mut buf = [0u8; 128];
++        cvt(unsafe {
++            libc::fd2path(self.fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len() as i32)
++        })?;
++        let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
++        let p = crate::str::from_utf8(&buf[..n])
++            .map_err(|_| err(io::ErrorKind::InvalidData, "bad conversation name"))?;
++        let (dir, _) =
++            p.rsplit_once('/').ok_or(err(io::ErrorKind::InvalidData, "not a conversation"))?;
++        Ok(dir.to_owned())
++    }
++
++    fn local(&self) -> io::Result<SocketAddr> {
++        parse_addr(&read_file(&format!("{}/local", self.dir()?))?)
++    }
++
++    fn remote(&self) -> io::Result<SocketAddr> {
++        parse_addr(&read_file(&format!("{}/remote", self.dir()?))?)
++    }
++
++    fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
++        with_alarm(self.state().read_ms, || self.fd.read(buf))
++    }
++
++    fn write(&self, buf: &[u8]) -> io::Result<usize> {
++        with_alarm(self.state().write_ms, || self.fd.write(buf))
++    }
++
++    fn duplicate(&self) -> io::Result<Socket> {
++        Ok(Socket::new(self.fd.duplicate()?))
++    }
++
++    fn set_read_timeout(&self, t: Option<Duration>) -> io::Result<()> {
++        let ms = ms_of(t)?;
++        self.update(|s| s.read_ms = ms);
++        Ok(())
++    }
++
++    fn set_write_timeout(&self, t: Option<Duration>) -> io::Result<()> {
++        let ms = ms_of(t)?;
++        self.update(|s| s.write_ms = ms);
++        Ok(())
++    }
++}
++
++impl AsInner<FileDesc> for Socket {
++    fn as_inner(&self) -> &FileDesc {
++        &self.fd
++    }
++}
++
++impl IntoInner<FileDesc> for Socket {
++    fn into_inner(self) -> FileDesc {
++        self.fd
++    }
++}
++
++impl FromInner<FileDesc> for Socket {
++    fn from_inner(fd: FileDesc) -> Socket {
++        Socket::new(fd)
++    }
++}
++
++impl AsFd for Socket {
++    fn as_fd(&self) -> BorrowedFd<'_> {
++        self.fd.as_fd()
++    }
++}
++
++impl AsRawFd for Socket {
++    fn as_raw_fd(&self) -> RawFd {
++        self.fd.as_raw_fd()
++    }
++}
++
++impl IntoRawFd for Socket {
++    fn into_raw_fd(self) -> RawFd {
++        self.fd.into_raw_fd()
++    }
++}
++
++impl FromRawFd for Socket {
++    unsafe fn from_raw_fd(fd: RawFd) -> Socket {
++        Socket::new(unsafe { FileDesc::from_raw_fd(fd) })
++    }
++}
++
++fn each_addr<A: ToSocketAddrs, T>(
++    addr: A,
++    mut f: impl FnMut(&SocketAddr) -> io::Result<T>,
++) -> io::Result<T> {
++    let mut last = None;
++    for a in addr.to_socket_addrs()? {
++        match f(&a) {
++            Ok(t) => return Ok(t),
++            Err(e) => last = Some(e),
++        }
++    }
++    Err(last.unwrap_or(io::Error::NO_ADDRESSES))
++}
++
++fn dial(addr: &SocketAddr, ms: u32) -> io::Result<Socket> {
++    let a = netaddr("tcp", addr);
++    let fd = with_alarm(ms, || {
++        cvt(unsafe {
++            libc::dial(a.as_ptr(), crate::ptr::null(), crate::ptr::null_mut(), crate::ptr::null_mut())
++        })
++    })?;
++    socket_of(fd)
++}
++
++/* TCP */
++
++pub struct TcpStream {
++    inner: Socket,
++}
++
++impl TcpStream {
++    pub fn connect<A: ToSocketAddrs>(addr: A) -> io::Result<TcpStream> {
++        each_addr(addr, |a| dial(a, 0)).map(|inner| TcpStream { inner })
++    }
++
++    pub fn connect_timeout(addr: &SocketAddr, timeout: Duration) -> io::Result<TcpStream> {
++        dial(addr, ms_of(Some(timeout))?).map(|inner| TcpStream { inner })
++    }
++
++    pub fn socket(&self) -> &Socket {
++        &self.inner
++    }
++
++    pub fn into_socket(self) -> Socket {
++        self.inner
++    }
++
++    pub fn set_read_timeout(&self, t: Option<Duration>) -> io::Result<()> {
++        self.inner.set_read_timeout(t)
++    }
++
++    pub fn set_write_timeout(&self, t: Option<Duration>) -> io::Result<()> {
++        self.inner.set_write_timeout(t)
++    }
++
++    pub fn read_timeout(&self) -> io::Result<Option<Duration>> {
++        Ok(dur_of(self.inner.state().read_ms))
++    }
++
++    pub fn write_timeout(&self) -> io::Result<Option<Duration>> {
++        Ok(dur_of(self.inner.state().write_ms))
++    }
++
++    pub fn peek(&self, _: &mut [u8]) -> io::Result<usize> {
++        unsupported()
++    }
++
++    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
++        self.inner.read(buf)
++    }
++
++    pub fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        crate::io::default_read_buf(|b| self.read(b), cursor)
++    }
++
++    pub fn read_vectored(&self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
++        crate::io::default_read_vectored(|b| self.read(b), bufs)
++    }
++
++    pub fn is_read_vectored(&self) -> bool {
++        false
++    }
++
++    pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
++        self.inner.write(buf)
++    }
++
++    pub fn write_vectored(&self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
++        crate::io::default_write_vectored(|b| self.write(b), bufs)
++    }
++
++    pub fn is_write_vectored(&self) -> bool {
++        false
++    }
++
++    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
++        self.inner.remote()
++    }
++
++    pub fn socket_addr(&self) -> io::Result<SocketAddr> {
++        self.inner.local()
++    }
++
++    /// tcp's ctl "close" ends the sending side (FIN); reading goes on.
++    pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
++        match how {
++            Shutdown::Read => Ok(()),
++            Shutdown::Write | Shutdown::Both => write_ctl(&self.inner.dir()?, "close"),
++        }
++    }
++
++    pub fn duplicate(&self) -> io::Result<TcpStream> {
++        Ok(TcpStream { inner: self.inner.duplicate()? })
++    }
++
++    pub fn set_linger(&self, _: Option<Duration>) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn linger(&self) -> io::Result<Option<Duration>> {
++        Ok(None)
++    }
++
++    pub fn set_keepalive(&self, on: bool) -> io::Result<()> {
++        if on { write_ctl(&self.inner.dir()?, "keepalive") } else { unsupported() }
++    }
++
++    pub fn keepalive(&self) -> io::Result<bool> {
++        unsupported()
++    }
++
++    /// Plan 9's tcp sends at once (no Nagle).
++    pub fn set_nodelay(&self, _: bool) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn nodelay(&self) -> io::Result<bool> {
++        Ok(true)
++    }
++
++    pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
++        write_ctl(&self.inner.dir()?, &format!("ttl {ttl}"))
++    }
++
++    pub fn ttl(&self) -> io::Result<u32> {
++        unsupported()
++    }
++
++    pub fn set_hop_limit_v6(&self, limit: u8) -> io::Result<()> {
++        self.set_ttl(limit as u32)
++    }
++
++    pub fn hop_limit_v6(&self) -> io::Result<u8> {
++        unsupported()
++    }
++
++    pub fn take_error(&self) -> io::Result<Option<io::Error>> {
++        Ok(None)
++    }
++
++    pub fn set_nonblocking(&self, _: bool) -> io::Result<()> {
++        unsupported()
++    }
++}
++
++impl fmt::Debug for TcpStream {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        let mut res = f.debug_struct("TcpStream");
++        if let Ok(addr) = self.socket_addr() {
++            res.field("addr", &addr);
++        }
++        if let Ok(peer) = self.peer_addr() {
++            res.field("peer", &peer);
++        }
++        res.field("fd", &self.inner.as_raw_fd()).finish()
++    }
++}
++
++impl FromInner<Socket> for TcpStream {
++    fn from_inner(inner: Socket) -> TcpStream {
++        TcpStream { inner }
++    }
++}
++
++pub struct TcpListener {
++    /// the announcement's ctl
++    inner: Socket,
++}
++
++impl TcpListener {
++    pub fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<TcpListener> {
++        each_addr(addr, |a| {
++            let n = netaddr("tcp", a);
++            let mut dir = [0u8; 40];
++            let afd = cvt(unsafe { libc::announce(n.as_ptr(), dir.as_mut_ptr().cast()) })?;
++            let afd = unsafe { FileDesc::from_raw_fd(afd) };
++            // by its name (announce's is the clone file's): the socket's directory is its
++            let n = dir.iter().position(|&c| c == 0).unwrap_or(dir.len());
++            let mut ctl = dir[..n].to_vec();
++            ctl.extend_from_slice(b"/ctl");
++            let ctl = CString::new(ctl).unwrap();
++            let fd = cvt(unsafe { libc::open(ctl.as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
++            drop(afd);
++            set_state(fd, FdState::default());
++            Ok(TcpListener { inner: Socket::new(unsafe { FileDesc::from_raw_fd(fd) }) })
++        })
++    }
++
++    pub fn socket(&self) -> &Socket {
++        &self.inner
++    }
++
++    pub fn into_socket(self) -> Socket {
++        self.inner
++    }
++
++    pub fn socket_addr(&self) -> io::Result<SocketAddr> {
++        self.inner.local()
++    }
++
++    pub fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
++        let dir = CString::new(self.inner.dir()?).unwrap();
++        let mut newdir = [0u8; 40];
++        let lcfd = loop {
++            let fd = unsafe { libc::listen(dir.as_ptr(), newdir.as_mut_ptr().cast()) };
++            if fd >= 0 {
++                break fd;
++            }
++            let e = last_error();
++            if e.kind() != io::ErrorKind::Interrupted {
++                return Err(e);
++            }
++        };
++        let lcfd = unsafe { FileDesc::from_raw_fd(lcfd) };
++        let fd = cvt(unsafe { libc::accept(lcfd.as_raw_fd(), newdir.as_ptr().cast()) })?;
++        let s = TcpStream { inner: socket_of(fd)? };
++        let peer = s.peer_addr()?;
++        Ok((s, peer))
++    }
++
++    pub fn duplicate(&self) -> io::Result<TcpListener> {
++        Ok(TcpListener { inner: self.inner.duplicate()? })
++    }
++
++    pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
++        write_ctl(&self.inner.dir()?, &format!("ttl {ttl}"))
++    }
++
++    pub fn ttl(&self) -> io::Result<u32> {
++        unsupported()
++    }
++
++    pub fn set_hop_limit_v6(&self, limit: u8) -> io::Result<()> {
++        self.set_ttl(limit as u32)
++    }
++
++    pub fn hop_limit_v6(&self) -> io::Result<u8> {
++        unsupported()
++    }
++
++    pub fn set_only_v6(&self, _: bool) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn only_v6(&self) -> io::Result<bool> {
++        Ok(false)
++    }
++
++    pub fn take_error(&self) -> io::Result<Option<io::Error>> {
++        Ok(None)
++    }
++
++    pub fn set_nonblocking(&self, _: bool) -> io::Result<()> {
++        unsupported()
++    }
++}
++
++impl fmt::Debug for TcpListener {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        let mut res = f.debug_struct("TcpListener");
++        if let Ok(addr) = self.socket_addr() {
++            res.field("addr", &addr);
++        }
++        res.field("fd", &self.inner.as_raw_fd()).finish()
++    }
++}
++
++impl FromInner<Socket> for TcpListener {
++    fn from_inner(inner: Socket) -> TcpListener {
++        TcpListener { inner }
++    }
++}
++
++/* UDP */
++
++const UDP_HDR: usize = 52;
++
++fn put_addr(b: &mut [u8], a: &SocketAddr) {
++    let ip = match a {
++        SocketAddr::V4(v4) => v4.ip().to_ipv6_mapped(),
++        SocketAddr::V6(v6) => *v6.ip(),
++    };
++    b[..16].copy_from_slice(&ip.octets());
++}
++
++fn get_addr(b: &[u8], port: &[u8]) -> SocketAddr {
++    let mut o = [0u8; 16];
++    o.copy_from_slice(&b[..16]);
++    let ip = Ipv6Addr::from(o);
++    let port = u16::from_be_bytes([port[0], port[1]]);
++    match ip.to_ipv4_mapped() {
++        Some(v4) => SocketAddr::V4(SocketAddrV4::new(v4, port)),
++        None => SocketAddr::V6(SocketAddrV6::new(ip, port, 0, 0)),
++    }
++}
++
++/// The data file, with headers; connect's address (for send and recv) is its `FdState`.
++pub struct UdpSocket {
++    inner: Socket,
++}
++
++impl UdpSocket {
++    pub fn bind<A: ToSocketAddrs>(addr: A) -> io::Result<UdpSocket> {
++        each_addr(addr, |a| {
++            let n = netaddr("udp", a);
++            let mut dir = [0u8; 40];
++            let cfd = cvt(unsafe { libc::announce(n.as_ptr(), dir.as_mut_ptr().cast()) })?;
++            let cfd = unsafe { FileDesc::from_raw_fd(cfd) };
++            cfd.write(b"headers")?;
++            let n = dir.iter().position(|&c| c == 0).unwrap_or(dir.len());
++            let mut data = dir[..n].to_vec();
++            data.extend_from_slice(b"/data");
++            let data = CString::new(data).unwrap();
++            let fd = cvt(unsafe { libc::open(data.as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
++            set_state(fd, FdState::default());
++            Ok(UdpSocket { inner: Socket::new(unsafe { FileDesc::from_raw_fd(fd) }) })
++        })
++    }
++
++    pub fn socket(&self) -> &Socket {
++        &self.inner
++    }
++
++    pub fn into_socket(self) -> Socket {
++        self.inner
++    }
++
++    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
++        self.inner.state().peer.ok_or(io::const_error!(io::ErrorKind::NotConnected, "not connected"))
++    }
++
++    pub fn socket_addr(&self) -> io::Result<SocketAddr> {
++        self.inner.local()
++    }
++
++    pub fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
++        let mut b = vec![0u8; UDP_HDR + buf.len()];
++        loop {
++            let n = self.inner.read(&mut b)?;
++            if n < UDP_HDR {
++                return Err(err(io::ErrorKind::InvalidData, "short udp header"));
++            }
++            let from = get_addr(&b[0..16], &b[48..50]);
++            // a connected socket takes only its peer's
++            if let Some(p) = self.inner.state().peer {
++                if p != from {
++                    continue;
++                }
++            }
++            let len = (n - UDP_HDR).min(buf.len());
++            buf[..len].copy_from_slice(&b[UDP_HDR..UDP_HDR + len]);
++            return Ok((len, from));
++        }
++    }
++
++    pub fn peek_from(&self, _: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
++        unsupported()
++    }
++
++    pub fn send_to(&self, buf: &[u8], dst: &SocketAddr) -> io::Result<usize> {
++        let mut b = vec![0u8; UDP_HDR + buf.len()];
++        put_addr(&mut b[0..16], dst);
++        // the local address: the kernel picks the interface
++        b[48..50].copy_from_slice(&dst.port().to_be_bytes());
++        b[UDP_HDR..].copy_from_slice(buf);
++        let n = self.inner.write(&b)?;
++        Ok(n.saturating_sub(UDP_HDR))
++    }
++
++    pub fn duplicate(&self) -> io::Result<UdpSocket> {
++        Ok(UdpSocket { inner: self.inner.duplicate()? })
++    }
++
++    pub fn set_read_timeout(&self, t: Option<Duration>) -> io::Result<()> {
++        self.inner.set_read_timeout(t)
++    }
++
++    pub fn set_write_timeout(&self, t: Option<Duration>) -> io::Result<()> {
++        self.inner.set_write_timeout(t)
++    }
++
++    pub fn read_timeout(&self) -> io::Result<Option<Duration>> {
++        Ok(dur_of(self.inner.state().read_ms))
++    }
++
++    pub fn write_timeout(&self) -> io::Result<Option<Duration>> {
++        Ok(dur_of(self.inner.state().write_ms))
++    }
++
++    pub fn set_broadcast(&self, _: bool) -> io::Result<()> {
++        Ok(())
++    }
++
++    pub fn broadcast(&self) -> io::Result<bool> {
++        Ok(true)
++    }
++
++    pub fn set_multicast_loop_v4(&self, _: bool) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn multicast_loop_v4(&self) -> io::Result<bool> {
++        unsupported()
++    }
++
++    pub fn set_multicast_ttl_v4(&self, _: u32) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn multicast_ttl_v4(&self) -> io::Result<u32> {
++        unsupported()
++    }
++
++    pub fn set_multicast_loop_v6(&self, _: bool) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn multicast_loop_v6(&self) -> io::Result<bool> {
++        unsupported()
++    }
++
++    pub fn join_multicast_v4(&self, _: &Ipv4Addr, _: &Ipv4Addr) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn join_multicast_v6(&self, _: &Ipv6Addr, _: u32) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn leave_multicast_v4(&self, _: &Ipv4Addr, _: &Ipv4Addr) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn leave_multicast_v6(&self, _: &Ipv6Addr, _: u32) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
++        write_ctl(&self.inner.dir()?, &format!("ttl {ttl}"))
++    }
++
++    pub fn ttl(&self) -> io::Result<u32> {
++        unsupported()
++    }
++
++    pub fn set_hop_limit_v6(&self, limit: u8) -> io::Result<()> {
++        self.set_ttl(limit as u32)
++    }
++
++    pub fn hop_limit_v6(&self) -> io::Result<u8> {
++        unsupported()
++    }
++
++    pub fn set_multicast_hop_limit_v6(&self, _: u8) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn multicast_hop_limit_v6(&self) -> io::Result<u8> {
++        unsupported()
++    }
++
++    pub fn take_error(&self) -> io::Result<Option<io::Error>> {
++        Ok(None)
++    }
++
++    pub fn set_nonblocking(&self, _: bool) -> io::Result<()> {
++        unsupported()
++    }
++
++    pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
++        self.recv_from(buf).map(|(n, _)| n)
++    }
++
++    pub fn peek(&self, _: &mut [u8]) -> io::Result<usize> {
++        unsupported()
++    }
++
++    pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
++        let peer = self.peer_addr()?;
++        self.send_to(buf, &peer)
++    }
++
++    pub fn connect<A: ToSocketAddrs>(&self, addr: A) -> io::Result<()> {
++        let a = addr.to_socket_addrs()?.next().ok_or(io::Error::NO_ADDRESSES)?;
++        self.inner.update(|s| s.peer = Some(a));
++        Ok(())
++    }
++}
++
++impl fmt::Debug for UdpSocket {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        let mut res = f.debug_struct("UdpSocket");
++        if let Ok(addr) = self.socket_addr() {
++            res.field("addr", &addr);
++        }
++        res.field("fd", &self.inner.as_raw_fd()).finish()
++    }
++}
++
++impl FromInner<Socket> for UdpSocket {
++    fn from_inner(inner: Socket) -> UdpSocket {
++        UdpSocket { inner }
++    }
++}
++
++/* names: ndb's connection server */
++
++pub struct LookupHost {
++    addrs: crate::vec::IntoIter<SocketAddr>,
++}
++
++impl Iterator for LookupHost {
++    type Item = SocketAddr;
++    fn next(&mut self) -> Option<SocketAddr> {
++        self.addrs.next()
++    }
++}
++
++/// `/net/cs` translates `tcp!name!port` into lines `/net/tcp/clone 1.2.3.4!80`.
++pub fn lookup_host(host: &str, port: u16) -> io::Result<LookupHost> {
++    let fd = cvt(unsafe { libc::open(c"/net/cs".as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
++    let fd = unsafe { FileDesc::from_raw_fd(fd) };
++    let q = format!("tcp!{host}!{port}");
++    fd.write(q.as_bytes())?;
++    fd.seek(io::SeekFrom::Start(0))?;
++    let mut addrs = Vec::new();
++    let mut buf = [0u8; 512];
++    loop {
++        let n = match fd.read(&mut buf) {
++            Ok(0) => break,
++            Ok(n) => n,
++            Err(e) if addrs.is_empty() => return Err(e),
++            Err(_) => break,
++        };
++        let line = String::from_utf8_lossy(&buf[..n]);
++        if let Some((_, a)) = line.trim().split_once(' ') {
++            if let Ok(a) = parse_addr(a) {
++                if !addrs.contains(&a) {
++                    addrs.push(a);
++                }
++            }
++        }
++    }
++    Ok(LookupHost { addrs: addrs.into_iter() })
++}
+diff --git a/library/std/src/sys/net/hostname/mod.rs b/library/std/src/sys/net/hostname/mod.rs
+index 65fcd6bfb00..9ddb5200296 100644
+--- a/library/std/src/sys/net/hostname/mod.rs
++++ b/library/std/src/sys/net/hostname/mod.rs
+@@ -8,6 +8,10 @@
+         mod windows;
+         pub use windows::hostname;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::hostname;
++    }
+     _ => {
+         mod unsupported;
+         pub use unsupported::hostname;
+diff --git a/library/std/src/sys/net/hostname/plan9.rs b/library/std/src/sys/net/hostname/plan9.rs
+new file mode 100644
+index 00000000000..1ec5ef11ca6
+--- /dev/null
++++ b/library/std/src/sys/net/hostname/plan9.rs
+@@ -0,0 +1,12 @@
++use crate::ffi::{CStr, OsString};
++use crate::io::Result;
++use crate::os::plan9::ffi::OsStringExt;
++
++/// `$sysname`, as sysname(2).
++pub fn hostname() -> Result<OsString> {
++    let p = unsafe { libc::sysname() };
++    if p.is_null() {
++        return Err(crate::sys::last_error());
++    }
++    Ok(OsString::from_vec(unsafe { CStr::from_ptr(p) }.to_bytes().to_vec()))
++}
+diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
+index 59ec9234e5b..5ba5cc96f41 100644
+--- a/library/std/src/sys/pal/plan9/mod.rs
++++ b/library/std/src/sys/pal/plan9/mod.rs
+@@ -17,11 +17,15 @@ pub fn unsupported_err() -> io::Error {
+     io::Error::UNSUPPORTED_PLATFORM
+ }
+ 
+-/// Notes the program goes on after, as POSIX programs ignore SIGPIPE: a write on a
+-/// closed pipe gives an error.
++/// Notes the program goes on after: a write on a closed pipe gives an error, as POSIX
++/// programs ignore SIGPIPE; the alarm of a timeout (sys/net) ends the call it interrupts.
+ unsafe extern "C" fn notehandler(_ureg: *mut c_void, note: *mut c_char) -> i32 {
+     let note = unsafe { CStr::from_ptr(note) }.to_bytes();
+-    if note.starts_with(b"sys: write on closed pipe") { 1 } else { 0 }
++    if note.starts_with(b"sys: write on closed pipe") || note == b"alarm" { 1 } else { 0 }
++}
++
++unsafe extern "C" fn alarmhandler(_ureg: *mut c_void, note: *mut c_char) -> i32 {
++    (unsafe { CStr::from_ptr(note) }.to_bytes() == b"alarm") as i32
+ }
+ 
+ // SAFETY: must be called only once during runtime initialization.
+@@ -34,6 +38,8 @@ pub unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
+         // Plan 9's default (the note kills the program)
+         if sigpipe == 0 || sigpipe == 2 {
+             libc::atnotify(Some(notehandler), 1);
++        } else {
++            libc::atnotify(Some(alarmhandler), 1);
+         }
+     }
+     let _ = proc::current();
+@@ -84,6 +90,8 @@ pub fn error_kind(s: &[u8]) -> io::ErrorKind {
+         BrokenPipe
+     } else if has("address in use") || has("port not available") || has("connection in use") {
+         AddrInUse
++    } else if has("not a local ip") {
++        AddrNotAvailable
+     } else if has("unreachable") {
+         HostUnreachable
+     } else if has("file system full") || has("disk full") || has("no space") {
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index f010d351e87..1a0956d272e 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -211,6 +211,8 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+     /// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
+     /// below `privtop`, without touching its parent's.
+     fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32;
++    /// The same for a child that runs `(*arg).0(arg)`: process::Command's.
++    fn __rust_plan9_rforkrun(flags: i32, privtop: usize, arg: *const c_void) -> i32;
+ }
+ 
+ // amd64: the system call number in BP, the argument at 8(SP) (libc's system call stubs);
+@@ -256,9 +258,53 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+     "   movq %r15, %rdi",
+     "   call __rust_plan9_threadstart",
+     "2: jmp 2b",
++    ".globl __rust_plan9_rforkrun",
++    "__rust_plan9_rforkrun:",
++    "   pushq %rbx",
++    "   pushq %rbp",
++    "   pushq %r12",
++    "   pushq %r13",
++    "   pushq %r14",
++    "   pushq %r15",
++    "   movq %rsi, %r14",
++    "   movq %rdx, %r15",
++    "   subq $16, %rsp",
++    "   movq %rdi, 8(%rsp)",
++    "   movq $19, %rbp", // RFORK
++    "   syscall",
++    "   testq %rax, %rax",
++    "   jz 1f",
++    "   addq $16, %rsp",
++    "   popq %r15",
++    "   popq %r14",
++    "   popq %r13",
++    "   popq %r12",
++    "   popq %rbp",
++    "   popq %rbx",
++    "   ret",
++    "1: movq %r14, %rsp",
++    "   movq %r15, %rdi",
++    "   call *(%r15)",
++    "2: jmp 2b",
+     options(att_syntax)
+ );
+ 
++/// What a child of [`rfork_run`] runs: `f(self)`, which must not return.
++#[repr(C)]
++pub struct Run<T> {
++    pub f: unsafe extern "C" fn(*const Run<T>) -> !,
++    pub data: T,
++}
++
++/// `rfork(flags)` of a child that runs, on its own stack segment, `run.f(run)`: it touches
++/// nothing of its parent's stack, which is shared memory (a stack slot) even without
++/// RFMEM. `run` stays the parent's until the child is done with it; the child's memory is
++/// a copy: it must not take a lock (malloc's) another thread may have held at the fork.
++pub unsafe fn rfork_run<T>(flags: i32, run: &Run<T>) -> i32 {
++    set_privtop_here();
++    unsafe { __rust_plan9_rforkrun(flags, PRIVTOP.load(SeqCst), (run as *const Run<T>).cast()) }
++}
++
+ fn align_down(p: usize) -> usize {
+     p & !15
+ }
+diff --git a/library/std/src/sys/paths/mod.rs b/library/std/src/sys/paths/mod.rs
+index 865d06ae864..bc3584fa4e7 100644
+--- a/library/std/src/sys/paths/mod.rs
++++ b/library/std/src/sys/paths/mod.rs
+@@ -38,6 +38,10 @@ mod imp {
+         mod uefi;
+         use uefi as imp;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        use plan9 as imp;
++    }
+     target_family = "unix" => {
+         mod unix;
+         use unix as imp;
+diff --git a/library/std/src/sys/paths/plan9.rs b/library/std/src/sys/paths/plan9.rs
+new file mode 100644
+index 00000000000..496aa367d9f
+--- /dev/null
++++ b/library/std/src/sys/paths/plan9.rs
+@@ -0,0 +1,131 @@
++//! Working directory, `$path` (an rc list: NUL between the elements), `$home`, `/tmp`.
++
++use crate::ffi::{CString, OsStr, OsString};
++use crate::os::plan9::ffi::{OsStrExt, OsStringExt};
++use crate::path::{self, Path, PathBuf};
++use crate::sys::{cvt, last_error};
++use crate::{fmt, io, iter, slice};
++
++pub fn getcwd() -> io::Result<PathBuf> {
++    let mut buf = vec![0u8; 1024];
++    loop {
++        let r = unsafe { libc::getwd(buf.as_mut_ptr().cast(), buf.len() as i32) };
++        if r.is_null() {
++            return Err(last_error());
++        }
++        let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
++        if n + 1 < buf.len() {
++            buf.truncate(n);
++            return Ok(PathBuf::from(OsString::from_vec(buf)));
++        }
++        let l = buf.len() * 2;
++        buf.resize(l, 0);
++    }
++}
++
++pub fn chdir(p: &path::Path) -> io::Result<()> {
++    let c = CString::new(p.as_os_str().as_bytes()).map_err(|_| io::const_error!(io::ErrorKind::InvalidInput, "file name contains a NUL byte"))?;
++    cvt(unsafe { libc::chdir(c.as_ptr()) }).map(drop)
++}
++
++pub struct SplitPaths<'a> {
++    iter: iter::Map<slice::Split<'a, u8, fn(&u8) -> bool>, fn(&'a [u8]) -> PathBuf>,
++}
++
++pub fn split_paths(unparsed: &OsStr) -> SplitPaths<'_> {
++    fn bytes_to_path(b: &[u8]) -> PathBuf {
++        PathBuf::from(<OsStr as OsStrExt>::from_bytes(b))
++    }
++    fn is_sep(b: &u8) -> bool {
++        *b == 0
++    }
++    let unparsed = unparsed.as_bytes();
++    SplitPaths {
++        iter: unparsed
++            .split(is_sep as fn(&u8) -> bool)
++            .map(bytes_to_path as fn(&[u8]) -> PathBuf),
++    }
++}
++
++impl<'a> Iterator for SplitPaths<'a> {
++    type Item = PathBuf;
++    fn next(&mut self) -> Option<PathBuf> {
++        self.iter.next()
++    }
++    fn size_hint(&self) -> (usize, Option<usize>) {
++        self.iter.size_hint()
++    }
++}
++
++pub struct SplitPathsRef<'a> {
++    iter: slice::Split<'a, u8, fn(&u8) -> bool>,
++}
++
++pub fn split_paths_ref(unparsed: &OsStr) -> Option<SplitPathsRef<'_>> {
++    fn is_sep(b: &u8) -> bool {
++        *b == 0
++    }
++    Some(SplitPathsRef { iter: unparsed.as_bytes().split(is_sep as fn(&u8) -> bool) })
++}
++
++impl<'a> Iterator for SplitPathsRef<'a> {
++    type Item = &'a Path;
++    fn next(&mut self) -> Option<&'a Path> {
++        self.iter.next().map(|b| Path::new(<OsStr as OsStrExt>::from_bytes(b)))
++    }
++}
++
++#[derive(Debug)]
++pub struct JoinPathsError;
++
++pub fn join_paths<I, T>(paths: I) -> Result<OsString, JoinPathsError>
++where
++    I: Iterator<Item = T>,
++    T: AsRef<OsStr>,
++{
++    let mut joined = Vec::new();
++    for (i, path) in paths.enumerate() {
++        let path = path.as_ref().as_bytes();
++        if i > 0 {
++            joined.push(0);
++        }
++        if path.contains(&0) {
++            return Err(JoinPathsError);
++        }
++        joined.extend_from_slice(path);
++    }
++    Ok(OsStringExt::from_vec(joined))
++}
++
++impl fmt::Display for JoinPathsError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        "path segment contains a NUL byte".fmt(f)
++    }
++}
++
++impl crate::error::Error for JoinPathsError {}
++
++/// Plan 9 keeps no name of the program a proc runs: argv[0], absolute, looked up in
++/// `$path` when it has no slash (as rc does).
++pub fn current_exe() -> io::Result<PathBuf> {
++    let arg0 = crate::env::args_os()
++        .next()
++        .ok_or(io::const_error!(io::ErrorKind::NotFound, "no argv[0]"))?;
++    let p = PathBuf::from(&arg0);
++    let found = if arg0.as_bytes().contains(&b'/') {
++        Some(p)
++    } else {
++        let path = crate::env::var_os("path").unwrap_or_else(|| OsString::from("/bin"));
++        split_paths(&path).map(|d| d.join(&p)).find(|c| crate::sys::fs::exists(c).unwrap_or(false))
++    };
++    let found = found.ok_or(io::const_error!(io::ErrorKind::NotFound, "program not found"))?;
++    if found.is_absolute() { Ok(found) } else { Ok(getcwd()?.join(found)) }
++}
++
++pub fn temp_dir() -> PathBuf {
++    crate::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
++}
++
++pub fn home_dir() -> Option<PathBuf> {
++    crate::env::var_os("home").or_else(|| crate::env::var_os("HOME")).map(PathBuf::from)
++}
+diff --git a/library/std/src/sys/pipe/mod.rs b/library/std/src/sys/pipe/mod.rs
+index 85228963b4a..a36655c5619 100644
+--- a/library/std/src/sys/pipe/mod.rs
++++ b/library/std/src/sys/pipe/mod.rs
+@@ -13,6 +13,10 @@
+         mod motor;
+         pub use motor::{Pipe, pipe};
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::{Pipe, pipe};
++    }
+     _ => {
+         mod unsupported;
+         pub use unsupported::{Pipe, pipe};
+diff --git a/library/std/src/sys/pipe/plan9.rs b/library/std/src/sys/pipe/plan9.rs
+new file mode 100644
+index 00000000000..eb28ea41f95
+--- /dev/null
++++ b/library/std/src/sys/pipe/plan9.rs
+@@ -0,0 +1,25 @@
++//! pipe(2): both ends read and write; here the first is read, the second written.
++
++use crate::io;
++use crate::os::plan9::io::FromRawFd;
++use crate::sys::cvt;
++use crate::sys::fd::FileDesc;
++
++pub type Pipe = FileDesc;
++
++pub fn pipe() -> io::Result<(Pipe, Pipe)> {
++    let mut fds = [0; 2];
++    cvt(unsafe { libc::pipe(fds.as_mut_ptr()) })?;
++    // close on exec, as every descriptor std makes
++    let r = crate::sys::fd::cloexec(fds[0], libc::ORDWR);
++    let w = crate::sys::fd::cloexec(fds[1], libc::ORDWR);
++    match (r, w) {
++        (Ok(r), Ok(w)) => unsafe { Ok((FileDesc::from_raw_fd(r), FileDesc::from_raw_fd(w))) },
++        (r, w) => {
++            for fd in [r.as_ref().ok(), w.as_ref().ok()].into_iter().flatten() {
++                unsafe { libc::close(*fd) };
++            }
++            Err(r.err().or(w.err()).unwrap())
++        }
++    }
++}
+diff --git a/library/std/src/sys/process/mod.rs b/library/std/src/sys/process/mod.rs
+index 3579a5ab593..703267cb920 100644
+--- a/library/std/src/sys/process/mod.rs
++++ b/library/std/src/sys/process/mod.rs
+@@ -15,6 +15,10 @@
+         mod motor;
+         use motor as imp;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        use plan9 as imp;
++    }
+     _ => {
+         mod unsupported;
+         use unsupported as imp;
+diff --git a/library/std/src/sys/process/plan9.rs b/library/std/src/sys/process/plan9.rs
+new file mode 100644
+index 00000000000..ab1ea41cc81
+--- /dev/null
++++ b/library/std/src/sys/process/plan9.rs
+@@ -0,0 +1,715 @@
++//! Processes of 9front: rfork(2) and exec, waited for through proc(3)'s `wait` file.
++//!
++//! The child is forked without RFMEM: a copy of the parent's memory, which it does not
++//! change. It runs on its own stack segment at once (`pal::proc::rfork_run`: the stack slots
++//! are shared even so), takes no locks and allocates nothing: everything it needs is made
++//! before. It sets up its descriptors 0, 1 and 2 (dup), its directory, its environment
++//! (RFENVG, a copy of the environment group, or RFCENVG, an empty one; then `/env`), and
++//! execs; every other descriptor std made closes on exec. That the exec failed it tells the
++//! parent through a pipe that closes on exec.
++//!
++//! The Waitmsg of a child goes to the proc that forked it, and Rust lets any thread wait
++//! for a child: here every thread reads `/proc/<that proc>/wait`, one at a time, and keeps
++//! what it reads for whom it is. A child of a thread that ended before it has no one to
++//! tell its end (Plan 9 hands no children on): it cannot be waited for.
++
++use super::env::{CommandEnv, CommandEnvs, CommandResolvedEnvs};
++pub use crate::ffi::OsString as EnvKey;
++use crate::ffi::{CString, OsStr, OsString, c_char};
++use crate::num::NonZero;
++use crate::os::plan9::ffi::OsStrExt;
++use crate::os::plan9::io::{AsRawFd, FromRawFd};
++use crate::path::{Path, PathBuf};
++use crate::process::StdioPipes;
++use crate::sync::{Condvar, Mutex};
++use crate::sys::fd::FileDesc;
++use crate::sys::fs::File;
++use crate::sys::pal::proc::{Run, rfork_run};
++use crate::sys::{IntoInner, cvt, last_error};
++use crate::{fmt, io, ptr};
++
++////////////////////////////////////////////////////////////////////////////////
++// Command
++////////////////////////////////////////////////////////////////////////////////
++
++pub struct Command {
++    program: OsString,
++    args: Vec<OsString>,
++    env: CommandEnv,
++    cwd: Option<OsString>,
++    stdin: Option<Stdio>,
++    stdout: Option<Stdio>,
++    stderr: Option<Stdio>,
++}
++
++#[derive(Debug)]
++pub enum Stdio {
++    Inherit,
++    Null,
++    MakePipe,
++    ParentStdout,
++    ParentStderr,
++    Fd(FileDesc),
++}
++
++impl Command {
++    pub fn new(program: &OsStr) -> Command {
++        Command {
++            program: program.to_owned(),
++            args: vec![program.to_owned()],
++            env: Default::default(),
++            cwd: None,
++            stdin: None,
++            stdout: None,
++            stderr: None,
++        }
++    }
++
++    pub fn arg(&mut self, arg: &OsStr) {
++        self.args.push(arg.to_owned());
++    }
++
++    pub fn env_mut(&mut self) -> &mut CommandEnv {
++        &mut self.env
++    }
++
++    pub fn cwd(&mut self, dir: &OsStr) {
++        self.cwd = Some(dir.to_owned());
++    }
++
++    pub fn stdin(&mut self, stdin: Stdio) {
++        self.stdin = Some(stdin);
++    }
++
++    pub fn stdout(&mut self, stdout: Stdio) {
++        self.stdout = Some(stdout);
++    }
++
++    pub fn stderr(&mut self, stderr: Stdio) {
++        self.stderr = Some(stderr);
++    }
++
++    pub fn get_program(&self) -> &OsStr {
++        &self.program
++    }
++
++    pub fn get_args(&self) -> CommandArgs<'_> {
++        let mut iter = self.args.iter();
++        iter.next();
++        CommandArgs { iter }
++    }
++
++    pub fn get_envs(&self) -> CommandEnvs<'_> {
++        self.env.iter()
++    }
++
++    pub fn get_env_clear(&self) -> bool {
++        self.env.does_clear()
++    }
++
++    pub fn get_resolved_envs(&self) -> CommandResolvedEnvs {
++        CommandResolvedEnvs::new(self.env.capture())
++    }
++
++    pub fn get_current_dir(&self) -> Option<&Path> {
++        self.cwd.as_ref().map(|cs| Path::new(cs))
++    }
++
++    /// The file to exec: as rc, a name without a slash is looked up in `$path` (the
++    /// child's, if the command sets it).
++    fn resolve(&self) -> io::Result<PathBuf> {
++        let prog = Path::new(&self.program);
++        let b = self.program.as_bytes();
++        if b.contains(&b'/') || b.starts_with(b"#") {
++            return Ok(prog.to_path_buf());
++        }
++        let path = self
++            .env
++            .iter()
++            .find(|(k, _)| *k == OsStr::new("path"))
++            .map(|(_, v)| v.map(|v| v.to_owned()))
++            .unwrap_or_else(|| {
++                if self.env.does_clear() { None } else { crate::env::var_os("path") }
++            })
++            .unwrap_or_else(|| OsString::from(".\0/bin"));
++        for dir in crate::env::split_paths(&path) {
++            let cand = dir.join(prog);
++            let cand = match self.cwd.as_ref() {
++                Some(cwd) if cand.is_relative() => Path::new(cwd).join(cand),
++                _ => cand,
++            };
++            if crate::sys::fs::exists(&cand).unwrap_or(false) {
++                return Ok(cand);
++            }
++        }
++        Err(io::const_error!(io::ErrorKind::NotFound, "program not found"))
++    }
++
++    pub fn spawn(
++        &mut self,
++        default: Stdio,
++        needs_stdin: bool,
++    ) -> io::Result<(Process, StdioPipes)> {
++        let cstr = |s: &OsStr| {
++            CString::new(s.as_bytes())
++                .map_err(|_| io::const_error!(io::ErrorKind::InvalidInput, "NUL byte in argument"))
++        };
++        let prog = cstr(self.resolve()?.as_os_str())?;
++        let args: Vec<CString> = self.args.iter().map(|a| cstr(a)).collect::<io::Result<_>>()?;
++        let mut argv: Vec<*const c_char> = args.iter().map(|a| a.as_ptr()).collect();
++        argv.push(ptr::null());
++        let cwd = self.cwd.as_deref().map(cstr).transpose()?;
++
++        // the environment: a copy of the group, or an empty one, then the changes
++        let mut flags = libc::RFPROC | libc::RFFDG | libc::RFREND;
++        let mut envs: Vec<(CString, Option<Vec<u8>>)> = Vec::new();
++        if self.env.does_clear() {
++            flags |= libc::RFCENVG;
++        } else if !self.env.is_unchanged() {
++            flags |= libc::RFENVG;
++        }
++        for (k, v) in self.env.iter() {
++            let mut p = b"/env/".to_vec();
++            p.extend_from_slice(k.as_bytes());
++            envs.push((cstr(OsStr::from_bytes(&p))?, v.map(|v| v.as_bytes().to_vec())));
++        }
++        let envs: Vec<EnvOp> = envs
++            .iter()
++            .map(|(p, v)| EnvOp {
++                path: p.as_ptr(),
++                val: v.as_ref().map_or(ptr::null(), |v| v.as_ptr()),
++                len: v.as_ref().map_or(0, |v| v.len()),
++                set: v.is_some(),
++            })
++            .collect();
++
++        // descriptors 0, 1, 2: what the child dups there (-1: its parent's)
++        let mut keep: Vec<FileDesc> = Vec::new();
++        let mut ours: [Option<FileDesc>; 3] = [None, None, None];
++        let mut fds = [-1; 3];
++        let stdin = match self.stdin.take() {
++            Some(s) => s,
++            None if needs_stdin => clone_stdio(&default)?,
++            None => Stdio::Null,
++        };
++        let stdout = match self.stdout.take() {
++            Some(s) => s,
++            None => clone_stdio(&default)?,
++        };
++        let stderr = match self.stderr.take() {
++            Some(s) => s,
++            None => clone_stdio(&default)?,
++        };
++        for (i, s) in [stdin, stdout, stderr].into_iter().enumerate() {
++            match s {
++                Stdio::Inherit => {}
++                Stdio::Null => {
++                    let mode = if i == 0 { libc::OREAD } else { libc::OWRITE };
++                    let fd = cvt(unsafe {
++                        libc::open(c"/dev/null".as_ptr(), mode | libc::OCEXEC)
++                    })?;
++                    let fd = unsafe { FileDesc::from_raw_fd(fd) };
++                    fds[i] = fd.as_raw_fd();
++                    keep.push(fd);
++                }
++                Stdio::MakePipe => {
++                    let (r, w) = crate::sys::pipe::pipe()?;
++                    let (theirs, mine) = if i == 0 { (r, w) } else { (w, r) };
++                    fds[i] = theirs.as_raw_fd();
++                    keep.push(theirs);
++                    ours[i] = Some(mine);
++                }
++                Stdio::ParentStdout => fds[i] = 1,
++                Stdio::ParentStderr => fds[i] = 2,
++                Stdio::Fd(fd) => {
++                    fds[i] = fd.as_raw_fd();
++                    keep.push(fd);
++                }
++            }
++        }
++
++        let (errr, errw) = crate::sys::pipe::pipe()?;
++        let run = Run {
++            f: child,
++            data: ChildArgs {
++                prog: prog.as_ptr(),
++                argv: argv.as_ptr(),
++                cwd: cwd.as_ref().map_or(ptr::null(), |c| c.as_ptr()),
++                fds,
++                envs: envs.as_ptr(),
++                nenv: envs.len(),
++                errw: errw.as_raw_fd(),
++            },
++        };
++        let pid = unsafe { rfork_run(flags, &run) };
++        if pid < 0 {
++            return Err(last_error());
++        }
++        let spawner = unsafe { libc::getpid() };
++        drop(errw);
++        drop(keep);
++        let mut buf = [0u8; libc::ERRMAX + 16];
++        let n = errr.read(&mut buf).unwrap_or(0);
++        if n > 0 {
++            // exec failed: the child is gone
++            let _ = wait_for(spawner, pid);
++            let s = &buf[..n];
++            return Err(io::Error::new(
++                crate::sys::pal::error_kind(s),
++                String::from_utf8_lossy(s).into_owned(),
++            ));
++        }
++        let [stdin, stdout, stderr] = ours;
++        Ok((Process { pid, spawner, status: None }, StdioPipes { stdin, stdout, stderr }))
++    }
++}
++
++/// The default of spawn for each stream (it is used up by each).
++fn clone_stdio(s: &Stdio) -> io::Result<Stdio> {
++    Ok(match s {
++        Stdio::Inherit => Stdio::Inherit,
++        Stdio::Null => Stdio::Null,
++        Stdio::MakePipe => Stdio::MakePipe,
++        Stdio::ParentStdout => Stdio::ParentStdout,
++        Stdio::ParentStderr => Stdio::ParentStderr,
++        Stdio::Fd(fd) => Stdio::Fd(fd.duplicate()?),
++    })
++}
++
++#[repr(C)]
++struct EnvOp {
++    path: *const c_char,
++    val: *const u8,
++    len: usize,
++    set: bool,
++}
++
++#[repr(C)]
++struct ChildArgs {
++    prog: *const c_char,
++    argv: *const *const c_char,
++    cwd: *const c_char,
++    fds: [i32; 3],
++    envs: *const EnvOp,
++    nenv: usize,
++    errw: i32,
++}
++
++/// The child, on its own stack segment, with a copy of its parent's memory: system calls
++/// only.
++unsafe extern "C" fn child(run: *const Run<ChildArgs>) -> ! {
++    unsafe {
++        let a = &(*run).data;
++        // first out of the way of 0, 1, 2, then there (dup clears close-on-exec)
++        let mut tmp = [-1; 3];
++        for i in 0..3 {
++            if a.fds[i] >= 0 {
++                tmp[i] = libc::dup(a.fds[i], -1);
++                if tmp[i] < 0 {
++                    fail(a.errw);
++                }
++            }
++        }
++        for i in 0..3 {
++            if tmp[i] >= 0 {
++                if libc::dup(tmp[i], i as i32) < 0 {
++                    fail(a.errw);
++                }
++                libc::close(tmp[i]);
++            }
++        }
++        if !a.cwd.is_null() && libc::chdir(a.cwd) < 0 {
++            fail(a.errw);
++        }
++        for i in 0..a.nenv {
++            let e = &*a.envs.add(i);
++            if e.set {
++                let fd = libc::create(e.path, libc::OWRITE, 0o664);
++                if fd < 0 {
++                    fail(a.errw);
++                }
++                libc::write(fd, e.val.cast(), e.len as _);
++                libc::close(fd);
++            } else {
++                libc::remove(e.path);
++            }
++        }
++        libc::exec(a.prog, a.argv);
++        fail(a.errw)
++    }
++}
++
++unsafe fn fail(errw: i32) -> ! {
++    unsafe {
++        let mut buf = [0u8; libc::ERRMAX];
++        libc::rerrstr(buf.as_mut_ptr().cast(), buf.len() as _);
++        let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len()).max(1);
++        libc::write(errw, buf.as_ptr().cast(), n as _);
++        libc::_exits(c"exec".as_ptr())
++    }
++}
++
++pub fn output(cmd: &mut Command) -> io::Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
++    let (mut process, mut pipes) = cmd.spawn(Stdio::MakePipe, false)?;
++    drop(pipes.stdin.take());
++    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
++    match (pipes.stdout.take(), pipes.stderr.take()) {
++        (None, None) => {}
++        (Some(out), None) => {
++            out.read_to_end(&mut stdout)?;
++        }
++        (None, Some(err)) => {
++            err.read_to_end(&mut stderr)?;
++        }
++        (Some(out), Some(err)) => read_output(out, &mut stdout, err, &mut stderr)?,
++    }
++    let status = process.wait()?;
++    Ok((status, stdout, stderr))
++}
++
++impl From<ChildPipe> for Stdio {
++    fn from(pipe: ChildPipe) -> Stdio {
++        Stdio::Fd(pipe)
++    }
++}
++
++impl From<io::Stdout> for Stdio {
++    fn from(_: io::Stdout) -> Stdio {
++        Stdio::ParentStdout
++    }
++}
++
++impl From<io::Stderr> for Stdio {
++    fn from(_: io::Stderr) -> Stdio {
++        Stdio::ParentStderr
++    }
++}
++
++impl From<File> for Stdio {
++    fn from(file: File) -> Stdio {
++        Stdio::Fd(file.into_inner())
++    }
++}
++
++impl fmt::Debug for Command {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        if f.alternate() {
++            let mut d = f.debug_struct("Command");
++            d.field("program", &self.program).field("args", &self.args);
++            if !self.env.is_unchanged() {
++                d.field("env", &self.env);
++            }
++            if self.cwd.is_some() {
++                d.field("cwd", &self.cwd);
++            }
++            d.finish()
++        } else {
++            if let Some(ref cwd) = self.cwd {
++                write!(f, "cd {cwd:?} && ")?;
++            }
++            write!(f, "{:?}", self.program)?;
++            for arg in self.args.iter().skip(1) {
++                write!(f, " {:?}", arg)?;
++            }
++            Ok(())
++        }
++    }
++}
++
++////////////////////////////////////////////////////////////////////////////////
++// Exit status: the Waitmsg's message, `"prog pid: msg"`, empty for success
++////////////////////////////////////////////////////////////////////////////////
++
++#[derive(Clone, Copy, PartialEq, Eq)]
++pub struct ExitStatus {
++    msg: [u8; libc::ERRMAX],
++    len: u8,
++}
++
++impl Default for ExitStatus {
++    fn default() -> ExitStatus {
++        ExitStatus { msg: [0; libc::ERRMAX], len: 0 }
++    }
++}
++
++impl ExitStatus {
++    fn new(msg: &[u8]) -> ExitStatus {
++        let mut s = ExitStatus::default();
++        let n = msg.len().min(libc::ERRMAX);
++        s.msg[..n].copy_from_slice(&msg[..n]);
++        s.len = n as u8;
++        s
++    }
++
++    /// The message of exits(2), with the program's name and pid before it.
++    pub fn msg(&self) -> &[u8] {
++        &self.msg[..self.len as usize]
++    }
++
++    /// What the program gave exits(2).
++    fn exits(&self) -> &[u8] {
++        let m = self.msg();
++        match m.windows(2).position(|w| w == b": ") {
++            Some(i) => &m[i + 2..],
++            None => m,
++        }
++    }
++
++    pub fn exit_ok(&self) -> Result<(), ExitStatusError> {
++        if self.len == 0 { Ok(()) } else { Err(ExitStatusError(*self)) }
++    }
++
++    /// 0 for success, the number of a Rust program's `exit` (its status is the number);
++    /// none for any other message.
++    pub fn code(&self) -> Option<i32> {
++        if self.len == 0 {
++            return Some(0);
++        }
++        crate::str::from_utf8(self.exits()).ok()?.trim().parse().ok()
++    }
++}
++
++impl fmt::Debug for ExitStatus {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_tuple("ExitStatus").field(&String::from_utf8_lossy(self.msg())).finish()
++    }
++}
++
++impl fmt::Display for ExitStatus {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        if self.len == 0 {
++            write!(f, "exit status: 0")
++        } else {
++            write!(f, "exit status: {}", String::from_utf8_lossy(self.msg()))
++        }
++    }
++}
++
++#[derive(PartialEq, Eq, Clone, Copy)]
++pub struct ExitStatusError(ExitStatus);
++
++impl fmt::Debug for ExitStatusError {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_tuple("ExitStatusError").field(&self.0).finish()
++    }
++}
++
++impl Into<ExitStatus> for ExitStatusError {
++    fn into(self) -> ExitStatus {
++        self.0
++    }
++}
++
++impl ExitStatusError {
++    pub fn code(self) -> Option<NonZero<i32>> {
++        self.0.code().and_then(NonZero::new)
++    }
++}
++
++#[derive(PartialEq, Eq, Clone, Copy, Debug)]
++pub struct ExitCode(u8);
++
++impl ExitCode {
++    pub const SUCCESS: ExitCode = ExitCode(0);
++    pub const FAILURE: ExitCode = ExitCode(1);
++
++    pub fn as_i32(&self) -> i32 {
++        self.0 as i32
++    }
++}
++
++impl From<u8> for ExitCode {
++    fn from(code: u8) -> Self {
++        Self(code)
++    }
++}
++
++////////////////////////////////////////////////////////////////////////////////
++// Waiting: /proc/<spawner>/wait
++////////////////////////////////////////////////////////////////////////////////
++
++struct Waits {
++    /// Waitmsgs read for others: (pid, message)
++    done: Vec<(i32, ExitStatus)>,
++    /// spawners whose wait file a thread reads now
++    reading: Vec<i32>,
++}
++
++static WAITS: Mutex<Waits> = Mutex::new(Waits { done: Vec::new(), reading: Vec::new() });
++static WAITED: Condvar = Condvar::new();
++
++/// One Waitmsg of a child of `spawner`, as await(2): `pid time time time 'msg'`.
++fn read_wait(spawner: i32) -> io::Result<(i32, ExitStatus)> {
++    let path = CString::new(format!("/proc/{spawner}/wait")).unwrap();
++    let fd = cvt(unsafe { libc::open(path.as_ptr(), libc::OREAD | libc::OCEXEC) })?;
++    let fd = unsafe { FileDesc::from_raw_fd(fd) };
++    let mut buf = [0u8; 512];
++    let n = loop {
++        match fd.read(&mut buf) {
++            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
++            r => break r?,
++        }
++    };
++    let s = &buf[..n];
++    let mut fields = s.splitn(5, |&c| c == b' ').filter(|f| !f.is_empty());
++    let pid = fields
++        .next()
++        .and_then(|p| crate::str::from_utf8(p).ok()?.trim().parse().ok())
++        .ok_or(io::const_error!(io::ErrorKind::InvalidData, "bad wait message"))?;
++    // the rest: three times, then the quoted message
++    let rest = &s[s.iter().position(|&c| c == b'\'').unwrap_or(s.len())..];
++    let mut msg = Vec::new();
++    if rest.len() >= 2 {
++        let inner = &rest[1..rest.len() - 1];
++        let mut i = 0;
++        while i < inner.len() {
++            msg.push(inner[i]);
++            if inner[i] == b'\'' && inner.get(i + 1) == Some(&b'\'') {
++                i += 1;
++            }
++            i += 1;
++        }
++    } else {
++        // unquoted: the fifth field
++        let f: Vec<&[u8]> = s.split(|&c| c == b' ').filter(|f| !f.is_empty()).collect();
++        if let Some(m) = f.get(4) {
++            msg.extend_from_slice(m);
++        }
++    }
++    Ok((pid, ExitStatus::new(&msg)))
++}
++
++fn wait_for(spawner: i32, pid: i32) -> io::Result<ExitStatus> {
++    let mut w = WAITS.lock().unwrap_or_else(|e| e.into_inner());
++    loop {
++        if let Some(i) = w.done.iter().position(|&(p, _)| p == pid) {
++            return Ok(w.done.swap_remove(i).1);
++        }
++        if w.reading.contains(&spawner) {
++            w = WAITED.wait(w).unwrap_or_else(|e| e.into_inner());
++            continue;
++        }
++        w.reading.push(spawner);
++        drop(w);
++        let r = read_wait(spawner);
++        w = WAITS.lock().unwrap_or_else(|e| e.into_inner());
++        w.reading.retain(|&s| s != spawner);
++        WAITED.notify_all();
++        match r {
++            Ok(d) => w.done.push(d),
++            Err(e) => return Err(e),
++        }
++    }
++}
++
++pub struct Process {
++    pid: i32,
++    spawner: i32,
++    status: Option<ExitStatus>,
++}
++
++impl Process {
++    pub fn id(&self) -> u32 {
++        self.pid as u32
++    }
++
++    /// proc(3)'s ctl "kill"; a child that has ended already is no error.
++    pub fn kill(&mut self) -> io::Result<()> {
++        if self.status.is_some() {
++            return Ok(());
++        }
++        let path = CString::new(format!("/proc/{}/ctl", self.pid)).unwrap();
++        let fd = unsafe { libc::open(path.as_ptr(), libc::OWRITE | libc::OCEXEC) };
++        if fd < 0 {
++            let e = last_error();
++            return if e.kind() == io::ErrorKind::NotFound { Ok(()) } else { Err(e) };
++        }
++        let fd = unsafe { FileDesc::from_raw_fd(fd) };
++        match fd.write(b"kill") {
++            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
++            _ => Ok(()),
++        }
++    }
++
++    pub fn wait(&mut self) -> io::Result<ExitStatus> {
++        if let Some(s) = self.status {
++            return Ok(s);
++        }
++        let s = wait_for(self.spawner, self.pid)?;
++        self.status = Some(s);
++        Ok(s)
++    }
++
++    /// Plan 9 has no zombies: a child whose proc is gone has ended, its Waitmsg waits.
++    pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
++        if let Some(s) = self.status {
++            return Ok(Some(s));
++        }
++        {
++            let mut w = WAITS.lock().unwrap_or_else(|e| e.into_inner());
++            if let Some(i) = w.done.iter().position(|&(p, _)| p == self.pid) {
++                let s = w.done.swap_remove(i).1;
++                self.status = Some(s);
++                return Ok(Some(s));
++            }
++        }
++        let path = CString::new(format!("/proc/{}/status", self.pid)).unwrap();
++        let fd = unsafe { libc::open(path.as_ptr(), libc::OREAD | libc::OCEXEC) };
++        if fd >= 0 {
++            unsafe { libc::close(fd) };
++            return Ok(None);
++        }
++        self.wait().map(Some)
++    }
++}
++
++pub struct CommandArgs<'a> {
++    iter: crate::slice::Iter<'a, OsString>,
++}
++
++impl<'a> Iterator for CommandArgs<'a> {
++    type Item = &'a OsStr;
++    fn next(&mut self) -> Option<&'a OsStr> {
++        self.iter.next().map(|os| &**os)
++    }
++    fn size_hint(&self) -> (usize, Option<usize>) {
++        self.iter.size_hint()
++    }
++}
++
++impl<'a> ExactSizeIterator for CommandArgs<'a> {
++    fn len(&self) -> usize {
++        self.iter.len()
++    }
++    fn is_empty(&self) -> bool {
++        self.iter.is_empty()
++    }
++}
++
++impl<'a> fmt::Debug for CommandArgs<'a> {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_list().entries(self.iter.clone()).finish()
++    }
++}
++
++pub type ChildPipe = crate::sys::pipe::Pipe;
++
++pub fn read_output(
++    out: ChildPipe,
++    stdout: &mut Vec<u8>,
++    err: ChildPipe,
++    stderr: &mut Vec<u8>,
++) -> io::Result<()> {
++    crate::thread::scope(|s| {
++        let err_reader = s.spawn(move || err.read_to_end(stderr));
++        let out_res = out.read_to_end(stdout);
++        let err_res = err_reader.join().expect("stderr reader thread panicked");
++        out_res?;
++        err_res?;
++        Ok(())
++    })
++}
++
++pub fn getpid() -> u32 {
++    unsafe { libc::getpid() as u32 }
++}
+diff --git a/library/std/src/sys/time/plan9.rs b/library/std/src/sys/time/plan9.rs
+index 73ce72617f0..d2ad575b14f 100644
+--- a/library/std/src/sys/time/plan9.rs
++++ b/library/std/src/sys/time/plan9.rs
+@@ -30,6 +30,16 @@ pub fn checked_sub_duration(&self, other: &Duration) -> Option<Instant> {
+ }
+ 
+ impl SystemTime {
++    /// Seconds since the epoch, as in a Dir (stat(5)).
++    pub fn from_secs(secs: u32) -> SystemTime {
++        SystemTime(Duration::from_secs(secs as u64))
++    }
++
++    /// For a Dir; times outside it go to its ends.
++    pub fn to_secs(&self) -> u32 {
++        self.0.as_secs().min(u32::MAX as u64 - 1) as u32
++    }
++
+     pub const MAX: SystemTime = SystemTime(Duration::MAX);
+ 
+     pub const MIN: SystemTime = SystemTime(Duration::ZERO);

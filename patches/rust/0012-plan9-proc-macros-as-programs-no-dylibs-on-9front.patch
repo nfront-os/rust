@@ -1,0 +1,524 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 13:56:43 +0100
+Subject: [PATCH 12/25] plan9: proc macros as programs (no dylibs on 9front)
+
+A proc-macro crate for a plan9 host is linked as a static program: its
+harness adds #[rustc_main] fn main() { proc_macro::bridge::remote::serve(_DECLS) },
+rustc lets a plan9 proc-macro crate have an entry and links it as an
+executable (its metadata kept, --undefined of the metadata symbol, no
+export list). rustc_metadata loads it with bridge::remote::load: the
+program is started and says how many macros it has (names and kinds are
+in the metadata); their clients carry a remote id. The bridge already
+makes every exchange Buffers (handles, strings), as the cross-thread
+strategy has it: RemoteStrategy sends the input over the program's stdin,
+answers its requests (Dispatcher::dispatch) and takes the output; a
+nested run gets a second instance. The program's stdout goes to stderr
+(a macro's println! does not break the protocol).
+
+cargo build on 9front: a derive, an attribute and a bang macro of our
+own, serde's derive with serde_json (tests/cargo-build.sh).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../src/proc_macro_harness.rs                 |  34 ++-
+ compiler/rustc_codegen_ssa/src/back/link.rs   |  16 +-
+ compiler/rustc_metadata/src/host_dylib.rs     |   7 +
+ compiler/rustc_passes/src/entry.rs            |   5 +-
+ compiler/rustc_session/src/output.rs          |   4 +
+ compiler/rustc_span/src/symbol.rs             |   2 +
+ library/proc_macro/src/bridge/client.rs       |  18 ++
+ library/proc_macro/src/bridge/mod.rs          |   2 +
+ library/proc_macro/src/bridge/remote.rs       | 221 ++++++++++++++++++
+ library/proc_macro/src/bridge/server.rs       |  24 +-
+ 10 files changed, 325 insertions(+), 8 deletions(-)
+ create mode 100644 library/proc_macro/src/bridge/remote.rs
+
+diff --git a/compiler/rustc_builtin_macros/src/proc_macro_harness.rs b/compiler/rustc_builtin_macros/src/proc_macro_harness.rs
+index 5f40231c7f6..7fb858cb703 100644
+--- a/compiler/rustc_builtin_macros/src/proc_macro_harness.rs
++++ b/compiler/rustc_builtin_macros/src/proc_macro_harness.rs
+@@ -14,7 +14,7 @@
+ use rustc_span::source_map::SourceMap;
+ use rustc_span::{DUMMY_SP, Ident, Span, sym};
+ use smallvec::smallvec;
+-use thin_vec::thin_vec;
++use thin_vec::{ThinVec, thin_vec};
+ 
+ use crate::diagnostics;
+ 
+@@ -361,8 +361,36 @@ fn mk_decls(cx: &mut ExtCtxt<'_>, macros: &[ProcMacro]) -> Box<ast::Item> {
+         cx.attr_nested_word(sym::allow, sym::deprecated, span),
+     ]);
+ 
+-    let block =
+-        cx.block(span, thin_vec![cx.stmt_item(span, krate), cx.stmt_item(span, decls_static)]);
++    let mut stmts = thin_vec![cx.stmt_item(span, krate), cx.stmt_item(span, decls_static)];
++    // 9front: no dylibs, the crate is a program that serves rustc
++    // (proc_macro::bridge::remote):
++    //     #[rustc_main] fn main() { proc_macro::bridge::remote::serve(_DECLS) }
++    if cx.sess.target.os == rustc_target::spec::Os::Plan9 {
++        let serve = cx.expr_path(cx.path(
++            span,
++            &[proc_macro, bridge, Ident::new(sym::remote, span), Ident::new(sym::serve, span)],
++        ));
++        let call = cx.expr_call(span, serve, thin_vec![cx.expr_ident(span, Ident::new(sym::_DECLS, span))]);
++        let body = cx.block(span, thin_vec![cx.stmt_expr(call)]);
++        let decl = cx.fn_decl(ThinVec::new(), ast::FnRetTy::Default(span));
++        let sig = ast::FnSig { decl, header: ast::FnHeader::default(), span };
++        let main = ast::ItemKind::Fn(cx.item_fn(
++            sig,
++            Ident::new(sym::main, span),
++            ast::Generics::default(),
++            Some(body),
++        ));
++        let main = Box::new(ast::Item {
++            attrs: thin_vec![cx.attr_word(sym::rustc_main, span)],
++            id: ast::DUMMY_NODE_ID,
++            kind: main,
++            vis: ast::Visibility { span, kind: ast::VisibilityKind::Inherited },
++            span,
++            tokens: None,
++        });
++        stmts.push(cx.stmt_item(span, main));
++    }
++    let block = cx.block(span, stmts);
+ 
+     let anon_constant = cx.item_const_underscore(span, block);
+ 
+diff --git a/compiler/rustc_codegen_ssa/src/back/link.rs b/compiler/rustc_codegen_ssa/src/back/link.rs
+index 1ce6421693d..6955253b374 100644
+--- a/compiler/rustc_codegen_ssa/src/back/link.rs
++++ b/compiler/rustc_codegen_ssa/src/back/link.rs
+@@ -2291,7 +2291,16 @@ fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+     }
+ }
+ 
++/// 9front: no dylibs, a proc-macro crate is a static program (proc_macro::bridge::remote);
++/// its metadata is in it as in a dylib.
++fn is_plan9_proc_macro(sess: &Session, crate_type: CrateType) -> bool {
++    crate_type == CrateType::ProcMacro && sess.target.os == rustc_target::spec::Os::Plan9
++}
++
+ fn link_output_kind(sess: &Session, crate_type: CrateType) -> LinkOutputKind {
++    if is_plan9_proc_macro(sess, crate_type) {
++        return LinkOutputKind::StaticNoPicExe;
++    }
+     let kind = match (crate_type, sess.crt_static(Some(crate_type)), sess.relocation_model()) {
+         (CrateType::Executable, _, _) if sess.is_wasi_reactor() => LinkOutputKind::WasiReactorExe,
+         (CrateType::Executable, false, RelocModel::Pic | RelocModel::Pie) => {
+@@ -2959,7 +2968,12 @@ fn linker_with_args(
+     // dynamic library.
+     // Must be passed before any libraries to prevent the symbols to export from being thrown away,
+     // at least on some platforms (e.g. windows-gnu).
+-    cmd.export_symbols(tmpdir, crate_type, &export_symbols);
++    if !is_plan9_proc_macro(sess, crate_type) {
++        cmd.export_symbols(tmpdir, crate_type, &export_symbols);
++    } else {
++        // no export list keeps the metadata's section from --gc-sections: its symbol does
++        cmd.link_args(&["--undefined", crate_info.metadata_symbol.as_str()]);
++    }
+ 
+     // Can be used for adding custom CRT objects or overriding order-dependent options above.
+     // FIXME: In practice built-in target specs use this for arbitrary order-independent options,
+diff --git a/compiler/rustc_metadata/src/host_dylib.rs b/compiler/rustc_metadata/src/host_dylib.rs
+index ad76eb4eb82..4f6f900f691 100644
+--- a/compiler/rustc_metadata/src/host_dylib.rs
++++ b/compiler/rustc_metadata/src/host_dylib.rs
+@@ -127,6 +127,13 @@ pub(crate) fn dlsym_proc_macros(
+     path: &Path,
+     stable_crate_id: StableCrateId,
+ ) -> Result<&'static [ProcMacroClient], DylibError> {
++    // 9front: no dylibs, the proc-macro crate is a program (rustc_proc_macro::bridge::remote)
++    #[cfg(target_os = "plan9")]
++    {
++        let _ = stable_crate_id;
++        return rustc_proc_macro::bridge::remote::load(path)
++            .map_err(|e| DylibError::DlOpen(path.display().to_string(), e));
++    }
+     let sym_name = rustc_session::generate_proc_macro_decls_symbol(stable_crate_id);
+     debug!("trying to dlsym proc_macros {} for symbol `{}`", path.display(), sym_name);
+ 
+diff --git a/compiler/rustc_passes/src/entry.rs b/compiler/rustc_passes/src/entry.rs
+index 8f933bb7a3b..38ecc45f1de 100644
+--- a/compiler/rustc_passes/src/entry.rs
++++ b/compiler/rustc_passes/src/entry.rs
+@@ -23,7 +23,10 @@ struct EntryContext<'tcx> {
+ }
+ 
+ fn entry_fn(tcx: TyCtxt<'_>, (): ()) -> Option<(DefId, EntryFnType)> {
+-    let any_exe = tcx.crate_types().contains(&CrateType::Executable);
++    // 9front: a proc-macro crate is a program there (its harness gives it a #[rustc_main])
++    let any_exe = tcx.crate_types().contains(&CrateType::Executable)
++        || (tcx.crate_types().contains(&CrateType::ProcMacro)
++            && tcx.sess.target.os == rustc_target::spec::Os::Plan9);
+     if !any_exe {
+         // No need to find a main function.
+         return None;
+diff --git a/compiler/rustc_session/src/output.rs b/compiler/rustc_session/src/output.rs
+index 4824abae622..d42ad5c06ff 100644
+--- a/compiler/rustc_session/src/output.rs
++++ b/compiler/rustc_session/src/output.rs
+@@ -130,6 +130,10 @@ pub fn filename_for_input(
+ 
+ /// Checks if target supports crate_type as output
+ pub fn invalid_output_for_target(sess: &Session, crate_type: CrateType) -> bool {
++    // 9front: no dylibs, a proc-macro crate is a program (proc_macro::bridge::remote)
++    if crate_type == CrateType::ProcMacro && sess.target.os == rustc_target::spec::Os::Plan9 {
++        return false;
++    }
+     if let CrateType::Cdylib | CrateType::Dylib | CrateType::ProcMacro = crate_type {
+         if !sess.target.dynamic_linking {
+             return true;
+diff --git a/compiler/rustc_span/src/symbol.rs b/compiler/rustc_span/src/symbol.rs
+index 34699098f0c..e621bf4de39 100644
+--- a/compiler/rustc_span/src/symbol.rs
++++ b/compiler/rustc_span/src/symbol.rs
+@@ -1752,6 +1752,7 @@
+         relocation_model,
+         rem,
+         rem_assign,
++        remote,
+         repr,
+         repr128,
+         repr_align,
+@@ -1946,6 +1947,7 @@
+         self_in_typedefs,
+         self_struct_ctor,
+         semiopaque,
++        serve,
+         sgpr32,
+         sgpr64,
+         sgpr96,
+diff --git a/library/proc_macro/src/bridge/client.rs b/library/proc_macro/src/bridge/client.rs
+index 48e6245ecf9..7dcc06dd8d8 100644
+--- a/library/proc_macro/src/bridge/client.rs
++++ b/library/proc_macro/src/bridge/client.rs
+@@ -220,6 +220,10 @@ pub(crate) fn is_available() -> bool {
+ #[derive(Copy, Clone)]
+ pub struct Client {
+     pub(super) run: extern "C" fn(BridgeConfig<'_>) -> Buffer,
++    /// 9front: a macro of a proc-macro program (bridge::remote): its program and index;
++    /// 0 for one in this process
++    #[cfg(target_os = "plan9")]
++    pub(super) remote: u64,
+ }
+ 
+ fn maybe_install_panic_hook(force_show_panics: bool) {
+@@ -284,6 +288,8 @@ pub const fn expand1(f: impl Fn(crate::TokenStream) -> crate::TokenStream + Copy
+             run: super::selfless_reify::reify_to_extern_c_fn_hrt_bridge(move |bridge| {
+                 run_client(bridge, f)
+             }),
++            #[cfg(target_os = "plan9")]
++            remote: 0,
+         }
+     }
+ 
+@@ -294,6 +300,18 @@ pub const fn expand2(
+             run: super::selfless_reify::reify_to_extern_c_fn_hrt_bridge(move |bridge| {
+                 run_client(bridge, |(input, input2)| f(input, input2))
+             }),
++            #[cfg(target_os = "plan9")]
++            remote: 0,
+         }
+     }
++
++    /// 9front: a macro of a proc-macro program (bridge::remote::load); its `run` is never
++    /// called in this process.
++    #[cfg(target_os = "plan9")]
++    pub(super) fn remote_placeholder(remote: u64) -> Self {
++        extern "C" fn unreachable_run(_: BridgeConfig<'_>) -> Buffer {
++            unreachable!("a proc-macro program's macro runs in its program")
++        }
++        Client { run: unreachable_run, remote }
++    }
+ }
+diff --git a/library/proc_macro/src/bridge/mod.rs b/library/proc_macro/src/bridge/mod.rs
+index 4b12ed00588..86d5c762bea 100644
+--- a/library/proc_macro/src/bridge/mod.rs
++++ b/library/proc_macro/src/bridge/mod.rs
+@@ -104,6 +104,8 @@ fn ts_into_trees(
+ mod selfless_reify;
+ #[forbid(unsafe_code)]
+ pub mod server;
++#[cfg(target_os = "plan9")]
++pub mod remote;
+ #[allow(unsafe_code)]
+ mod symbol;
+ 
+diff --git a/library/proc_macro/src/bridge/remote.rs b/library/proc_macro/src/bridge/remote.rs
+new file mode 100644
+index 00000000000..b4d7b16a956
+--- /dev/null
++++ b/library/proc_macro/src/bridge/remote.rs
+@@ -0,0 +1,221 @@
++//! Proc macros as programs (9front: Plan 9 has no dynamic libraries).
++//!
++//! A proc-macro crate for a plan9 host is linked as a program (rustc's proc-macro harness
++//! gives it a `main` that calls [`serve`]). rustc starts it ([`load`]) and talks to it over
++//! its standard input and output: the bridge already turns every exchange between macro and
++//! compiler into [`Buffer`]s (token streams and spans are handles, symbols strings), as the
++//! cross-thread execution strategy has them; here they go through a pipe.
++//!
++//! A message is a tag byte, a little-endian `u64` length and that many bytes.
++//! rustc to the program: `L` (how many macros), `R` (run: `u32` index, `u8`
++//! force_show_panics, the input buffer), `r` (the answer to a request).
++//! The program to rustc: `l` (`u32` count), `D` (a request of the macro: a server method),
++//! `O` (the output buffer of a run).
++//!
++//! A program serves one run at a time; a macro whose request makes rustc run another macro
++//! of the same crate (nested `expand_expr`) gets a second instance of the program.
++
++use std::io::{self, Read, Write};
++use std::path::{Path, PathBuf};
++use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
++use std::sync::Mutex;
++
++use super::client::Client;
++use super::server::{Dispatcher, ExecutionStrategy, Server};
++use super::{BridgeConfig, Buffer, Encode, PanicMessage};
++
++fn write_msg(w: &mut impl Write, tag: u8, data: &[u8]) -> io::Result<()> {
++    let mut head = [0u8; 9];
++    head[0] = tag;
++    head[1..].copy_from_slice(&(data.len() as u64).to_le_bytes());
++    w.write_all(&head)?;
++    w.write_all(data)?;
++    w.flush()
++}
++
++fn read_msg(r: &mut impl Read) -> io::Result<(u8, Vec<u8>)> {
++    let mut head = [0u8; 9];
++    r.read_exact(&mut head)?;
++    let len = u64::from_le_bytes(head[1..].try_into().unwrap()) as usize;
++    let mut data = vec![0u8; len];
++    r.read_exact(&mut data)?;
++    Ok((head[0], data))
++}
++
++/* the program's side */
++
++#[allow(unsafe_code)]
++unsafe extern "C" {
++    // the native libc (libp9.a's names)
++    #[link_name = "__p9_dup"]
++    fn dup(old: i32, new: i32) -> i32;
++}
++
++/// The `main` of a proc-macro program: serves rustc on standard input and output until it
++/// closes them. What the macros print to standard output goes to standard error.
++pub fn serve(decls: &'static [Client]) {
++    // the protocol on a copy of fd 1; fd 1 becomes fd 2
++    let mut out = match std::fs::OpenOptions::new().write(true).open("#d/1") {
++        Ok(f) => f,
++        Err(_) => std::process::exit(1),
++    };
++    #[allow(unsafe_code)]
++    unsafe {
++        dup(2, 1)
++    };
++    let mut inp = io::stdin().lock();
++    loop {
++        let Ok((tag, data)) = read_msg(&mut inp) else { std::process::exit(0) };
++        match tag {
++            b'L' => {
++                if write_msg(&mut out, b'l', &(decls.len() as u32).to_le_bytes()).is_err() {
++                    std::process::exit(1);
++                }
++            }
++            b'R' if data.len() >= 5 => {
++                let index = u32::from_le_bytes(data[..4].try_into().unwrap()) as usize;
++                let force_show_panics = data[4] != 0;
++                let input = Buffer::from(data[5..].to_vec());
++                let mut dispatch = |b: Buffer| -> Buffer {
++                    if write_msg(&mut out, b'D', &b).is_err() {
++                        std::process::exit(1);
++                    }
++                    match read_msg(&mut inp) {
++                        Ok((b'r', d)) => Buffer::from(d),
++                        _ => std::process::exit(1),
++                    }
++                };
++                let Some(client) = decls.get(index) else { std::process::exit(1) };
++                let output = (client.run)(BridgeConfig {
++                    input,
++                    dispatch: (&mut dispatch).into(),
++                    force_show_panics,
++                });
++                if write_msg(&mut out, b'O', &output).is_err() {
++                    std::process::exit(1);
++                }
++            }
++            _ => std::process::exit(1),
++        }
++    }
++}
++
++/* rustc's side */
++
++struct Proc {
++    _child: Child,
++    stdin: ChildStdin,
++    stdout: ChildStdout,
++}
++
++struct Program {
++    path: PathBuf,
++    idle: Vec<Proc>,
++}
++
++static PROGRAMS: Mutex<Vec<Program>> = Mutex::new(Vec::new());
++
++fn spawn(path: &Path) -> io::Result<Proc> {
++    let mut child = Command::new(path)
++        .arg("--rustc-proc-macro")
++        .stdin(Stdio::piped())
++        .stdout(Stdio::piped())
++        .stderr(Stdio::inherit())
++        .spawn()?;
++    let stdin = child.stdin.take().unwrap();
++    let stdout = child.stdout.take().unwrap();
++    Ok(Proc { _child: child, stdin, stdout })
++}
++
++/// Starts the proc-macro program at `path` and gives its macros as clients that run there
++/// (the names and kinds are in the crate's metadata, in the same order).
++pub fn load(path: &Path) -> Result<&'static [Client], String> {
++    let err = |e: io::Error| format!("proc-macro program {}: {e}", path.display());
++    let mut p = spawn(path).map_err(err)?;
++    write_msg(&mut p.stdin, b'L', &[]).map_err(err)?;
++    let n = match read_msg(&mut p.stdout).map_err(err)? {
++        (b'l', d) if d.len() == 4 => u32::from_le_bytes(d[..4].try_into().unwrap()),
++        _ => return Err(format!("proc-macro program {}: no list of macros", path.display())),
++    };
++    let mut programs = PROGRAMS.lock().unwrap();
++    programs.push(Program { path: path.to_owned(), idle: vec![p] });
++    let program = programs.len() as u64;
++    let clients: Vec<Client> =
++        (0..n as u64).map(|i| Client::remote_placeholder(program << 32 | i)).collect();
++    Ok(Box::leak(clients.into_boxed_slice()))
++}
++
++fn take(program: usize) -> io::Result<Proc> {
++    let path = {
++        let mut programs = PROGRAMS.lock().unwrap();
++        let p = &mut programs[program - 1];
++        if let Some(proc) = p.idle.pop() {
++            return Ok(proc);
++        }
++        p.path.clone()
++    };
++    spawn(&path)
++}
++
++fn give(program: usize, proc: Proc) {
++    PROGRAMS.lock().unwrap()[program - 1].idle.push(proc);
++}
++
++/// Runs a macro of a proc-macro program: the client's `remote` says which.
++pub(super) struct RemoteStrategy {
++    pub(super) remote: u64,
++}
++
++impl RemoteStrategy {
++    fn run<S: Server>(
++        &self,
++        dispatcher: &mut Dispatcher<S>,
++        input: Buffer,
++        force_show_panics: bool,
++    ) -> io::Result<Buffer> {
++        let program = (self.remote >> 32) as usize;
++        let index = (self.remote & 0xffff_ffff) as u32;
++        let mut p = take(program)?;
++        let mut req = Vec::with_capacity(5 + input.len());
++        req.extend_from_slice(&index.to_le_bytes());
++        req.push(force_show_panics as u8);
++        req.extend_from_slice(&input);
++        write_msg(&mut p.stdin, b'R', &req)?;
++        loop {
++            match read_msg(&mut p.stdout)? {
++                (b'D', d) => {
++                    let answer = dispatcher.dispatch(Buffer::from(d));
++                    write_msg(&mut p.stdin, b'r', &answer)?;
++                }
++                (b'O', d) => {
++                    give(program, p);
++                    return Ok(Buffer::from(d));
++                }
++                _ => return Err(io::Error::other("unexpected message")),
++            }
++        }
++    }
++}
++
++impl ExecutionStrategy for RemoteStrategy {
++    fn run_bridge_and_client(
++        &self,
++        dispatcher: &mut Dispatcher<impl Server>,
++        input: Buffer,
++        _run_client: extern "C" fn(BridgeConfig<'_>) -> Buffer,
++        force_show_panics: bool,
++    ) -> Buffer {
++        match self.run(dispatcher, input, force_show_panics) {
++            Ok(b) => b,
++            Err(e) => {
++                // as a panic of the macro: rustc reports it
++                let mut b = Buffer::new();
++                Err::<(), PanicMessage>(PanicMessage::String(format!(
++                    "proc-macro program failed: {e}"
++                )))
++                .encode(&mut b, &mut ());
++                b
++            }
++        }
++    }
++}
+diff --git a/library/proc_macro/src/bridge/server.rs b/library/proc_macro/src/bridge/server.rs
+index ff525c6cd77..3a2a9d1ffcc 100644
+--- a/library/proc_macro/src/bridge/server.rs
++++ b/library/proc_macro/src/bridge/server.rs
+@@ -97,7 +97,7 @@ macro_rules! define_dispatcher {
+         $(fn $method:ident($($arg:ident: $arg_ty:ty),* $(,)?) $(-> $ret_ty:ty)?;)*
+     ) => {
+         impl<S: Server> Dispatcher<S> {
+-            fn dispatch(&mut self, mut buf: Buffer) -> Buffer {
++            pub(super) fn dispatch(&mut self, mut buf: Buffer) -> Buffer {
+                 let Dispatcher { handle_store, server } = self;
+ 
+                 let mut reader = &buf[..];
+@@ -285,7 +285,13 @@ pub fn run1<S>(
+     where
+         S: Server,
+     {
+-        let client::Client { run } = *self;
++        let run = self.run;
++        #[cfg(target_os = "plan9")]
++        if self.remote != 0 {
++            let strategy = &super::remote::RemoteStrategy { remote: self.remote };
++            return run_server(strategy, server, <MarkedTokenStream<S>>::mark(input), run, force_show_panics)
++                .map(|s| <Option<MarkedTokenStream<S>>>::unmark(s).unwrap_or_default());
++        }
+         run_server(strategy, server, <MarkedTokenStream<S>>::mark(input), run, force_show_panics)
+             .map(|s| <Option<MarkedTokenStream<S>>>::unmark(s).unwrap_or_default())
+     }
+@@ -301,7 +307,19 @@ pub fn run2<S>(
+     where
+         S: Server,
+     {
+-        let client::Client { run } = *self;
++        let run = self.run;
++        #[cfg(target_os = "plan9")]
++        if self.remote != 0 {
++            let strategy = &super::remote::RemoteStrategy { remote: self.remote };
++            return run_server(
++                strategy,
++                server,
++                (<MarkedTokenStream<S>>::mark(input), <MarkedTokenStream<S>>::mark(input2)),
++                run,
++                force_show_panics,
++            )
++            .map(|s| <Option<MarkedTokenStream<S>>>::unmark(s).unwrap_or_default());
++        }
+         run_server(
+             strategy,
+             server,

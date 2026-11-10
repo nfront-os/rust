@@ -1,0 +1,200 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 31 Oct 2026 01:35:31 +0100
+Subject: [PATCH 18/25] plan9: shutdown(Write) as a half close (ctl "shutdown",
+ after what a pump has buffered, on the ctl opened at the call: a later open
+ by name could find another conversation); a dropped non-blocking listener
+ frees its port at once
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/sys/net/connection/plan9.rs   | 21 ++++++-
+ .../std/src/sys/net/connection/plan9/pump.rs  | 57 ++++++++++++++++---
+ 2 files changed, 70 insertions(+), 8 deletions(-)
+
+diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
+index 96839f3e946..a6a73a689cb 100644
+--- a/library/std/src/sys/net/connection/plan9.rs
++++ b/library/std/src/sys/net/connection/plan9.rs
+@@ -355,6 +355,15 @@ pub fn connect_nonblocking(addr: &SocketAddr) -> io::Result<TcpStream> {
+     Ok(s)
+ }
+ 
++/// The half close of a conversation, on its ctl: "shutdown" (9front's tcp in the gcc port); a
++/// kernel without it knows only "close" (both sides).
++fn shutdown_fd(ctl: &FileDesc) -> io::Result<()> {
++    match ctl.write(b"shutdown") {
++        Err(e) if e.to_string().contains("unknown control") => ctl.write(b"close").map(drop),
++        r => r.map(drop),
++    }
++}
++
+ pub struct TcpStream {
+     inner: Socket,
+ }
+@@ -445,7 +454,17 @@ pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
+                 }
+                 Ok(())
+             }
+-            Shutdown::Write | Shutdown::Both => write_ctl(&self.inner.dir()?, "close"),
++            // ctl "shutdown": a FIN, the receive side stays open (9front's tcp in the gcc
++            // port; a kernel without it knows only "close", both sides)
++            // a pumped stream's after what its writer has yet to write
++            Shutdown::Write => {
++                let ctl = open_conv(&self.inner.dir()?, "ctl")?;
++                match self.inner.pump() {
++                    Some(p) => p.shutdown_write(ctl),
++                    None => shutdown_fd(&ctl),
++                }
++            }
++            Shutdown::Both => write_ctl(&self.inner.dir()?, "close"),
+         }
+     }
+ 
+diff --git a/library/std/src/sys/net/connection/plan9/pump.rs b/library/std/src/sys/net/connection/plan9/pump.rs
+index 1e274f1925d..ed5779e0159 100644
+--- a/library/std/src/sys/net/connection/plan9/pump.rs
++++ b/library/std/src/sys/net/connection/plan9/pump.rs
+@@ -67,6 +67,13 @@ struct State {
+     writer_pid: i32,
+     /// the writer is made with the first write (a socket that only reads has one proc)
+     writer: bool,
++    /// a chunk taken from `out` is being written
++    inflight: bool,
++    /// shutdown(Write): the conversation's ctl, opened at the call (a later open by name
++    /// could find the number given to another conversation), for "shutdown" once what is
++    /// buffered is written; then no more writes
++    shut_wr: Option<Arc<FileDesc>>,
++    shut_done: bool,
+     // a connect in the background (connect_nonblocking)
+     connecting: bool,
+     connect_err: Option<io::Error>,
+@@ -75,8 +82,11 @@ struct State {
+ 
+ pub(super) struct Pump {
+     kind: Kind,
+-    /// the pump's own descriptor of the conversation (a dup); a listener's: its ctl
+-    fd: FileDesc,
++    /// the pump's own descriptor of the conversation (a dup); a listener's: its ctl, closed
++    /// with the last of the socket's (its reader listens by name: the announcement ends at
++    /// once, its port is free when the listener is dropped)
++    fd: Option<FileDesc>,
++    lctl: Mutex<Option<FileDesc>>,
+     /// a listener's directory (listen(2))
+     dir: String,
+     m: Mutex<State>,
+@@ -105,9 +115,12 @@ pub(super) fn of(sock: &Socket, kind: Kind, dir: String, connecting: bool) -> io
+     if let Some(p) = t.get(&fd) {
+         return Ok(p.clone());
+     }
++    let dup = sock.fd.duplicate()?;
++    let (pfd, lctl) = if kind == Kind::Listener { (None, Some(dup)) } else { (Some(dup), None) };
+     let p = Arc::new(Pump {
+         kind,
+-        fd: sock.fd.duplicate()?,
++        fd: pfd,
++        lctl: Mutex::new(lctl),
+         dir,
+         m: Mutex::new(State {
+             nonblocking: false,
+@@ -123,6 +136,9 @@ pub(super) fn of(sock: &Socket, kind: Kind, dir: String, connecting: bool) -> io
+             write_err: None,
+             writer_pid: 0,
+             writer: false,
++            inflight: false,
++            shut_wr: None,
++            shut_done: false,
+             connecting,
+             connect_err: None,
+             hook: None,
+@@ -160,6 +176,7 @@ pub(crate) fn forget(fd: RawFd) {
+         drop(s);
+         p.cv.notify_all();
+         interrupt(reader);
++        drop(lock(&p.lctl).take());
+     }
+ }
+ 
+@@ -235,7 +252,7 @@ fn reader(self: Arc<Self>) {
+                 self.changed(s);
+                 continue;
+             }
+-            let r = self.fd.read(&mut buf);
++            let r = self.fd.as_ref().unwrap().read(&mut buf);
+             let mut s = lock(&self.m);
+             if s.closed {
+                 break;
+@@ -267,22 +284,31 @@ fn writer(self: Arc<Self>) {
+         loop {
+             {
+                 let mut s = lock(&self.m);
+-                while s.out.is_empty() && !s.closed {
++                while s.out.is_empty() && !s.closed && !(s.shut_wr.is_some() && !s.shut_done) {
+                     s = self.cv.wait(s).unwrap_or_else(|e| e.into_inner());
+                 }
+                 if s.out.is_empty() {
++                    // all written: the half close asked for
++                    if let Some(ctl) = s.shut_wr.clone().filter(|_| !s.shut_done) {
++                        s.shut_done = true;
++                        drop(s);
++                        let _ = super::shutdown_fd(&ctl);
++                        self.changed(lock(&self.m));
++                        continue;
++                    }
+                     break;
+                 }
+                 let n = s.out.len().min(CHUNK);
+                 chunk.clear();
+                 chunk.extend(s.out.drain(..n));
++                s.inflight = true;
+             }
+             let mut off = 0;
+             let r = loop {
+                 if off == chunk.len() {
+                     break Ok(());
+                 }
+-                match self.fd.write(&chunk[off..]) {
++                match self.fd.as_ref().unwrap().write(&chunk[off..]) {
+                     Ok(0) => break Err(io::Error::from(io::ErrorKind::WriteZero)),
+                     Ok(n) => off += n,
+                     Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+@@ -290,6 +316,7 @@ fn writer(self: Arc<Self>) {
+                 }
+             };
+             let mut s = lock(&self.m);
++            s.inflight = false;
+             if let Err(e) = r {
+                 s.write_err = Some(e);
+                 s.out.clear();
+@@ -441,7 +468,7 @@ pub(super) fn write(self: &Arc<Self>, buf: &[u8], timeout: Option<Duration>) ->
+             if let Some(e) = s.connect_err.take() {
+                 return Err(e);
+             }
+-            if s.closed {
++            if s.closed || s.shut_wr.is_some() {
+                 return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+             }
+             if !s.connecting && s.out.len() < STREAM_BUF {
+@@ -486,6 +513,22 @@ pub(super) fn accept(&self) -> io::Result<(Socket, SocketAddr)> {
+         }
+     }
+ 
++    /// shutdown(Write): the half close after what is buffered (the writer does it, or now if
++    /// nothing is buffered or being written); no writes after it.
++    pub(super) fn shutdown_write(&self, ctl: FileDesc) -> io::Result<()> {
++        let mut s = lock(&self.m);
++        if s.shut_wr.is_some() {
++            return Ok(());
++        }
++        let now = s.out.is_empty() && !s.inflight;
++        let ctl = Arc::new(ctl);
++        s.shut_wr = Some(ctl.clone());
++        s.shut_done = now;
++        drop(s);
++        self.cv.notify_all();
++        if now { super::shutdown_fd(&ctl) } else { Ok(()) }
++    }
++
+     /// shutdown(Read): readers see the end, now.
+     pub(super) fn shutdown_read(&self) {
+         let mut s = lock(&self.m);

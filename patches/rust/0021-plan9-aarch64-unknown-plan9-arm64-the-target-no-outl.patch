@@ -1,0 +1,199 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 31 Oct 2026 13:27:29 +0100
+Subject: [PATCH 21/25] plan9: aarch64-unknown-plan9 (arm64): the target (no
+ outline atomics), c_char signed on Plan 9, std's rfork and stack switch for
+ aarch64 (SVC #0, the child gets its parent's registers)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ compiler/rustc_target/src/spec/mod.rs         |  1 +
+ .../src/spec/targets/aarch64_unknown_plan9.rs | 28 +++++++
+ library/core/src/ffi/primitives.rs            |  5 ++
+ library/std/src/sys/net/connection/plan9.rs   |  2 +-
+ library/std/src/sys/pal/plan9/proc.rs         | 79 +++++++++++++++++++
+ src/bootstrap/src/core/sanity.rs              |  1 +
+ 6 files changed, 115 insertions(+), 1 deletion(-)
+ create mode 100644 compiler/rustc_target/src/spec/targets/aarch64_unknown_plan9.rs
+
+diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
+index 34d4f18a8c3..f3c0240500e 100644
+--- a/compiler/rustc_target/src/spec/mod.rs
++++ b/compiler/rustc_target/src/spec/mod.rs
+@@ -1547,6 +1547,7 @@ fn $module() {
+ 
+     ("x86_64-unknown-plan9", x86_64_unknown_plan9),
+     ("i686-unknown-plan9", i686_unknown_plan9),
++    ("aarch64-unknown-plan9", aarch64_unknown_plan9),
+     ("x86_64-unknown-motor", x86_64_unknown_motor),
+ 
+     ("x86_64-unikraft-linux-musl", x86_64_unikraft_linux_musl),
+diff --git a/compiler/rustc_target/src/spec/targets/aarch64_unknown_plan9.rs b/compiler/rustc_target/src/spec/targets/aarch64_unknown_plan9.rs
+new file mode 100644
+index 00000000000..7ec0e172149
+--- /dev/null
++++ b/compiler/rustc_target/src/spec/targets/aarch64_unknown_plan9.rs
+@@ -0,0 +1,28 @@
++use crate::spec::{Arch, StackProbeType, Target, TargetMetadata, TargetOptions, base};
++
++pub(crate) fn target() -> Target {
++    Target {
++        // as x86_64-unknown-plan9: an unknown OS is ELF and the AAPCS64, which 9front's gcc
++        // port (aarch64-pc-plan9) uses too
++        llvm_target: "aarch64-unknown-plan9".into(),
++        metadata: TargetMetadata {
++            description: Some("ARM64 9front (Plan 9)".into()),
++            tier: Some(3),
++            host_tools: Some(false),
++            std: Some(true),
++        },
++        pointer_width: 64,
++        arch: Arch::AArch64,
++        // aarch64-unknown-linux-gnu's
++        data_layout: "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32".into(),
++        options: TargetOptions {
++            // no outline atomics: their helpers choose LSE through getauxval, which Plan 9 does
++            // not have (the tree and its gcc: -mno-outline-atomics)
++            features: "+v8a".into(),
++            max_atomic_width: Some(128),
++            stack_probes: StackProbeType::Inline,
++            linker: Some("aarch64-pc-plan9-gcc".into()),
++            ..base::plan9::opts()
++        },
++    }
++}
+diff --git a/library/core/src/ffi/primitives.rs b/library/core/src/ffi/primitives.rs
+index 11dad9a6547..5cacb37bf66 100644
+--- a/library/core/src/ffi/primitives.rs
++++ b/library/core/src/ffi/primitives.rs
+@@ -108,10 +108,15 @@ mod c_char_definition {
+         //   architecture defaults). As we only have a target for userspace apps so there are no
+         //   special cases for L4Re below.
+         //   https://github.com/rust-lang/rust/pull/132975#issuecomment-2484645240
++        //
++        // Plan 9 (9front):
++        //   char is signed on every architecture with its compilers (7c, jc), and 9front's gcc
++        //   port has DEFAULT_SIGNED_CHAR (the tree builds -fsigned-char).
+         all(
+             not(windows),
+             not(target_vendor = "apple"),
+             not(target_os = "vita"),
++            not(target_os = "plan9"),
+             any(
+                 target_arch = "aarch64",
+                 target_arch = "arm",
+diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
+index a6a73a689cb..e62a96d0ab4 100644
+--- a/library/std/src/sys/net/connection/plan9.rs
++++ b/library/std/src/sys/net/connection/plan9.rs
+@@ -19,7 +19,7 @@
+ };
+ use crate::os::plan9::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
+ use crate::sys::fd::{FdState, FileDesc, cloexec, set_state, state};
+-use crate::sys::{AsInner, FromInner, IntoInner, cvt, last_error, unsupported};
++use crate::sys::{AsInner, FromInner, IntoInner, cvt, unsupported};
+ use crate::time::Duration;
+ 
+ mod pump;
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index c1a26768f3e..cbc3e932318 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -418,6 +418,85 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+     )
+ }
+ 
++// arm64: the system call number in R0, the argument at 8(SP) (libc's stubs), SVC #0; the
++// kernel gives the child a copy of all its parent's registers (arm64/trap.c forkchild), R0
++// zero. AAPCS64: x19-x29 callee-saved, x30 the link; the stack 16-byte aligned. As APE's
++// pthread.c, privtop and the argument go to the child in x26 and x27.
++/// Runs `f(arg)` on the stack below `top`, back on the caller's after.
++#[cfg(target_arch = "aarch64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_runon(
++    top: *mut u8,
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++) {
++    crate::arch::naked_asm!(
++        "   stp x29, x30, [sp, #-16]!",
++        "   mov x29, sp",
++        "   mov sp, x0",
++        "   mov x0, x2",
++        "   blr x1",
++        "   mov sp, x29",
++        "   ldp x29, x30, [sp], #16",
++        "   ret",
++    )
++}
++
++/// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
++/// below `privtop`, without touching its parent's.
++#[cfg(target_arch = "aarch64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   sub sp, sp, #48",
++        "   str x0, [sp, #8]", // the argument, at 8(SP)
++        "   stp x29, x30, [sp, #16]",
++        "   stp x26, x27, [sp, #32]",
++        "   mov x26, x1",
++        "   mov x27, x2",
++        "   mov x0, #19", // RFORK
++        "   svc #0",
++        "   cbz x0, 1f",
++        "   ldp x29, x30, [sp, #16]",
++        "   ldp x26, x27, [sp, #32]",
++        "   add sp, sp, #48",
++        "   ret",
++        "1: mov sp, x26",
++        "   mov x29, #0",
++        "   mov x0, x27",
++        "   bl {start}",
++        "2: b 2b",
++        start = sym __rust_plan9_threadstart,
++    )
++}
++
++/// The same for a child that runs `(*arg).0(arg)`: process::Command's.
++#[cfg(target_arch = "aarch64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkrun(flags: i32, privtop: usize, arg: *const c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   sub sp, sp, #48",
++        "   str x0, [sp, #8]", // the argument, at 8(SP)
++        "   stp x29, x30, [sp, #16]",
++        "   stp x26, x27, [sp, #32]",
++        "   mov x26, x1",
++        "   mov x27, x2",
++        "   mov x0, #19", // RFORK
++        "   svc #0",
++        "   cbz x0, 1f",
++        "   ldp x29, x30, [sp, #16]",
++        "   ldp x26, x27, [sp, #32]",
++        "   add sp, sp, #48",
++        "   ret",
++        "1: mov sp, x26",
++        "   mov x29, #0",
++        "   ldr x16, [x27]",
++        "   mov x0, x27",
++        "   blr x16",
++        "2: b 2b",
++    )
++}
++
+ /// What a child of [`rfork_run`] runs: `f(self)`, which must not return.
+ #[repr(C)]
+ pub struct Run<T> {
+diff --git a/src/bootstrap/src/core/sanity.rs b/src/bootstrap/src/core/sanity.rs
+index 076a5ec1d69..d960b8bd765 100644
+--- a/src/bootstrap/src/core/sanity.rs
++++ b/src/bootstrap/src/core/sanity.rs
+@@ -39,6 +39,7 @@ pub struct Finder {
+     "aarch64-unknown-qtee",
+     "x86_64-unknown-plan9",
+     "i686-unknown-plan9",
++    "aarch64-unknown-plan9",
+ ];
+ 
+ /// Minimum version threshold for libstdc++ required when using prebuilt LLVM

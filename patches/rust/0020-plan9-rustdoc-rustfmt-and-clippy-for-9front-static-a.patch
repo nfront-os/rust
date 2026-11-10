@@ -1,0 +1,208 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 31 Oct 2026 11:53:54 +0100
+Subject: [PATCH 20/25] plan9: rustdoc, rustfmt and clippy for 9front: static
+ as rustc (rustc_driver_impl instead of the rustc_driver dylib; bootstrap
+ keeps the compiler's rlibs in a plan9 sysroot), rustdoc's Os::Plan9 and its
+ lock through os::plan9::fs::lock_file; stacker and dirs-sys from crates/
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Cargo.toml                                       |  2 ++
+ src/bootstrap/src/core/build_steps/compile.rs    |  8 +++++++-
+ src/librustdoc/clean/cfg.rs                      |  1 +
+ src/librustdoc/html/render/write_shared/flock.rs | 11 +++++++++++
+ src/librustdoc/lib.rs                            |  4 ++++
+ src/tools/clippy/clippy_utils/src/lib.rs         |  2 ++
+ src/tools/clippy/src/driver.rs                   |  4 ++++
+ src/tools/clippy/src/main.rs                     |  6 ++++++
+ src/tools/rustdoc/main.rs                        |  4 ++++
+ src/tools/rustfmt/src/bin/main.rs                |  4 ++++
+ src/tools/rustfmt/src/lib.rs                     |  2 ++
+ 11 files changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 74ac247ddfa..3d997d1de57 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -93,3 +93,5 @@ getrandom = { path = "../crates/getrandom-0.3.3" }
+ libc = { path = "../libc" }
+ libloading = { path = "../crates/libloading-0.9.0" }
+ jobserver = { path = "../crates/jobserver-0.1.34" }
++stacker = { path = "../crates/stacker-0.1.21" }
++dirs-sys = { path = "../crates/dirs-sys-0.5.0" }
+diff --git a/src/bootstrap/src/core/build_steps/compile.rs b/src/bootstrap/src/core/build_steps/compile.rs
+index 96fff685ee5..3d7f7ad2cfe 100644
+--- a/src/bootstrap/src/core/build_steps/compile.rs
++++ b/src/bootstrap/src/core/build_steps/compile.rs
+@@ -1150,6 +1150,9 @@ fn run(self, builder: &Builder<'_>) -> Self::Output {
+             target,
+         );
+         let stamp = build_stamp::librustc_stamp(builder, build_compiler, target);
++        // plan9: no librustc_driver.so; rustdoc, rustfmt and clippy link the crates in
++        // (as rustc-main does), from rlibs
++        let static_driver = target.contains("plan9");
+ 
+         run_cargo(
+             builder,
+@@ -1157,7 +1160,10 @@ fn run(self, builder: &Builder<'_>) -> Self::Output {
+             vec![],
+             &stamp,
+             vec![],
+-            ArtifactKeepMode::Custom(Box::new(|filename| {
++            ArtifactKeepMode::Custom(Box::new(move |filename| {
++                if static_driver && filename.ends_with(".rlib") {
++                    return true;
++                }
+                 if filename.contains("jemalloc_sys")
+                     || filename.contains("rustc_public_bridge")
+                     || filename.contains("rustc_public")
+diff --git a/src/librustdoc/clean/cfg.rs b/src/librustdoc/clean/cfg.rs
+index 22bbac3fd0b..328ca3318b7 100644
+--- a/src/librustdoc/clean/cfg.rs
++++ b/src/librustdoc/clean/cfg.rs
+@@ -684,6 +684,7 @@ fn human_readable_target_os(os: Symbol) -> Option<&'static str> {
+         Nto => "QNX SDP 7.x",
+         NuttX => "NuttX",
+         OpenBsd => "OpenBSD",
++        Plan9 => "Plan 9",
+         Ps3 => "Play Station 3",
+         Psp => "Play Station Portable",
+         Psx => "Play Station 1",
+diff --git a/src/librustdoc/html/render/write_shared/flock.rs b/src/librustdoc/html/render/write_shared/flock.rs
+index 385c0bcc84c..0f9ef6d5118 100644
+--- a/src/librustdoc/html/render/write_shared/flock.rs
++++ b/src/librustdoc/html/render/write_shared/flock.rs
+@@ -15,6 +15,11 @@ pub(super) enum Lock {
+     #[doc(hidden)]
+     #[cfg(unix)]
+     FcntlFallback { _lock: FcntlLock },
++    /// 9front (Plan 9) has no advisory locks: the file opened alone, as an exclusive-use
++    /// (DMEXCL) file (`std::os::plan9::fs::lock_file`, as rustc's flock).
++    #[doc(hidden)]
++    #[cfg(target_os = "plan9")]
++    Plan9 { _lock: std::os::plan9::fs::FileLock },
+ }
+ 
+ impl Lock {
+@@ -35,6 +40,12 @@ pub(super) fn new(p: &Path) -> io::Result<Lock> {
+             Err(err) if matches!(err.kind(), io::ErrorKind::Unsupported) => {
+                 Ok(Lock::FcntlFallback { _lock: FcntlLock::new(file)? })
+             }
++            #[cfg(target_os = "plan9")]
++            Err(err) if matches!(err.kind(), io::ErrorKind::Unsupported) => {
++                // the lock is lock_file's own open (it makes the file exclusive-use)
++                drop(file);
++                Ok(Lock::Plan9 { _lock: std::os::plan9::fs::lock_file(p, true)? })
++            }
+             Err(err) => Err(err),
+         }
+     }
+diff --git a/src/librustdoc/lib.rs b/src/librustdoc/lib.rs
+index 4f974b35cf0..07819b2d123 100644
+--- a/src/librustdoc/lib.rs
++++ b/src/librustdoc/lib.rs
+@@ -34,7 +34,11 @@
+ extern crate rustc_attr_ir;
+ extern crate rustc_attr_parsing;
+ extern crate rustc_data_structures;
++#[cfg(not(target_os = "plan9"))]
+ extern crate rustc_driver;
++// plan9: no dylibs, the compiler's crates are linked in (as rustc-main does)
++#[cfg(target_os = "plan9")]
++extern crate rustc_driver_impl as rustc_driver;
+ extern crate rustc_errors;
+ extern crate rustc_feature;
+ extern crate rustc_hir;
+diff --git a/src/tools/clippy/clippy_utils/src/lib.rs b/src/tools/clippy/clippy_utils/src/lib.rs
+index eb5befb52c3..04ce3a5da68 100644
+--- a/src/tools/clippy/clippy_utils/src/lib.rs
++++ b/src/tools/clippy/clippy_utils/src/lib.rs
+@@ -25,6 +25,8 @@
+     unused_extern_crates,
+     reason = "The `rustc_driver` crate seems to be required in order to use the `rust_ast` crate."
+ )]
++// plan9: no rustc_driver dylib to link; the compiler's crates come in as rlibs
++#[cfg(not(target_os = "plan9"))]
+ extern crate rustc_driver;
+ extern crate rustc_errors;
+ extern crate rustc_hir;
+diff --git a/src/tools/clippy/src/driver.rs b/src/tools/clippy/src/driver.rs
+index e83fe592a7c..71aed94e3c5 100644
+--- a/src/tools/clippy/src/driver.rs
++++ b/src/tools/clippy/src/driver.rs
+@@ -7,7 +7,11 @@
+ 
+ // FIXME: switch to something more ergonomic here, once available.
+ // (Currently there is no way to opt into sysroot crates without `extern crate`.)
++#[cfg(not(target_os = "plan9"))]
+ extern crate rustc_driver;
++// plan9: no dylibs, the compiler's crates are linked in (as rustc-main does)
++#[cfg(target_os = "plan9")]
++extern crate rustc_driver_impl as rustc_driver;
+ extern crate rustc_interface;
+ extern crate rustc_session;
+ extern crate rustc_span;
+diff --git a/src/tools/clippy/src/main.rs b/src/tools/clippy/src/main.rs
+index 14a437fc874..2f02ceb2c18 100644
+--- a/src/tools/clippy/src/main.rs
++++ b/src/tools/clippy/src/main.rs
+@@ -4,7 +4,13 @@
+ // warn on lints, that are included in `rust-lang/rust`s bootstrap
+ #![warn(rust_2018_idioms, unused_lifetimes)]
+ 
++#[cfg(not(target_os = "plan9"))]
+ extern crate rustc_driver;
++// plan9: no rustc_driver dylib; cargo-clippy needs only this of it (rustc_driver_impl's)
++#[cfg(target_os = "plan9")]
++mod rustc_driver {
++    pub const EXIT_FAILURE: i32 = 1;
++}
+ 
+ use std::env;
+ use std::io::Write as _;
+diff --git a/src/tools/rustdoc/main.rs b/src/tools/rustdoc/main.rs
+index 15fd67a5038..b643b81582d 100644
+--- a/src/tools/rustdoc/main.rs
++++ b/src/tools/rustdoc/main.rs
+@@ -1,7 +1,11 @@
+ // We need this feature as it changes `dylib` linking behavior and allows us to link to `rustc_driver`.
+ #![feature(rustc_private)]
+ 
++#[cfg(not(target_os = "plan9"))]
+ extern crate rustc_driver;
++// plan9: no dylibs, the compiler's crates are linked in (as rustc-main does)
++#[cfg(target_os = "plan9")]
++extern crate rustc_driver_impl as rustc_driver;
+ 
+ use std::process::ExitCode;
+ 
+diff --git a/src/tools/rustfmt/src/bin/main.rs b/src/tools/rustfmt/src/bin/main.rs
+index 0653ad3d937..9f587334fc5 100644
+--- a/src/tools/rustfmt/src/bin/main.rs
++++ b/src/tools/rustfmt/src/bin/main.rs
+@@ -24,7 +24,11 @@
+ const BUG_REPORT_URL: &str = "https://github.com/rust-lang/rustfmt/issues/new?labels=bug";
+ 
+ // N.B. these crates are loaded from the sysroot, so they need extern crate.
++#[cfg(not(target_os = "plan9"))]
+ extern crate rustc_driver;
++// plan9: no dylibs, the compiler's crates are linked in (as rustc-main does)
++#[cfg(target_os = "plan9")]
++extern crate rustc_driver_impl as rustc_driver;
+ 
+ fn main() {
+     rustc_driver::install_ice_hook(BUG_REPORT_URL, |_| ());
+diff --git a/src/tools/rustfmt/src/lib.rs b/src/tools/rustfmt/src/lib.rs
+index fb42b06d469..2ee2cada776 100644
+--- a/src/tools/rustfmt/src/lib.rs
++++ b/src/tools/rustfmt/src/lib.rs
+@@ -19,6 +19,8 @@
+ // Necessary to pull in object code as the rest of the rustc crates are shipped only as rmeta
+ // files.
+ #[allow(unused_extern_crates)]
++// plan9: no rustc_driver dylib to link; the compiler's crates come in as rlibs
++#[cfg(not(target_os = "plan9"))]
+ extern crate rustc_driver;
+ 
+ use std::cell::RefCell;

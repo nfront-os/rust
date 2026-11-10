@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 10:02:27 +0100
+Subject: [PATCH 08/25] plan9: zero-length reads and writes with a valid buffer
+ (the kernel checks 0x1); rustc's file locks without locking (as cargo's);
+ jobserver from 9front-rust
+
+9front's kernel validates a buffer's address at zero bytes too: an empty
+slice's dangling pointer killed cargo's child before exec (an empty
+environment value). std gives such calls a byte of its own (buf_ptr).
+rustc's incremental sessions take their lock without one on plan9 (no
+advisory locks), as cargo does there.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Cargo.lock                                      |  2 --
+ Cargo.toml                                      |  1 +
+ compiler/rustc_data_structures/src/flock.rs     |  4 ++++
+ .../rustc_data_structures/src/flock/plan9.rs    | 17 +++++++++++++++++
+ library/std/src/sys/env/plan9.rs                |  4 ++--
+ library/std/src/sys/fd/plan9.rs                 | 10 +++++-----
+ library/std/src/sys/pal/plan9/mod.rs            | 14 ++++++++++++++
+ library/std/src/sys/process/plan9.rs            |  4 ++--
+ library/std/src/sys/stdio/plan9.rs              |  4 ++--
+ 9 files changed, 47 insertions(+), 13 deletions(-)
+ create mode 100644 compiler/rustc_data_structures/src/flock/plan9.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 181e3991d4c..f46ace9765a 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2195,8 +2195,6 @@ dependencies = [
+ [[package]]
+ name = "jobserver"
+ version = "0.1.34"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9afb3de4395d6b3e67a780b6de64b51c978ecf11cb9a462c66be7d4ca9039d33"
+ dependencies = [
+  "getrandom 0.3.3",
+  "libc",
+diff --git a/Cargo.toml b/Cargo.toml
+index b2ae1332e83..74ac247ddfa 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -92,3 +92,4 @@ codegen-units = 1
+ getrandom = { path = "../crates/getrandom-0.3.3" }
+ libc = { path = "../libc" }
+ libloading = { path = "../crates/libloading-0.9.0" }
++jobserver = { path = "../crates/jobserver-0.1.34" }
+diff --git a/compiler/rustc_data_structures/src/flock.rs b/compiler/rustc_data_structures/src/flock.rs
+index deb779a4996..862ac136f98 100644
+--- a/compiler/rustc_data_structures/src/flock.rs
++++ b/compiler/rustc_data_structures/src/flock.rs
+@@ -64,6 +64,10 @@ pub fn error_unsupported(err: &io::Error) -> bool {
+         mod unix;
+         use unix as fallback;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        use plan9 as fallback;
++    }
+     _ => {
+         mod unsupported;
+         use unsupported as fallback;
+diff --git a/compiler/rustc_data_structures/src/flock/plan9.rs b/compiler/rustc_data_structures/src/flock/plan9.rs
+new file mode 100644
+index 00000000000..32a64d73945
+--- /dev/null
++++ b/compiler/rustc_data_structures/src/flock/plan9.rs
+@@ -0,0 +1,17 @@
++//! 9front (Plan 9) has no advisory file locks: the lock is taken without one, as cargo does
++//! on 9front (a file system without locks). cargo never builds one crate twice at once into
++//! the same directory; two rustc on one incremental directory by hand are not kept apart.
++use std::fs::File;
++use std::io;
++use std::path::Path;
++
++#[derive(Debug)]
++pub struct Lock {
++    _file: File,
++}
++
++impl Lock {
++    pub fn try_lock(_p: &Path, file: File, _exclusive: bool) -> io::Result<Lock> {
++        Ok(Lock { _file: file })
++    }
++}
+diff --git a/library/std/src/sys/env/plan9.rs b/library/std/src/sys/env/plan9.rs
+index 6d2a5900e19..817cd3bcb25 100644
+--- a/library/std/src/sys/env/plan9.rs
++++ b/library/std/src/sys/env/plan9.rs
+@@ -32,7 +32,7 @@ fn read_value(p: &CString) -> Option<Vec<u8>> {
+         let mut v = Vec::new();
+         let mut buf = [0u8; 1024];
+         loop {
+-            let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len() as _);
++            let n = libc::read(fd, crate::sys::pal::buf_mut_ptr(buf.as_mut_ptr(), buf.len()), buf.len() as _);
+             if n <= 0 {
+                 break;
+             }
+@@ -74,7 +74,7 @@ pub unsafe fn setenv(k: &OsStr, v: &OsStr) -> io::Result<()> {
+     unsafe {
+         let fd = crate::sys::cvt(libc::create(p.as_ptr(), libc::OWRITE | libc::OCEXEC, 0o664))?;
+         let v = v.as_bytes();
+-        let n = libc::write(fd, v.as_ptr().cast(), v.len() as _);
++        let n = libc::write(fd, crate::sys::pal::buf_ptr(v.as_ptr(), v.len()), v.len() as _);
+         libc::close(fd);
+         if n < 0 || n as usize != v.len() {
+             return Err(crate::sys::last_error());
+diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
+index b48de364dcd..4da9af86813 100644
+--- a/library/std/src/sys/fd/plan9.rs
++++ b/library/std/src/sys/fd/plan9.rs
+@@ -69,14 +69,14 @@ pub struct FileDesc {
+ impl FileDesc {
+     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+         let n = buf.len().min(MAX_IO);
+-        let r = cvt(unsafe { libc::read(self.as_raw_fd(), buf.as_mut_ptr().cast(), n as _) })?;
++        let r = cvt(unsafe { libc::read(self.as_raw_fd(), crate::sys::pal::buf_mut_ptr(buf.as_mut_ptr(), n), n as _) })?;
+         Ok(r as usize)
+     }
+ 
+     pub fn read_buf(&self, mut cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
+         let n = cursor.capacity().min(MAX_IO);
+         let r = cvt(unsafe {
+-            libc::read(self.as_raw_fd(), cursor.as_mut().as_mut_ptr().cast(), n as _)
++            libc::read(self.as_raw_fd(), crate::sys::pal::buf_mut_ptr(cursor.as_mut().as_mut_ptr().cast(), n), n as _)
+         })?;
+         unsafe { cursor.advance(r as usize) };
+         Ok(())
+@@ -99,14 +99,14 @@ pub fn read_to_end(&self, buf: &mut Vec<u8>) -> io::Result<usize> {
+     pub fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+         let n = buf.len().min(MAX_IO);
+         let r = cvt(unsafe {
+-            libc::pread(self.as_raw_fd(), buf.as_mut_ptr().cast(), n as _, offset as i64)
++            libc::pread(self.as_raw_fd(), crate::sys::pal::buf_mut_ptr(buf.as_mut_ptr(), n), n as _, offset as i64)
+         })?;
+         Ok(r as usize)
+     }
+ 
+     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
+         let n = buf.len().min(MAX_IO);
+-        let r = cvt(unsafe { libc::write(self.as_raw_fd(), buf.as_ptr().cast(), n as _) })?;
++        let r = cvt(unsafe { libc::write(self.as_raw_fd(), crate::sys::pal::buf_ptr(buf.as_ptr(), n), n as _) })?;
+         Ok(r as usize)
+     }
+ 
+@@ -122,7 +122,7 @@ pub fn is_write_vectored(&self) -> bool {
+     pub fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
+         let n = buf.len().min(MAX_IO);
+         let r = cvt(unsafe {
+-            libc::pwrite(self.as_raw_fd(), buf.as_ptr().cast(), n as _, offset as i64)
++            libc::pwrite(self.as_raw_fd(), crate::sys::pal::buf_ptr(buf.as_ptr(), n), n as _, offset as i64)
+         })?;
+         Ok(r as usize)
+     }
+diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
+index 07e67636747..b191f5c0af3 100644
+--- a/library/std/src/sys/pal/plan9/mod.rs
++++ b/library/std/src/sys/pal/plan9/mod.rs
+@@ -9,6 +9,20 @@
+ use crate::ffi::{CStr, c_char, c_void};
+ use crate::io;
+ 
++/// The kernel checks a buffer's address even for zero bytes (validaddr), and an empty
++/// slice's pointer is dangling (0x1): zero-length reads and writes, meaningful on Plan 9
++/// (a pipe's message boundaries), get a byte of their own instead.
++pub fn buf_ptr(p: *const u8, n: usize) -> *const libc::c_void {
++    static ZERO: [u8; 1] = [0];
++    if n == 0 { ZERO.as_ptr().cast() } else { p.cast() }
++}
++
++/// As [`buf_ptr`], for buffers the kernel writes (none, at zero bytes).
++pub fn buf_mut_ptr(p: *mut u8, n: usize) -> *mut libc::c_void {
++    static mut ZERO: [u8; 1] = [0];
++    if n == 0 { (&raw mut ZERO).cast() } else { p.cast() }
++}
++
+ pub fn unsupported<T>() -> io::Result<T> {
+     Err(unsupported_err())
+ }
+diff --git a/library/std/src/sys/process/plan9.rs b/library/std/src/sys/process/plan9.rs
+index ab1ea41cc81..1198197e4ae 100644
+--- a/library/std/src/sys/process/plan9.rs
++++ b/library/std/src/sys/process/plan9.rs
+@@ -328,7 +328,7 @@ struct ChildArgs {
+                 if fd < 0 {
+                     fail(a.errw);
+                 }
+-                libc::write(fd, e.val.cast(), e.len as _);
++                libc::write(fd, crate::sys::pal::buf_ptr(e.val.cast(), e.len as usize), e.len as _);
+                 libc::close(fd);
+             } else {
+                 libc::remove(e.path);
+@@ -344,7 +344,7 @@ unsafe fn fail(errw: i32) -> ! {
+         let mut buf = [0u8; libc::ERRMAX];
+         libc::rerrstr(buf.as_mut_ptr().cast(), buf.len() as _);
+         let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len()).max(1);
+-        libc::write(errw, buf.as_ptr().cast(), n as _);
++        libc::write(errw, crate::sys::pal::buf_ptr(buf.as_ptr(), n as usize), n as _);
+         libc::_exits(c"exec".as_ptr())
+     }
+ }
+diff --git a/library/std/src/sys/stdio/plan9.rs b/library/std/src/sys/stdio/plan9.rs
+index 1c9076a13f1..03b32613e33 100644
+--- a/library/std/src/sys/stdio/plan9.rs
++++ b/library/std/src/sys/stdio/plan9.rs
+@@ -9,12 +9,12 @@
+ 
+ fn read(fd: i32, buf: &mut [u8]) -> io::Result<usize> {
+     let n = buf.len().min(i32::MAX as usize);
+-    cvt(unsafe { libc::read(fd, buf.as_mut_ptr().cast(), n as libc::c_long) }).map(|n| n as usize)
++    cvt(unsafe { libc::read(fd, crate::sys::pal::buf_mut_ptr(buf.as_mut_ptr(), n), n as libc::c_long) }).map(|n| n as usize)
+ }
+ 
+ fn write(fd: i32, buf: &[u8]) -> io::Result<usize> {
+     let n = buf.len().min(i32::MAX as usize);
+-    cvt(unsafe { libc::write(fd, buf.as_ptr().cast(), n as libc::c_long) }).map(|n| n as usize)
++    cvt(unsafe { libc::write(fd, crate::sys::pal::buf_ptr(buf.as_ptr(), n), n as libc::c_long) }).map(|n| n as usize)
+ }
+ 
+ impl Stdin {

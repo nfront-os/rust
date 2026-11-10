@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 31 Oct 2026 13:27:28 +0100
+Subject: [PATCH 6/7] plan9: arm64 (aarch64): jmp_buf 22 words (sp, pc,
+ x19-x29, d8-d15)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/plan9.rs | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/plan9.rs b/src/plan9.rs
+index 243962c0b..5f4014ee0 100644
+--- a/src/plan9.rs
++++ b/src/plan9.rs
+@@ -27,8 +27,11 @@ pub type usize_ = c_ulong;
+ pub type Rune = c_uint;
+ 
+ /// `jmp_buf` of the gcc port: sp, pc and the callee-saved registers.
+-#[cfg(target_pointer_width = "64")]
++#[cfg(target_arch = "x86_64")]
+ pub type jmp_buf = [uintptr_t; 8];
++/// arm64: sp, pc, x19-x29 and d8-d15 (AAPCS64's callee-saved)
++#[cfg(target_arch = "aarch64")]
++pub type jmp_buf = [uintptr_t; 22];
+ /// 386: sp, pc, %ebx, %esi, %edi, %ebp (cdecl's callee-saved)
+ #[cfg(target_pointer_width = "32")]
+ pub type jmp_buf = [uintptr_t; 6];

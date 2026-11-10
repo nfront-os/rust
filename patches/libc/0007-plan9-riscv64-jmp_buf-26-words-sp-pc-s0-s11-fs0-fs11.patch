@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Tue, 10 Nov 2026 14:52:42 +0100
+Subject: [PATCH 7/7] plan9: riscv64: jmp_buf 26 words (sp, pc, s0-s11,
+ fs0-fs11)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/plan9.rs | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/plan9.rs b/src/plan9.rs
+index 5f4014ee0..1e5bd700e 100644
+--- a/src/plan9.rs
++++ b/src/plan9.rs
+@@ -32,6 +32,9 @@ pub type jmp_buf = [uintptr_t; 8];
+ /// arm64: sp, pc, x19-x29 and d8-d15 (AAPCS64's callee-saved)
+ #[cfg(target_arch = "aarch64")]
+ pub type jmp_buf = [uintptr_t; 22];
++/// riscv64: sp, pc, s0-s11 and fs0-fs11 (the psABI's callee-saved)
++#[cfg(target_arch = "riscv64")]
++pub type jmp_buf = [uintptr_t; 26];
+ /// 386: sp, pc, %ebx, %esi, %edi, %ebp (cdecl's callee-saved)
+ #[cfg(target_pointer_width = "32")]
+ pub type jmp_buf = [uintptr_t; 6];

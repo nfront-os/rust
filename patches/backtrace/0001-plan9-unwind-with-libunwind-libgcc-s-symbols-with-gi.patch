@@ -1,0 +1,95 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 11:47:24 +0100
+Subject: [PATCH] plan9: unwind with libunwind (libgcc's), symbols with gimli
+ from /proc/<pid>/text
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backtrace/mod.rs              |  1 +
+ src/symbolize/gimli.rs            |  3 +++
+ src/symbolize/gimli/elf.rs        |  3 +++
+ src/symbolize/gimli/libs_plan9.rs | 19 +++++++++++++++++++
+ src/symbolize/mod.rs              |  2 +-
+ 5 files changed, 27 insertions(+), 1 deletion(-)
+ create mode 100644 src/symbolize/gimli/libs_plan9.rs
+
+diff --git a/src/backtrace/mod.rs b/src/backtrace/mod.rs
+index 2a36214..21c54f9 100644
+--- a/src/backtrace/mod.rs
++++ b/src/backtrace/mod.rs
+@@ -181,6 +181,7 @@ cfg_if::cfg_if! {
+                 target_env = "sgx",
+                 target_vendor = "fortanix",
+             ),
++            target_os = "plan9",
+         )
+     )] {
+         mod libunwind;
+diff --git a/src/symbolize/gimli.rs b/src/symbolize/gimli.rs
+index cbc0b76..d4ed642 100644
+--- a/src/symbolize/gimli.rs
++++ b/src/symbolize/gimli.rs
+@@ -238,6 +238,9 @@ cfg_if::cfg_if! {
+         use libs_dl_iterate_phdr::native_libraries;
+         #[path = "gimli/parse_running_mmaps_unix.rs"]
+         mod parse_running_mmaps;
++    } else if #[cfg(target_os = "plan9")] {
++        mod libs_plan9;
++        use libs_plan9::native_libraries;
+     } else if #[cfg(target_env = "libnx")] {
+         mod libs_libnx;
+         use libs_libnx::native_libraries;
+diff --git a/src/symbolize/gimli/elf.rs b/src/symbolize/gimli/elf.rs
+index fd9903d..008e6cd 100644
+--- a/src/symbolize/gimli/elf.rs
++++ b/src/symbolize/gimli/elf.rs
+@@ -3,7 +3,10 @@
+ use super::Either;
+ use super::mystd::ffi::OsStr;
+ use super::mystd::fs;
++#[cfg(not(target_os = "plan9"))]
+ use super::mystd::os::unix::ffi::OsStrExt;
++#[cfg(target_os = "plan9")]
++use super::mystd::os::plan9::ffi::OsStrExt;
+ use super::mystd::path::{Path, PathBuf};
+ use super::{Context, Endian, EndianSlice, Mapping, Stash, gimli};
+ use alloc::string::String;
+diff --git a/src/symbolize/gimli/libs_plan9.rs b/src/symbolize/gimli/libs_plan9.rs
+new file mode 100644
+index 0000000..2e3cd85
+--- /dev/null
++++ b/src/symbolize/gimli/libs_plan9.rs
+@@ -0,0 +1,19 @@
++//! 9front (Plan 9): a program is one static executable, at the addresses it was linked
++//! for; proc(3)'s `text` is the file the proc runs.
++
++use super::{Library, LibrarySegment};
++use alloc::vec::Vec;
++
++pub(super) fn native_libraries() -> Vec<Library> {
++    let path = alloc::format!("/proc/{}/text", super::mystd::process::id());
++    let mut ret = Vec::new();
++    ret.push(Library {
++        name: path.into(),
++        segments: alloc::vec![LibrarySegment {
++            stated_virtual_memory_address: 0,
++            len: usize::MAX,
++        }],
++        bias: 0,
++    });
++    ret
++}
+diff --git a/src/symbolize/mod.rs b/src/symbolize/mod.rs
+index d221ce8..2d1420f 100644
+--- a/src/symbolize/mod.rs
++++ b/src/symbolize/mod.rs
+@@ -438,7 +438,7 @@ cfg_if::cfg_if! {
+         mod dbghelp;
+         use dbghelp as imp;
+     } else if #[cfg(all(
+-        any(unix, all(windows, target_env = "gnu")),
++        any(unix, all(windows, target_env = "gnu"), target_os = "plan9"),
+         not(target_vendor = "uwp"),
+         not(target_os = "emscripten"),
+         any(not(backtrace_in_libstd), feature = "backtrace"),

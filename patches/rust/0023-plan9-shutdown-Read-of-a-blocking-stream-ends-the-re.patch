@@ -1,0 +1,236 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Tue, 10 Nov 2026 19:54:40 +0100
+Subject: [PATCH 23/25] plan9: shutdown(Read) of a blocking stream ends the
+ reads of every descriptor of its conversation (the process' fd table;
+ FdState, copied by dup): close_readwrite_smoke hung since shutdown(Write)
+ became a half close; the unspecified remote address (0.0.0.0, ::) is the
+ loopback, as on unix and Go's net on Plan 9 (connect_error: a SYN to the
+ default route timed out); shutdown_smoke runs
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/net/tcp/tests.rs            |  6 +-
+ library/std/src/sys/fd/plan9.rs             |  8 +-
+ library/std/src/sys/net/connection/plan9.rs | 88 ++++++++++++++++++---
+ 3 files changed, 87 insertions(+), 15 deletions(-)
+
+diff --git a/library/std/src/net/tcp/tests.rs b/library/std/src/net/tcp/tests.rs
+index d26d21c7f84..1b79f4f20ef 100644
+--- a/library/std/src/net/tcp/tests.rs
++++ b/library/std/src/net/tcp/tests.rs
+@@ -502,7 +502,6 @@ fn tcp_clone_two_write() {
+ // FIXME: https://github.com/fortanix/rust-sgx/issues/110
+ #[cfg_attr(target_env = "sgx", ignore)]
+ #[cfg_attr(target_os = "wasi", ignore)] // no threads
+-#[cfg_attr(target_os = "plan9", ignore = "its TCP closes both ways (no half close)")]
+ fn shutdown_smoke() {
+     each_ip(&mut |a| {
+         let addr = t!(a.local_addr());
+@@ -569,8 +568,9 @@ fn close_readwrite_smoke() {
+ // On windows, shutdown will not wake up blocking I/O operations.
+ #[cfg_attr(windows, ignore)]
+ #[cfg_attr(target_os = "wasi", ignore)] // no threads
+-// 9front (Plan 9): its TCP has only hangup, both ways; shutdown(Read) wakes no reader
+-#[cfg_attr(target_os = "plan9", ignore)]
++// 9front: its tcp has no half close of the receive side; std's shutdown(Read) ends later
++// reads, not one already blocked in the kernel
++#[cfg_attr(target_os = "plan9", ignore = "shutdown(Read) wakes no blocked reader")]
+ fn close_read_wakes_up() {
+     each_ip(&mut |listener| {
+         let addr = t!(listener.local_addr());
+diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
+index 31c51f444fe..c5f86ca7e9b 100644
+--- a/library/std/src/sys/fd/plan9.rs
++++ b/library/std/src/sys/fd/plan9.rs
+@@ -11,14 +11,16 @@
+ 
+ /// What a descriptor has beyond the kernel's, kept beside it (a `File` or `TcpStream` is
+ /// only its descriptor, `os::fd` views them as such): the append mode of a file (Plan 9's
+-/// open has none), timeouts of a connection, the peer of a "connected" UDP socket. Who makes
+-/// a descriptor sets it, closing it drops it.
++/// open has none), timeouts of a connection, the peer of a "connected" UDP socket, a
++/// stream's shutdown(Read) (9front's tcp has no half close of the receive side: reads give
++/// the end). Who makes a descriptor sets it, a dup copies it, closing it drops it.
+ #[derive(Clone, Copy, Default, Debug)]
+ pub struct FdState {
+     pub append: bool,
+     pub read_ms: u32,
+     pub write_ms: u32,
+     pub peer: Option<crate::net::SocketAddr>,
++    pub read_shut: bool,
+ }
+ 
+ static STATES: Mutex<BTreeMap<RawFd, FdState>> = Mutex::new(BTreeMap::new());
+@@ -33,7 +35,7 @@ pub fn state(fd: RawFd) -> FdState {
+ 
+ pub fn set_state(fd: RawFd, s: FdState) {
+     let mut t = STATES.lock().unwrap_or_else(|e| e.into_inner());
+-    if s.append || s.read_ms != 0 || s.write_ms != 0 || s.peer.is_some() {
++    if s.append || s.read_ms != 0 || s.write_ms != 0 || s.peer.is_some() || s.read_shut {
+         t.insert(fd, s);
+         ANY_STATE.store(true, Ordering::Relaxed);
+     } else {
+diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
+index e62a96d0ab4..833f9c9fadf 100644
+--- a/library/std/src/sys/net/connection/plan9.rs
++++ b/library/std/src/sys/net/connection/plan9.rs
+@@ -95,6 +95,27 @@ fn read_file(path: &str) -> io::Result<String> {
+     Ok(String::from_utf8_lossy(&buf[..n]).into_owned())
+ }
+ 
++/// A file of any length (a process' fd table).
++fn read_all(path: &str) -> io::Result<String> {
++    use crate::io::Read;
++    let c = CString::new(path).unwrap();
++    let fd = cvt(unsafe { libc::open(c.as_ptr(), libc::OREAD | libc::OCEXEC) })?;
++    let fd = unsafe { FileDesc::from_raw_fd(fd) };
++    let mut s = String::new();
++    (&fd).read_to_string(&mut s)?;
++    Ok(s)
++}
++
++/// A descriptor's reads give the end (Socket::shut_read).
++fn shut_read_fd(fd: RawFd) {
++    let mut s = state(fd);
++    s.read_shut = true;
++    set_state(fd, s);
++    if let Some(p) = pump::get(fd) {
++        p.shutdown_read();
++    }
++}
++
+ fn write_ctl(dir: &str, msg: &str) -> io::Result<()> {
+     let c = CString::new(format!("{dir}/ctl")).unwrap();
+     let fd = cvt(unsafe { libc::open(c.as_ptr(), libc::OWRITE | libc::OCEXEC) })?;
+@@ -191,6 +212,9 @@ fn pump(&self) -> Option<crate::sync::Arc<pump::Pump>> {
+     }
+ 
+     fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
++        if self.state().read_shut {
++            return Ok(0);
++        }
+         match self.pump() {
+             Some(p) => p.read(buf, false, dur_of(self.state().read_ms)),
+             None => with_alarm(self.state().read_ms, || self.fd.read(buf)),
+@@ -198,6 +222,9 @@ fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+     }
+ 
+     fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        if self.state().read_shut {
++            return Ok(());
++        }
+         if self.pump().is_some() {
+             return crate::io::default_read_buf(|b| self.read(b), cursor);
+         }
+@@ -218,6 +245,35 @@ fn duplicate(&self) -> io::Result<Socket> {
+         Ok(new)
+     }
+ 
++    /// shutdown(Read), as unix has it for every descriptor of the socket (those dup'ed
++    /// before too, `try_clone`): each of the process' descriptors of the conversation (its
++    /// fd table, `#p/<pid>/fd`: "/net/tcp/N/data") reads the end from now on (`FdState`,
++    /// which a dup copies), a pumped one's readers at once. A read already blocked in the
++    /// kernel goes on until data or the end comes (9front has no way to end it but a note,
++    /// and which proc reads is not known).
++    fn shut_read(&self) -> io::Result<()> {
++        let data = format!("{}/data", self.dir()?);
++        let pid = unsafe { libc::getpid() };
++        let table = read_all(&format!("#p/{pid}/fd"))?;
++        // the first line is the working directory; then "fd mode type dev (qid) iounit
++        // offset name"
++        let mut found = false;
++        for line in table.lines().skip(1) {
++            let mut w = line.split_whitespace();
++            let Some(fd) = w.next().and_then(|n| n.parse::<RawFd>().ok()) else { continue };
++            if w.last() != Some(data.as_str()) {
++                continue;
++            }
++            found |= fd == self.fd.as_raw_fd();
++            shut_read_fd(fd);
++        }
++        // the table names the channel as it was opened; this one at least
++        if !found {
++            shut_read_fd(self.fd.as_raw_fd());
++        }
++        Ok(())
++    }
++
+     /// set_nonblocking: on, the socket gets its pump.
+     fn set_nonblocking(&self, kind: Kind, on: bool) -> io::Result<()> {
+         match (self.pump(), on) {
+@@ -304,8 +360,21 @@ fn each_addr<A: ToSocketAddrs, T>(
+     Err(last.unwrap_or(io::Error::NO_ADDRESSES))
+ }
+ 
++/// A remote address as the kernel is to have it: the unspecified one (0.0.0.0, ::) is this
++/// machine, its loopback (as on unix, and Go's net on Plan 9: toLocal). 9front's ip takes it
++/// as any other address: the default route's (a SYN nobody answers).
++fn remote_of(addr: &SocketAddr) -> SocketAddr {
++    let mut a = *addr;
++    match a {
++        SocketAddr::V4(ref mut v4) if v4.ip().is_unspecified() => v4.set_ip(Ipv4Addr::LOCALHOST),
++        SocketAddr::V6(ref mut v6) if v6.ip().is_unspecified() => v6.set_ip(Ipv6Addr::LOCALHOST),
++        _ => {}
++    }
++    a
++}
++
+ fn dial(addr: &SocketAddr, ms: u32) -> io::Result<Socket> {
+-    // the address as it is (`*` is announce's)
++    let addr = remote_of(addr);
+     let msg = format!("connect {}!{}", addr.ip(), addr.port());
+     // the write of connect returns when the connection is up (or refused)
+     let (_ctl, dir) = with_alarm(ms, || conversation("tcp", &msg))?;
+@@ -351,6 +420,7 @@ pub fn connect_nonblocking(addr: &SocketAddr) -> io::Result<TcpStream> {
+         .map_err(|_| err(io::ErrorKind::InvalidData, "bad conversation number"))?
+         .trim();
+     let s = TcpStream { inner: Socket::new(open_conv(&format!("/net/tcp/{num}"), "data")?) };
++    let addr = remote_of(addr);
+     pump::connecting(&s, ctl, format!("connect {}!{}", addr.ip(), addr.port()))?;
+     Ok(s)
+ }
+@@ -402,6 +472,9 @@ pub fn write_timeout(&self) -> io::Result<Option<Duration>> {
+     }
+ 
+     pub fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
++        if self.inner.state().read_shut {
++            return Ok(0);
++        }
+         // into the pump's buffer (a blocking socket's pump reads as blocking)
+         let p = pump::of(&self.inner, Kind::Stream, String::new(), false)?;
+         p.read(buf, true, dur_of(self.inner.state().read_ms))
+@@ -447,13 +520,8 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+     /// tcp's ctl "close" ends the sending side (FIN); reading goes on.
+     pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
+         match how {
+-            // a pumped stream's readers see the end now (Plan 9 has no half close)
+-            Shutdown::Read => {
+-                if let Some(p) = self.inner.pump() {
+-                    p.shutdown_read();
+-                }
+-                Ok(())
+-            }
++            // 9front's tcp has no half close of the receive side: std's own (shut_read)
++            Shutdown::Read => self.inner.shut_read(),
+             // ctl "shutdown": a FIN, the receive side stays open (9front's tcp in the gcc
+             // port; a kernel without it knows only "close", both sides)
+             // a pumped stream's after what its writer has yet to write
+@@ -739,6 +807,7 @@ fn recv_impl(&self, buf: &mut [u8], peek: bool) -> io::Result<(usize, SocketAddr
+     }
+ 
+     pub fn send_to(&self, buf: &[u8], dst: &SocketAddr) -> io::Result<usize> {
++        let dst = &remote_of(dst);
+         let mut b = vec![0u8; UDP_HDR + buf.len()];
+         put_addr(&mut b[0..16], dst);
+         // the local address: the kernel picks the interface
+@@ -862,7 +931,8 @@ pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
+     }
+ 
+     pub fn connect<A: ToSocketAddrs>(&self, addr: A) -> io::Result<()> {
+-        let a = addr.to_socket_addrs()?.next().ok_or(io::Error::NO_ADDRESSES)?;
++        // its replies come from the loopback (recv takes only its peer's)
++        let a = remote_of(&addr.to_socket_addrs()?.next().ok_or(io::Error::NO_ADDRESSES)?);
+         self.inner.update(|s| s.peer = Some(a));
+         Ok(())
+     }

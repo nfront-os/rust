@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 14:47:53 +0100
+Subject: [PATCH 14/25] plan9: lock_file docs: the gcc port's ext4srv keeps
+ DMEXCL
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ compiler/rustc_data_structures/src/flock/plan9.rs | 2 +-
+ library/std/src/os/plan9/fs.rs                    | 3 ++-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/compiler/rustc_data_structures/src/flock/plan9.rs b/compiler/rustc_data_structures/src/flock/plan9.rs
+index 5fea5098f8c..9ad3e3ef304 100644
+--- a/compiler/rustc_data_structures/src/flock/plan9.rs
++++ b/compiler/rustc_data_structures/src/flock/plan9.rs
+@@ -1,7 +1,7 @@
+ //! 9front (Plan 9) has no advisory file locks: a lock is the file opened alone, as an
+ //! exclusive-use (DMEXCL) file (`std::os::plan9::fs::lock_file`); another open of it fails
+ //! with "file is locked" (`WouldBlock`). There are no shared locks: a shared lock is
+-//! exclusive. On a file server that keeps no DMEXCL (ext4srv), nothing is kept apart.
++//! exclusive. On a file server that keeps no DMEXCL (9front's ext4srv), nothing is kept apart.
+ use std::fs::File;
+ use std::io;
+ use std::os::plan9::fs::{FileLock, lock_file};
+diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
+index cd9f9785d72..155122561f5 100644
+--- a/library/std/src/os/plan9/fs.rs
++++ b/library/std/src/os/plan9/fs.rs
+@@ -190,7 +190,8 @@ fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
+ /// ([`io::ErrorKind::WouldBlock`]). `path` is made exclusive-use if it is not (made with it
+ /// if it does not exist). `wait`: try again until it is free, else return the error. There
+ /// are no shared locks: a reader locks as a writer does. Most of 9front's file servers keep
+-/// `DMEXCL` (gefs, cwfs, hjfs, ramfs); on one that does not (ext4srv), nothing is kept apart.
++/// `DMEXCL` (gefs, cwfs, hjfs, ramfs, the gcc port's ext4srv); on one that does not (9front's
++/// ext4srv), nothing is kept apart.
+ ///
+ /// open(5) lets a server break the lock of a file not used for a while (cwfs and hjfs: five
+ /// minutes); as upas' locks, a thread of the lock reads the file once a minute. Dropping the

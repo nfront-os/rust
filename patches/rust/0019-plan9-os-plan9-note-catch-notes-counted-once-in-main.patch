@@ -1,0 +1,352 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 31 Oct 2026 10:29:21 +0100
+Subject: [PATCH 19/25] plan9: os::plan9::note (catch notes: counted once, in
+ main's proc, by semaphore; the program goes on), fd traits for the child
+ pipes; a listener's close waits for its reader (the port is free when close
+ returns: nb "refused" on 386)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/os/plan9/mod.rs               |   1 +
+ library/std/src/os/plan9/note.rs              | 159 ++++++++++++++++++
+ library/std/src/os/plan9/process.rs           |  52 +++++-
+ .../std/src/sys/net/connection/plan9/pump.rs  |  34 +++-
+ library/std/src/sys/pal/plan9/proc.rs         |   5 +
+ 5 files changed, 248 insertions(+), 3 deletions(-)
+ create mode 100644 library/std/src/os/plan9/note.rs
+
+diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
+index c3742fdbc81..aa7cf2fc3f1 100644
+--- a/library/std/src/os/plan9/mod.rs
++++ b/library/std/src/os/plan9/mod.rs
+@@ -7,6 +7,7 @@
+ pub mod fs;
+ pub mod io;
+ pub mod net;
++pub mod note;
+ pub mod process;
+ 
+ /// A prelude for conveniently writing platform-specific code.
+diff --git a/library/std/src/os/plan9/note.rs b/library/std/src/os/plan9/note.rs
+new file mode 100644
+index 00000000000..2a94febb3f5
+--- /dev/null
++++ b/library/std/src/os/plan9/note.rs
+@@ -0,0 +1,159 @@
++//! Plan 9-specific notes (notify(2)): what POSIX programs do with signals.
++//!
++//! A note the program does not catch ends it (Plan 9's default): `interrupt` (the console's
++//! Delete, as SIGINT), `hangup` (as SIGHUP), or any note sent to it. [`catch`] makes the
++//! program go on after a note and counts it; [`Note::wait`] waits for the next. That stays
++//! so for the rest of the program.
++//!
++//! A note to the program's note group (the console's Delete, `postnote(PNGROUP, ...)`)
++//! reaches every proc of it, each of its threads and std's helper procs: it is counted
++//! once, in the proc that runs `main`; the others go on (a blocked system call of theirs
++//! returns "interrupted", std's calls try again). A note to one proc
++//! (`/proc/<pid>/note`) counts when it is sent to that proc.
++//!
++//! [`catch`]: catch
++
++#![stable(feature = "rust1", since = "1.0.0")]
++
++use crate::cell::UnsafeCell;
++use crate::ffi::{CStr, c_char, c_int, c_void};
++use crate::sync::Mutex;
++use crate::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
++use crate::{fmt, io};
++
++/// Notes caught at most.
++const SLOTS: usize = 16;
++/// A note is at most ERRMAX bytes.
++const NAMELEN: usize = 128;
++
++struct Slot {
++    used: AtomicBool,
++    len: AtomicUsize,
++    /// written once, before `used`
++    name: UnsafeCell<[u8; NAMELEN]>,
++    /// semacquire(2)'s semaphore: the notes not waited for yet
++    sem: AtomicI32,
++}
++
++// SAFETY: `name` is written once, under REGISTER, before `used` is set (Release); read
++// only after `used` is seen (Acquire).
++unsafe impl Sync for Slot {}
++
++impl Slot {
++    const fn new() -> Slot {
++        Slot {
++            used: AtomicBool::new(false),
++            len: AtomicUsize::new(0),
++            name: UnsafeCell::new([0; NAMELEN]),
++            sem: AtomicI32::new(0),
++        }
++    }
++
++    fn name(&self) -> &[u8] {
++        // SAFETY: see `unsafe impl Sync`
++        unsafe { &(&*self.name.get())[..self.len.load(Ordering::Relaxed)] }
++    }
++}
++
++static TABLE: [Slot; SLOTS] = [const { Slot::new() }; SLOTS];
++static REGISTER: Mutex<bool> = Mutex::new(false);
++
++/// The notify handler (atnotify(2), after std's own): no lock, no allocation.
++unsafe extern "C" fn handler(_ureg: *mut c_void, note: *mut c_char) -> c_int {
++    let note = unsafe { CStr::from_ptr(note) }.to_bytes();
++    for s in &TABLE {
++        if !s.used.load(Ordering::Acquire) {
++            break;
++        }
++        if s.name() == note {
++            let main = crate::sys::proc::main_pid();
++            if main == 0 || unsafe { libc::getpid() } == main {
++                unsafe { libc::semrelease(s.sem.as_ptr(), 1) };
++            }
++            return 1;
++        }
++    }
++    0
++}
++
++/// A note the program catches (from [`catch`]).
++#[stable(feature = "rust1", since = "1.0.0")]
++pub struct Note {
++    slot: &'static Slot,
++}
++
++/// Catch the note `name` (exactly): the program goes on after it, and [`Note::wait`] sees
++/// it. Catching a note again gives one more `Note` for the same count. Not the notes of
++/// traps (`sys: ...`) nor std's own (`alarm`, `rust: ...`).
++#[stable(feature = "rust1", since = "1.0.0")]
++pub fn catch(name: &str) -> io::Result<Note> {
++    let b = name.as_bytes();
++    if b.is_empty()
++        || b.len() >= NAMELEN
++        || b.contains(&0)
++        || b.starts_with(b"sys:")
++        || b.starts_with(b"rust:")
++        || b == b"alarm"
++    {
++        return Err(io::const_error!(io::ErrorKind::InvalidInput, "note cannot be caught"));
++    }
++    let mut installed = REGISTER.lock().unwrap_or_else(|e| e.into_inner());
++    for s in &TABLE {
++        if !s.used.load(Ordering::Acquire) {
++            // SAFETY: not used yet, and REGISTER is held: no one else writes it, the
++            // handler does not read it
++            unsafe { (&mut *s.name.get())[..b.len()].copy_from_slice(b) };
++            s.len.store(b.len(), Ordering::Relaxed);
++            s.used.store(true, Ordering::Release);
++            if !*installed {
++                if unsafe { libc::atnotify(Some(handler), 1) } == 0 {
++                    s.used.store(false, Ordering::Release);
++                    return Err(io::const_error!(io::ErrorKind::Other, "atnotify: no room"));
++                }
++                *installed = true;
++            }
++            return Ok(Note { slot: s });
++        }
++        if s.name() == b {
++            return Ok(Note { slot: s });
++        }
++    }
++    Err(io::const_error!(io::ErrorKind::OutOfMemory, "too many notes caught"))
++}
++
++impl Note {
++    /// The note's name.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub fn name(&self) -> &str {
++        // SAFETY: made from a str
++        unsafe { crate::str::from_utf8_unchecked(self.slot.name()) }
++    }
++
++    /// Waits for the note: how many came since the last `wait` or `take` (at least one).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub fn wait(&self) -> usize {
++        // -1: a note interrupted it (this one, in the proc that runs main, or another)
++        while unsafe { libc::semacquire(self.slot.sem.as_ptr(), 1) } < 0 {}
++        1 + self.take()
++    }
++
++    /// How many came since the last `wait` or `take`, without waiting.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub fn take(&self) -> usize {
++        let mut n = 0;
++        loop {
++            match unsafe { libc::semacquire(self.slot.sem.as_ptr(), 0) } {
++                1 => n += 1,
++                0 => return n,
++                _ => {}
++            }
++        }
++    }
++}
++
++#[stable(feature = "rust1", since = "1.0.0")]
++impl fmt::Debug for Note {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        f.debug_struct("Note").field("name", &self.name()).finish()
++    }
++}
+diff --git a/library/std/src/os/plan9/process.rs b/library/std/src/os/plan9/process.rs
+index 01c229acfdc..13d7a02f15d 100644
+--- a/library/std/src/os/plan9/process.rs
++++ b/library/std/src/os/plan9/process.rs
+@@ -4,8 +4,9 @@
+ 
+ #![stable(feature = "rust1", since = "1.0.0")]
+ 
++use crate::os::plan9::io::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd};
+ use crate::process;
+-use crate::sys::AsInner;
++use crate::sys::{AsInner, FromInner, IntoInner};
+ 
+ /// A Plan 9 program ends with a message (exits(2)), not a number.
+ #[stable(feature = "rust1", since = "1.0.0")]
+@@ -21,3 +22,52 @@ fn msg(&self) -> &[u8] {
+         self.as_inner().msg()
+     }
+ }
++
++// The pipes of a child: their descriptors, as on unix (os/unix/process.rs).
++macro_rules! child_pipe {
++    ($t:ident) => {
++        #[stable(feature = "rust1", since = "1.0.0")]
++        impl AsRawFd for process::$t {
++            #[inline]
++            fn as_raw_fd(&self) -> RawFd {
++                self.as_inner().as_raw_fd()
++            }
++        }
++
++        #[stable(feature = "rust1", since = "1.0.0")]
++        impl IntoRawFd for process::$t {
++            #[inline]
++            fn into_raw_fd(self) -> RawFd {
++                self.into_inner().into_raw_fd()
++            }
++        }
++
++        #[stable(feature = "rust1", since = "1.0.0")]
++        impl AsFd for process::$t {
++            #[inline]
++            fn as_fd(&self) -> BorrowedFd<'_> {
++                self.as_inner().as_fd()
++            }
++        }
++
++        #[stable(feature = "rust1", since = "1.0.0")]
++        impl From<process::$t> for OwnedFd {
++            #[inline]
++            fn from(p: process::$t) -> OwnedFd {
++                p.into_inner().into_inner()
++            }
++        }
++
++        #[stable(feature = "rust1", since = "1.0.0")]
++        impl From<OwnedFd> for process::$t {
++            #[inline]
++            fn from(fd: OwnedFd) -> process::$t {
++                process::$t::from_inner(FromInner::from_inner(fd))
++            }
++        }
++    };
++}
++
++child_pipe!(ChildStdin);
++child_pipe!(ChildStdout);
++child_pipe!(ChildStderr);
+diff --git a/library/std/src/sys/net/connection/plan9/pump.rs b/library/std/src/sys/net/connection/plan9/pump.rs
+index ed5779e0159..ffdb2231998 100644
+--- a/library/std/src/sys/net/connection/plan9/pump.rs
++++ b/library/std/src/sys/net/connection/plan9/pump.rs
+@@ -61,6 +61,8 @@ struct State {
+     read_eof: bool,
+     read_err: Option<io::Error>,
+     reader_pid: i32,
++    /// the reader proc runs (from start to its end)
++    reader_running: bool,
+     // writing (streams)
+     out: VecDeque<u8>,
+     write_err: Option<io::Error>,
+@@ -132,6 +134,7 @@ pub(super) fn of(sock: &Socket, kind: Kind, dir: String, connecting: bool) -> io
+             read_eof: false,
+             read_err: None,
+             reader_pid: 0,
++            reader_running: false,
+             out: VecDeque::new(),
+             write_err: None,
+             writer_pid: 0,
+@@ -177,6 +180,9 @@ pub(crate) fn forget(fd: RawFd) {
+         p.cv.notify_all();
+         interrupt(reader);
+         drop(lock(&p.lctl).take());
++        if p.kind == Kind::Listener {
++            p.reader_gone();
++        }
+     }
+ }
+ 
+@@ -200,7 +206,27 @@ impl Pump {
+     /// The reader; a stream's writer comes with its first write.
+     fn start(self: &Arc<Self>) -> io::Result<()> {
+         let p = self.clone();
+-        spawn("socket reader", move || p.reader())
++        lock(&self.m).reader_running = true;
++        let r = spawn("socket reader", move || p.reader());
++        if r.is_err() {
++            lock(&self.m).reader_running = false;
++        }
++        r
++    }
++
++    /// A listener's close: its reader blocked in listen holds the announcement (another
++    /// connect would still be taken); as on unix the port is free when close returns. A
++    /// note only interrupts a call the proc is in: one that comes just before it enters
++    /// listen is lost, hence again every 10 ms (at most 5 s).
++    fn reader_gone(&self) {
++        let deadline = Instant::now() + Duration::from_secs(5);
++        let mut s = lock(&self.m);
++        while s.reader_running && Instant::now() < deadline {
++            s = self.cv.wait_timeout(s, Duration::from_millis(10)).unwrap_or_else(|e| e.into_inner()).0;
++            if s.reader_running {
++                interrupt(s.reader_pid);
++            }
++        }
+     }
+ 
+     /// Calls the hook, if any (no lock held).
+@@ -275,7 +301,11 @@ fn reader(self: Arc<Self>) {
+             }
+             self.changed(s);
+         }
+-        lock(&self.m).reader_pid = 0;
++        let mut s = lock(&self.m);
++        s.reader_pid = 0;
++        s.reader_running = false;
++        drop(s);
++        self.cv.notify_all();
+     }
+ 
+     fn writer(self: Arc<Self>) {
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index 25ce8b9a41a..c1a26768f3e 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -170,6 +170,11 @@ unsafe fn free_thread_data(td: *mut ThreadData) {
+ #[unsafe(export_name = "_ZN16__rust_internals3std3sys5plan94proc8MAIN_PIDE")]
+ static MAIN_PID: AtomicI32 = AtomicI32::new(0);
+ 
++/// The proc that runs `main` (0: Rust's main did not run, a C program called in).
++pub fn main_pid() -> i32 {
++    MAIN_PID.load(Relaxed)
++}
++
+ /// proc(3)'s ctl "kill": a note could be caught.
+ fn kill_proc(pid: i32) {
+     let mut path = [0u8; 32];

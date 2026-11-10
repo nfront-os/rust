@@ -1,0 +1,242 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 14:33:58 +0100
+Subject: [PATCH 3/3] 9front (Plan 9): file locks as DMEXCL files
+ (std::os::plan9::fs::lock_file) for cargo's own lock files; one open per file
+ in a process
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/util/flock.rs | 145 ++++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 140 insertions(+), 5 deletions(-)
+
+diff --git a/src/util/flock.rs b/src/util/flock.rs
+index 86896821b..3bd37c9b9 100644
+--- a/src/util/flock.rs
++++ b/src/util/flock.rs
+@@ -43,11 +43,18 @@ pub(crate) use self::imp::unlock;
+ pub struct FileLock {
+     f: Option<File>,
+     path: PathBuf,
++    /// 9front (Plan 9): the file opened alone (DMEXCL), shared by this process' locks of it.
++    #[cfg(target_os = "plan9")]
++    held: Option<std::sync::Arc<std::os::plan9::fs::FileLock>>,
+ }
+ 
+ impl FileLock {
+     /// Returns the underlying file handle of this lock.
+     pub fn file(&self) -> &File {
++        #[cfg(target_os = "plan9")]
++        if let Some(l) = &self.held {
++            return l.file();
++        }
+         self.f.as_ref().unwrap()
+     }
+ 
+@@ -109,6 +116,17 @@ impl FileLock {
+     }
+ }
+ 
++impl FileLock {
++    fn new(f: File, path: PathBuf) -> FileLock {
++        FileLock {
++            f: Some(f),
++            path,
++            #[cfg(target_os = "plan9")]
++            held: None,
++        }
++    }
++}
++
+ impl Read for FileLock {
+     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+         self.file().read(buf)
+@@ -244,13 +262,17 @@ impl Filesystem {
+     where
+         P: AsRef<Path>,
+     {
++        #[cfg(target_os = "plan9")]
++        if let plan9::Taken::Locked(l) = plan9::take(self, path.as_ref(), Some((gctx, msg)))? {
++            return Ok(l);
++        }
+         let mut opts = OpenOptions::new();
+         opts.read(true).write(true).create(true);
+         let (path, f) = self.open(path.as_ref(), &opts, true)?;
+         acquire(gctx, msg, &path, &|| imp::try_lock_exclusive(&f), &|| {
+             imp::lock_exclusive(&f)
+         })?;
+-        Ok(FileLock { f: Some(f), path })
++        Ok(FileLock::new(f, path))
+     }
+ 
+     /// A non-blocking version of [`Filesystem::open_rw_exclusive_create`].
+@@ -261,11 +283,17 @@ impl Filesystem {
+         &self,
+         path: P,
+     ) -> CargoResult<Option<FileLock>> {
++        #[cfg(target_os = "plan9")]
++        match plan9::take(self, path.as_ref(), None)? {
++            plan9::Taken::Locked(l) => return Ok(Some(l)),
++            plan9::Taken::WouldBlock => return Ok(None),
++            plan9::Taken::NotALockFile => {}
++        }
+         let mut opts = OpenOptions::new();
+         opts.read(true).write(true).create(true);
+         let (path, f) = self.open(path.as_ref(), &opts, true)?;
+         if try_acquire(&path, &|| imp::try_lock_exclusive(&f))? {
+-            Ok(Some(FileLock { f: Some(f), path }))
++            Ok(Some(FileLock::new(f, path)))
+         } else {
+             Ok(None)
+         }
+@@ -293,7 +321,7 @@ impl Filesystem {
+         acquire(gctx, msg, &path, &|| imp::try_lock_shared(&f), &|| {
+             imp::lock_shared(&f)
+         })?;
+-        Ok(FileLock { f: Some(f), path })
++        Ok(FileLock::new(f, path))
+     }
+ 
+     /// Opens read-only shared access to a file, returning the locked version of a file.
+@@ -307,13 +335,17 @@ impl Filesystem {
+         gctx: &GlobalContext,
+         msg: &str,
+     ) -> CargoResult<FileLock> {
++        #[cfg(target_os = "plan9")]
++        if let plan9::Taken::Locked(l) = plan9::take(self, path.as_ref(), Some((gctx, msg)))? {
++            return Ok(l);
++        }
+         let mut opts = OpenOptions::new();
+         opts.read(true).write(true).create(true);
+         let (path, f) = self.open(path.as_ref(), &opts, true)?;
+         acquire(gctx, msg, &path, &|| imp::try_lock_shared(&f), &|| {
+             imp::lock_shared(&f)
+         })?;
+-        Ok(FileLock { f: Some(f), path })
++        Ok(FileLock::new(f, path))
+     }
+ 
+     /// A non-blocking version of [`Filesystem::open_ro_shared_create`].
+@@ -324,11 +356,17 @@ impl Filesystem {
+         &self,
+         path: P,
+     ) -> CargoResult<Option<FileLock>> {
++        #[cfg(target_os = "plan9")]
++        match plan9::take(self, path.as_ref(), None)? {
++            plan9::Taken::Locked(l) => return Ok(Some(l)),
++            plan9::Taken::WouldBlock => return Ok(None),
++            plan9::Taken::NotALockFile => {}
++        }
+         let mut opts = OpenOptions::new();
+         opts.read(true).write(true).create(true);
+         let (path, f) = self.open(path.as_ref(), &opts, true)?;
+         if try_acquire(&path, &|| imp::try_lock_shared(&f))? {
+-            Ok(Some(FileLock { f: Some(f), path }))
++            Ok(Some(FileLock::new(f, path)))
+         } else {
+             Ok(None)
+         }
+@@ -483,6 +521,103 @@ fn error_unsupported(err: &std::io::Error) -> bool {
+     err.kind() == std::io::ErrorKind::Unsupported
+ }
+ 
++/// 9front (Plan 9) has no advisory locks: a lock is a file opened alone, an exclusive-use
++/// (DMEXCL) file (std::os::plan9::fs::lock_file). Only cargo's own lock files are made such
++/// (DMEXCL would stay on a data file as Cargo.lock, and others could not open it while cargo
++/// has it); the others are not locked, as on a file system without locks. There are no
++/// shared locks: a shared lock is exclusive between processes; in one process its locks of
++/// a file share one open (an exclusive lock after a shared one of the same process, which
++/// flock would refuse, is not kept apart).
++#[cfg(target_os = "plan9")]
++mod plan9 {
++    use super::*;
++    use std::os::plan9::fs::lock_file;
++    use std::sync::{Arc, Mutex, Weak};
++    use std::time::Duration;
++
++    const LOCK_FILES: &[&str] = &[
++        ".cargo-lock",
++        ".cargo-build-lock",
++        ".cargo-artifact-lock",
++        ".package-cache",
++        ".package-cache-mutate",
++        ".lock",
++    ];
++
++    /// This process' locks.
++    static HELD: Mutex<Vec<(PathBuf, Weak<std::os::plan9::fs::FileLock>)>> =
++        Mutex::new(Vec::new());
++
++    pub(super) enum Taken {
++        NotALockFile,
++        WouldBlock,
++        Locked(FileLock),
++    }
++
++    /// Locks a lock file of `fs`; `block`: wait for it, telling the shell, else
++    /// `WouldBlock`. Lock files that cannot be written: `NotALockFile` (read without a
++    /// lock, as cargo does where it cannot lock).
++    pub(super) fn take(
++        fs: &Filesystem,
++        path: &Path,
++        block: Option<(&GlobalContext, &str)>,
++    ) -> CargoResult<Taken> {
++        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
++        if !LOCK_FILES.contains(&name) {
++            return Ok(Taken::NotALockFile);
++        }
++        let path = fs.root.join(path);
++        let mut told = false;
++        loop {
++            {
++                let mut held = HELD.lock().unwrap();
++                held.retain(|(_, w)| w.strong_count() > 0);
++                if let Some(l) = held.iter().find(|(p, _)| *p == path).and_then(|(_, w)| w.upgrade()) {
++                    return Ok(Taken::Locked(FileLock { f: None, path, held: Some(l) }));
++                }
++                let mut r = lock_file(&path, false);
++                if matches!(&r, Err(e) if e.kind() == io::ErrorKind::NotFound) {
++                    paths::create_dir_all(path.parent().unwrap())?;
++                    r = lock_file(&path, false);
++                }
++                match r {
++                    Ok(l) => {
++                        let l = Arc::new(l);
++                        held.push((path.clone(), Arc::downgrade(&l)));
++                        return Ok(Taken::Locked(FileLock { f: None, path, held: Some(l) }));
++                    }
++                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
++                    Err(e)
++                        if matches!(
++                            e.kind(),
++                            io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem
++                        ) =>
++                    {
++                        return Ok(Taken::NotALockFile);
++                    }
++                    Err(e) => {
++                        return Err(anyhow::Error::from(e)
++                            .context(format!("failed to lock file: {}", path.display())));
++                    }
++                }
++            }
++            let Some((gctx, msg)) = block else {
++                return Ok(Taken::WouldBlock);
++            };
++            if !told {
++                let msg = if gctx.extra_verbose() {
++                    format!("waiting for file lock on {} ({})", msg, path.display())
++                } else {
++                    format!("waiting for file lock on {}", msg)
++                };
++                gctx.shell().status_with_color("Blocking", &msg, &style::NOTE)?;
++                told = true;
++            }
++            std::thread::sleep(Duration::from_millis(100));
++        }
++    }
++}
++
+ #[cfg(windows)]
+ fn error_unsupported(err: &std::io::Error) -> bool {
+     use windows_sys::Win32::Foundation::ERROR_INVALID_FUNCTION;

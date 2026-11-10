@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 10:06:04 +0100
+Subject: [PATCH 09/25] plan9: __plan9_abort for APE's abort: the program's
+ other procs go, the aborting one ends with a trap (ud2) and stays Broken
+
+Tested (tests/run.sh cexit-abort): one cexit proc left, Broken, its PC in
+__plan9_abort. acid cannot read the gcc port's ELF symbols; addr2line on
+the host resolves the PC.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/sys/pal/plan9/proc.rs | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index a93cff36f5e..1e09971c275 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -653,6 +653,29 @@ unsafe fn cthread_main(v: *mut c_void) {
+     end_program(status)
+ }
+ 
++/// For APE's abort (9front's gen/abort.c): the program's other procs go, main's too, and
++/// this one ends with a trap (ud2, as Rust's own abort): it stays Broken, its stack for acid.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __plan9_abort() -> ! {
++    let me = unsafe { libc::getpid() };
++    let main = MAIN_PID.load(Relaxed);
++    ALL_LOCK.lock();
++    let mut td = ALL.load(Relaxed);
++    while !td.is_null() {
++        unsafe {
++            if (*td).pid != me {
++                kill_proc((*td).pid);
++            }
++            td = (*td).all_next;
++        }
++    }
++    ALL_LOCK.unlock();
++    if main != 0 && main != me {
++        kill_proc(main);
++    }
++    crate::intrinsics::abort_immediate()
++}
++
+ /// Keeps `__plan9_mainstack` and `__plan9_rforkproc` in the link: libgcc refers to the one
+ /// only weakly, the other the C after std in the link.
+ pub fn keep_mainstack() {
+@@ -662,6 +685,7 @@ pub fn keep_mainstack() {
+     crate::hint::black_box((__plan9_thread_join as *const ()).expose_provenance());
+     crate::hint::black_box((__plan9_thread_detach as *const ()).expose_provenance());
+     crate::hint::black_box((__plan9_exit as *const ()).expose_provenance());
++    crate::hint::black_box((__plan9_abort as *const ()).expose_provenance());
+ }
+ 
+ /* futex */

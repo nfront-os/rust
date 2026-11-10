@@ -1,0 +1,162 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 15:22:32 +0100
+Subject: [PATCH 15/25] plan9: i686-unknown-plan9 (386, SSE2): the target,
+ std's rfork and stack switch for x86 (INT $64; the child gets its parent's
+ registers)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ compiler/rustc_target/src/spec/mod.rs         |  1 +
+ .../src/spec/targets/i686_unknown_plan9.rs    | 29 +++++++
+ library/std/src/sys/pal/plan9/proc.rs         | 76 +++++++++++++++++++
+ src/bootstrap/src/core/sanity.rs              |  1 +
+ 4 files changed, 107 insertions(+)
+ create mode 100644 compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs
+
+diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
+index 9f8e005e7bf..34d4f18a8c3 100644
+--- a/compiler/rustc_target/src/spec/mod.rs
++++ b/compiler/rustc_target/src/spec/mod.rs
+@@ -1546,6 +1546,7 @@ fn $module() {
+     ("x86_64-unknown-hermit", x86_64_unknown_hermit),
+ 
+     ("x86_64-unknown-plan9", x86_64_unknown_plan9),
++    ("i686-unknown-plan9", i686_unknown_plan9),
+     ("x86_64-unknown-motor", x86_64_unknown_motor),
+ 
+     ("x86_64-unikraft-linux-musl", x86_64_unikraft_linux_musl),
+diff --git a/compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs b/compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs
+new file mode 100644
+index 00000000000..a6769d4ff42
+--- /dev/null
++++ b/compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs
+@@ -0,0 +1,29 @@
++use crate::spec::{Arch, Target, TargetMetadata, TargetOptions, base};
++
++pub(crate) fn target() -> Target {
++    Target {
++        // as x86_64-unknown-plan9: an unknown OS is ELF and the System V ABI (i386: cdecl,
++        // double and long long 4-byte aligned in structs), which 9front's gcc port uses too
++        llvm_target: "i686-unknown-plan9".into(),
++        metadata: TargetMetadata {
++            description: Some("32-bit x86 9front (Plan 9), SSE2".into()),
++            tier: Some(3),
++            host_tools: Some(false),
++            std: Some(true),
++        },
++        pointer_width: 32,
++        arch: Arch::X86,
++        // i686-unknown-linux-gnu's
++        data_layout: "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-\
++            i128:128-f64:32:64-f80:32-n8:16:32-S128"
++            .into(),
++        options: TargetOptions {
++            // as Rust's i686 targets: SSE2 (the tree's own C is -march=pentium, x87; the C
++            // ABI is the same)
++            cpu: "pentium4".into(),
++            max_atomic_width: Some(64),
++            linker: Some("i686-pc-plan9-gcc".into()),
++            ..base::plan9::opts()
++        },
++    }
++}
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index 1e09971c275..6ecdae9863a 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -297,6 +297,82 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+     options(att_syntax)
+ );
+ 
++// 386: the system call number in AX, the arguments from 4(SP) on (libc's stubs are called:
++// 0(SP) is their return address), INT $64; the kernel gives the child all registers of its
++// parent (pc/l.s forkret pops the copied Ureg), AX zero. cdecl: arguments on the stack,
++// %ebx, %esi, %edi, %ebp callee-saved; the stack 16-byte aligned at a call.
++#[cfg(target_arch = "x86")]
++crate::arch::global_asm!(
++    ".text",
++    ".globl __rust_plan9_runon",
++    "__rust_plan9_runon:",
++    "   pushl %ebp",
++    "   movl %esp, %ebp",
++    "   movl 8(%ebp), %eax", // top
++    "   movl 12(%ebp), %ecx", // f
++    "   movl 16(%ebp), %edx", // arg
++    "   movl %eax, %esp",
++    "   subl $12, %esp",
++    "   pushl %edx",
++    "   call *%ecx",
++    "   movl %ebp, %esp",
++    "   popl %ebp",
++    "   ret",
++    ".globl __rust_plan9_rforkthread",
++    "__rust_plan9_rforkthread:",
++    "   pushl %ebx",
++    "   pushl %ebp",
++    "   pushl %esi",
++    "   pushl %edi",
++    "   movl 20(%esp), %eax", // flags
++    "   movl 24(%esp), %esi", // privtop
++    "   movl 28(%esp), %edi", // arg
++    "   subl $8, %esp",
++    "   movl %eax, 4(%esp)",
++    "   movl $19, %eax", // RFORK
++    "   int $64",
++    "   testl %eax, %eax",
++    "   jz 1f",
++    "   addl $8, %esp",
++    "   popl %edi",
++    "   popl %esi",
++    "   popl %ebp",
++    "   popl %ebx",
++    "   ret",
++    "1: movl %esi, %esp",
++    "   subl $12, %esp",
++    "   pushl %edi",
++    "   call __rust_plan9_threadstart",
++    "2: jmp 2b",
++    ".globl __rust_plan9_rforkrun",
++    "__rust_plan9_rforkrun:",
++    "   pushl %ebx",
++    "   pushl %ebp",
++    "   pushl %esi",
++    "   pushl %edi",
++    "   movl 20(%esp), %eax",
++    "   movl 24(%esp), %esi",
++    "   movl 28(%esp), %edi",
++    "   subl $8, %esp",
++    "   movl %eax, 4(%esp)",
++    "   movl $19, %eax", // RFORK
++    "   int $64",
++    "   testl %eax, %eax",
++    "   jz 1f",
++    "   addl $8, %esp",
++    "   popl %edi",
++    "   popl %esi",
++    "   popl %ebp",
++    "   popl %ebx",
++    "   ret",
++    "1: movl %esi, %esp",
++    "   subl $12, %esp",
++    "   pushl %edi",
++    "   call *(%edi)",
++    "2: jmp 2b",
++    options(att_syntax)
++);
++
+ /// What a child of [`rfork_run`] runs: `f(self)`, which must not return.
+ #[repr(C)]
+ pub struct Run<T> {
+diff --git a/src/bootstrap/src/core/sanity.rs b/src/bootstrap/src/core/sanity.rs
+index 829f21e2779..076a5ec1d69 100644
+--- a/src/bootstrap/src/core/sanity.rs
++++ b/src/bootstrap/src/core/sanity.rs
+@@ -38,6 +38,7 @@ pub struct Finder {
+     // just a dummy comment so the list doesn't get onelined
+     "aarch64-unknown-qtee",
+     "x86_64-unknown-plan9",
++    "i686-unknown-plan9",
+ ];
+ 
+ /// Minimum version threshold for libstdc++ required when using prebuilt LLVM

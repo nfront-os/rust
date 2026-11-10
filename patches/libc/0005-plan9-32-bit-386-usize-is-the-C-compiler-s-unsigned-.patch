@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 15:22:31 +0100
+Subject: [PATCH 5/7] plan9: 32-bit (386): usize is the C compiler's unsigned
+ long, jmp_buf six words
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/plan9.rs | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/plan9.rs b/src/plan9.rs
+index 6db19f8ad..243962c0b 100644
+--- a/src/plan9.rs
++++ b/src/plan9.rs
+@@ -22,12 +22,16 @@ pub type uint = c_uint;
+ pub type ulong = c_uint;
+ pub type vlong = c_longlong;
+ pub type uvlong = c_ulonglong;
+-pub type usize_ = c_ulonglong;
++/// `usize` of `<u.h>`: `unsigned long` of the C compiler.
++pub type usize_ = c_ulong;
+ pub type Rune = c_uint;
+ 
+ /// `jmp_buf` of the gcc port: sp, pc and the callee-saved registers.
+ #[cfg(target_pointer_width = "64")]
+ pub type jmp_buf = [uintptr_t; 8];
++/// 386: sp, pc, %ebx, %esi, %edi, %ebp (cdecl's callee-saved)
++#[cfg(target_pointer_width = "32")]
++pub type jmp_buf = [uintptr_t; 6];
+ 
+ s! {
+     pub struct Qid {

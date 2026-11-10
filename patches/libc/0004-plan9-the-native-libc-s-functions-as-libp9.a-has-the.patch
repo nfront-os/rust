@@ -1,0 +1,243 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 22:00:47 +0100
+Subject: [PATCH 4/7] plan9: the native libc's functions as libp9.a has them
+ (__p9_*), so that APE can be in the program beside it
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/plan9.rs | 94 +++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 93 insertions(+), 1 deletion(-)
+
+diff --git a/src/plan9.rs b/src/plan9.rs
+index 1245de453..6db19f8ad 100644
+--- a/src/plan9.rs
++++ b/src/plan9.rs
+@@ -172,61 +172,112 @@ pub const FPOVFL: ulong = 1 << 10;
+ pub const FPZDIV: ulong = 1 << 9;
+ pub const FPINVAL: ulong = 1 << 7;
+ 
++/*
++ * The native libc as libp9.a (9front's /$objtype/lib.gcc, scripts/build/libp9.sh):
++ * every name renamed __p9_*, so that APE (the C of a program's crates: open, read,
++ * malloc, ... of their own) can be linked beside it.
++ */
+ extern "C" {
+     /// The top of the calling proc's stack segment.
++    #[link_name = "__p9__tos"]
+     pub static mut _tos: *mut Tos;
++    #[link_name = "__p9_argv0"]
+     pub static mut argv0: *mut c_char;
+ 
+     /* memory */
++    #[link_name = "__p9_malloc"]
+     pub fn malloc(size: ulong) -> *mut c_void;
++    #[link_name = "__p9_mallocz"]
+     pub fn mallocz(size: ulong, clr: c_int) -> *mut c_void;
++    #[link_name = "__p9_free"]
+     pub fn free(p: *mut c_void);
++    #[link_name = "__p9_realloc"]
+     pub fn realloc(p: *mut c_void, size: ulong) -> *mut c_void;
++    #[link_name = "__p9_calloc"]
+     pub fn calloc(n: ulong, size: ulong) -> *mut c_void;
++    #[link_name = "__p9_mallocalign"]
+     pub fn mallocalign(size: ulong, align: ulong, offset: c_long, span: ulong) -> *mut c_void;
++    #[link_name = "__p9_memset"]
+     pub fn memset(p: *mut c_void, c: c_int, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_memcmp"]
+     pub fn memcmp(a: *const c_void, b: *const c_void, n: size_t) -> c_int;
++    #[link_name = "__p9_memcpy"]
+     pub fn memcpy(d: *mut c_void, s: *const c_void, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_memmove"]
+     pub fn memmove(d: *mut c_void, s: *const c_void, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_memchr"]
+     pub fn memchr(p: *const c_void, c: c_int, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_strlen"]
+     pub fn strlen(s: *const c_char) -> size_t;
++    #[link_name = "__p9_strcmp"]
+     pub fn strcmp(a: *const c_char, b: *const c_char) -> c_int;
+ 
+     /* errors: the calling proc's error string */
++    #[link_name = "__p9_errstr"]
+     pub fn errstr(buf: *mut c_char, n: uint) -> c_int;
++    #[link_name = "__p9_rerrstr"]
+     pub fn rerrstr(buf: *mut c_char, n: uint);
++    #[link_name = "__p9_werrstr"]
+     pub fn werrstr(fmt: *const c_char, ...);
+ 
+     /* files */
++    #[link_name = "__p9_open"]
+     pub fn open(file: *const c_char, mode: c_int) -> c_int;
++    #[link_name = "__p9_create"]
+     pub fn create(file: *const c_char, mode: c_int, perm: ulong) -> c_int;
++    #[link_name = "__p9_close"]
+     pub fn close(fd: c_int) -> c_int;
++    #[link_name = "__p9_read"]
+     pub fn read(fd: c_int, buf: *mut c_void, n: c_long) -> c_long;
++    #[link_name = "__p9_write"]
+     pub fn write(fd: c_int, buf: *const c_void, n: c_long) -> c_long;
++    #[link_name = "__p9_pread"]
+     pub fn pread(fd: c_int, buf: *mut c_void, n: c_long, off: vlong) -> c_long;
++    #[link_name = "__p9_pwrite"]
+     pub fn pwrite(fd: c_int, buf: *const c_void, n: c_long, off: vlong) -> c_long;
++    #[link_name = "__p9_seek"]
+     pub fn seek(fd: c_int, off: vlong, type_: c_int) -> vlong;
++    #[link_name = "__p9_dup"]
+     pub fn dup(oldfd: c_int, newfd: c_int) -> c_int;
++    #[link_name = "__p9_pipe"]
+     pub fn pipe(fd: *mut c_int) -> c_int;
++    #[link_name = "__p9_remove"]
+     pub fn remove(file: *const c_char) -> c_int;
++    #[link_name = "__p9_access"]
+     pub fn access(file: *const c_char, mode: c_int) -> c_int;
++    #[link_name = "__p9_chdir"]
+     pub fn chdir(dir: *const c_char) -> c_int;
++    #[link_name = "__p9_getwd"]
+     pub fn getwd(buf: *mut c_char, size: c_int) -> *mut c_char;
++    #[link_name = "__p9_fd2path"]
+     pub fn fd2path(fd: c_int, buf: *mut c_char, n: c_int) -> c_int;
++    #[link_name = "__p9_stat"]
+     pub fn stat(name: *const c_char, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_fstat"]
+     pub fn fstat(fd: c_int, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_wstat"]
+     pub fn wstat(name: *const c_char, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_fwstat"]
+     pub fn fwstat(fd: c_int, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_dirstat"]
+     pub fn dirstat(name: *const c_char) -> *mut Dir;
++    #[link_name = "__p9_dirfstat"]
+     pub fn dirfstat(fd: c_int) -> *mut Dir;
++    #[link_name = "__p9_dirwstat"]
+     pub fn dirwstat(name: *const c_char, d: *mut Dir) -> c_int;
++    #[link_name = "__p9_dirfwstat"]
+     pub fn dirfwstat(fd: c_int, d: *mut Dir) -> c_int;
++    #[link_name = "__p9_dirread"]
+     pub fn dirread(fd: c_int, d: *mut *mut Dir) -> c_long;
++    #[link_name = "__p9_dirreadall"]
+     pub fn dirreadall(fd: c_int, d: *mut *mut Dir) -> c_long;
++    #[link_name = "__p9_nulldir"]
+     pub fn nulldir(d: *mut Dir);
+ 
+     /* name space */
++    #[link_name = "__p9_bind"]
+     pub fn bind(name: *const c_char, old: *const c_char, flag: c_int) -> c_int;
++    #[link_name = "__p9_mount"]
+     pub fn mount(
+         fd: c_int,
+         afd: c_int,
+@@ -234,72 +285,113 @@ extern "C" {
+         flag: c_int,
+         aname: *const c_char,
+     ) -> c_int;
++    #[link_name = "__p9_unmount"]
+     pub fn unmount(name: *const c_char, old: *const c_char) -> c_int;
+ 
+     /* processes */
++    #[link_name = "__p9_rfork"]
+     pub fn rfork(flags: c_int) -> c_int;
++    #[link_name = "__p9_exec"]
+     pub fn exec(file: *const c_char, argv: *const *const c_char) -> c_int;
++    #[link_name = "__p9_exits"]
+     pub fn exits(msg: *const c_char) -> !;
++    #[link_name = "__p9__exits"]
+     pub fn _exits(msg: *const c_char) -> !;
++    #[link_name = "__p9_abort"]
+     pub fn abort() -> !;
++    #[link_name = "__p9_wait"]
+     pub fn wait() -> *mut Waitmsg;
++    #[link_name = "__p9_waitpid"]
+     pub fn waitpid() -> c_int;
+-    #[link_name = "await"]
++    #[link_name = "__p9_await"]
+     pub fn await_(buf: *mut c_char, n: c_int) -> c_int;
++    #[link_name = "__p9_getpid"]
+     pub fn getpid() -> c_int;
++    #[link_name = "__p9_getppid"]
+     pub fn getppid() -> c_int;
++    #[link_name = "__p9_sleep"]
+     pub fn sleep(ms: c_long) -> c_int;
++    #[link_name = "__p9_alarm"]
+     pub fn alarm(ms: ulong) -> c_long;
++    #[link_name = "__p9_postnote"]
+     pub fn postnote(group: c_int, pid: c_int, note: *const c_char) -> c_int;
++    #[link_name = "__p9_notify"]
+     pub fn notify(f: Option<unsafe extern "C" fn(*mut c_void, *mut c_char)>) -> c_int;
++    #[link_name = "__p9_noted"]
+     pub fn noted(v: c_int) -> c_int;
++    #[link_name = "__p9_atnotify"]
+     pub fn atnotify(
+         f: Option<unsafe extern "C" fn(*mut c_void, *mut c_char) -> c_int>,
+         in_: c_int,
+     ) -> c_int;
++    #[link_name = "__p9_segattach"]
+     pub fn segattach(attr: c_int, class: *const c_char, va: *mut c_void, len: ulong)
+         -> *mut c_void;
++    #[link_name = "__p9_segdetach"]
+     pub fn segdetach(addr: *mut c_void) -> c_int;
++    #[link_name = "__p9_segfree"]
+     pub fn segfree(va: *mut c_void, len: ulong) -> c_int;
++    #[link_name = "__p9_segbrk"]
+     pub fn segbrk(saddr: *mut c_void, addr: *mut c_void) -> *mut c_void;
+ 
+     /* synchronisation; the kernel's semaphores are 32-bit (`long*` in <libc.h>) */
++    #[link_name = "__p9_semacquire"]
+     pub fn semacquire(addr: *mut c_int, block: c_int) -> c_int;
++    #[link_name = "__p9_tsemacquire"]
+     pub fn tsemacquire(addr: *mut c_int, ms: ulong) -> c_int;
++    #[link_name = "__p9_semrelease"]
+     pub fn semrelease(addr: *mut c_int, count: c_long) -> c_long;
++    #[link_name = "__p9__tas"]
+     pub fn _tas(p: *mut c_int) -> c_int;
++    #[link_name = "__p9_lock"]
+     pub fn lock(l: *mut Lock);
++    #[link_name = "__p9_unlock"]
+     pub fn unlock(l: *mut Lock);
++    #[link_name = "__p9_canlock"]
+     pub fn canlock(l: *mut Lock) -> c_int;
+     /// A slot per proc (on its stack segment): 16 for the whole program.
++    #[link_name = "__p9_privalloc"]
+     pub fn privalloc() -> *mut *mut c_void;
+ 
+     /* time */
+     /// Nanoseconds since the epoch.
++    #[link_name = "__p9_nsec"]
+     pub fn nsec() -> vlong;
+     /// Nanoseconds since boot.
++    #[link_name = "__p9_uptime"]
+     pub fn uptime() -> vlong;
+ 
+     /* environment: /env */
++    #[link_name = "__p9_getenv"]
+     pub fn getenv(name: *const c_char) -> *mut c_char;
++    #[link_name = "__p9_putenv"]
+     pub fn putenv(name: *const c_char, val: *const c_char) -> c_int;
++    #[link_name = "__p9_getuser"]
+     pub fn getuser() -> *mut c_char;
++    #[link_name = "__p9_sysname"]
+     pub fn sysname() -> *mut c_char;
+ 
+     /* network: /net */
++    #[link_name = "__p9_dial"]
+     pub fn dial(
+         addr: *const c_char,
+         local: *const c_char,
+         dir: *mut c_char,
+         cfdp: *mut c_int,
+     ) -> c_int;
++    #[link_name = "__p9_announce"]
+     pub fn announce(addr: *const c_char, dir: *mut c_char) -> c_int;
++    #[link_name = "__p9_listen"]
+     pub fn listen(dir: *const c_char, newdir: *mut c_char) -> c_int;
++    #[link_name = "__p9_accept"]
+     pub fn accept(ctl: c_int, dir: *const c_char) -> c_int;
++    #[link_name = "__p9_reject"]
+     pub fn reject(ctl: c_int, dir: *const c_char, cause: *const c_char) -> c_int;
+ 
+     /* floating point control */
++    #[link_name = "__p9_getfcr"]
+     pub fn getfcr() -> ulong;
++    #[link_name = "__p9_setfcr"]
+     pub fn setfcr(fcr: ulong);
+ }
+ 

@@ -1,0 +1,179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Tue, 10 Nov 2026 14:52:42 +0100
+Subject: [PATCH 22/25] plan9: riscv64gc-unknown-plan9: the target (rv64gc,
+ lp64d, medany, no linker relaxation), std's rfork and stack switch for
+ riscv64 (ecall, number and result in s0, the child gets its parent's
+ registers)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ compiler/rustc_target/src/spec/mod.rs         |  1 +
+ .../spec/targets/riscv64gc_unknown_plan9.rs   | 31 +++++++
+ library/std/src/sys/pal/plan9/proc.rs         | 90 +++++++++++++++++++
+ src/bootstrap/src/core/sanity.rs              |  1 +
+ 4 files changed, 123 insertions(+)
+ create mode 100644 compiler/rustc_target/src/spec/targets/riscv64gc_unknown_plan9.rs
+
+diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
+index f3c0240500e..c1f015c2c5f 100644
+--- a/compiler/rustc_target/src/spec/mod.rs
++++ b/compiler/rustc_target/src/spec/mod.rs
+@@ -1548,6 +1548,7 @@ fn $module() {
+     ("x86_64-unknown-plan9", x86_64_unknown_plan9),
+     ("i686-unknown-plan9", i686_unknown_plan9),
+     ("aarch64-unknown-plan9", aarch64_unknown_plan9),
++    ("riscv64gc-unknown-plan9", riscv64gc_unknown_plan9),
+     ("x86_64-unknown-motor", x86_64_unknown_motor),
+ 
+     ("x86_64-unikraft-linux-musl", x86_64_unikraft_linux_musl),
+diff --git a/compiler/rustc_target/src/spec/targets/riscv64gc_unknown_plan9.rs b/compiler/rustc_target/src/spec/targets/riscv64gc_unknown_plan9.rs
+new file mode 100644
+index 00000000000..b110be626e5
+--- /dev/null
++++ b/compiler/rustc_target/src/spec/targets/riscv64gc_unknown_plan9.rs
+@@ -0,0 +1,31 @@
++use crate::spec::{Arch, CodeModel, LlvmAbi, Target, TargetMetadata, TargetOptions, base};
++
++pub(crate) fn target() -> Target {
++    Target {
++        // as x86_64-unknown-plan9: an unknown OS is ELF and the RISC-V psABI (lp64d), which
++        // 9front's gcc port (riscv64-unknown-plan9) uses too
++        llvm_target: "riscv64-unknown-plan9".into(),
++        metadata: TargetMetadata {
++            description: Some("RISC-V 64 9front (Plan 9)".into()),
++            tier: Some(3),
++            host_tools: Some(false),
++            std: Some(true),
++        },
++        pointer_width: 64,
++        // riscv64gc-unknown-linux-gnu's
++        data_layout: "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128".into(),
++        arch: Arch::RiscV64,
++        options: TargetOptions {
++            // rv64gc, lp64d, medany: the tree's (riscv64/cflags.json) and its gcc's defaults
++            code_model: Some(CodeModel::Medium),
++            cpu: "generic-rv64".into(),
++            // no linker relaxation: nobody sets gp (__global_pointer$), neither 9front's
++            // _main nor the kernel (jc has the register as SB); the gcc is -mno-relax too
++            features: "+m,+a,+f,+d,+c,+zicsr,+zifencei,-relax".into(),
++            llvm_abiname: LlvmAbi::Lp64d,
++            max_atomic_width: Some(64),
++            linker: Some("riscv64-unknown-plan9-gcc".into()),
++            ..base::plan9::opts()
++        },
++    }
++}
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index cbc3e932318..13bcf31c316 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -497,6 +497,96 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+     )
+ }
+ 
++// riscv64: the system call number and its result in s0 (x8), the argument at 8(sp) (libc's
++// stubs, gen-9syscall.sh), ECALL; the kernel gives the child all its parent's registers but
++// s0, which is zero (riscv64/trap.c forkchild). psABI: s0-s11 callee-saved, ra the link; the
++// stack 16-byte aligned. As APE's pthread.c, privtop and the argument go to the child in s1
++// and s2.
++/// Runs `f(arg)` on the stack below `top`, back on the caller's after.
++#[cfg(target_arch = "riscv64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_runon(
++    top: *mut u8,
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++) {
++    crate::arch::naked_asm!(
++        "   addi sp, sp, -16",
++        "   sd ra, 8(sp)",
++        "   sd s0, 0(sp)",
++        "   mv s0, sp",
++        "   mv sp, a0",
++        "   mv a0, a2",
++        "   jalr a1",
++        "   mv sp, s0",
++        "   ld ra, 8(sp)",
++        "   ld s0, 0(sp)",
++        "   addi sp, sp, 16",
++        "   ret",
++    )
++}
++
++/// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
++/// below `privtop`, without touching its parent's.
++#[cfg(target_arch = "riscv64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   addi sp, sp, -32",
++        "   sd s0, 24(sp)",
++        "   sd s1, 16(sp)",
++        "   sd s2, 0(sp)",
++        "   mv s1, a1",
++        "   mv s2, a2",
++        "   sw a0, 8(sp)", // the argument, at 8(sp)
++        "   li s0, 19", // RFORK
++        "   ecall",
++        "   beqz s0, 1f",
++        "   mv a0, s0",
++        "   ld s0, 24(sp)",
++        "   ld s1, 16(sp)",
++        "   ld s2, 0(sp)",
++        "   addi sp, sp, 32",
++        "   ret",
++        "1: mv sp, s1",
++        "   li ra, 0",
++        "   mv a0, s2",
++        "   call {start}",
++        "2: j 2b",
++        start = sym __rust_plan9_threadstart,
++    )
++}
++
++/// The same for a child that runs `(*arg).0(arg)`: process::Command's.
++#[cfg(target_arch = "riscv64")]
++#[unsafe(naked)]
++unsafe extern "C" fn __rust_plan9_rforkrun(flags: i32, privtop: usize, arg: *const c_void) -> i32 {
++    crate::arch::naked_asm!(
++        "   addi sp, sp, -32",
++        "   sd s0, 24(sp)",
++        "   sd s1, 16(sp)",
++        "   sd s2, 0(sp)",
++        "   mv s1, a1",
++        "   mv s2, a2",
++        "   sw a0, 8(sp)", // the argument, at 8(sp)
++        "   li s0, 19", // RFORK
++        "   ecall",
++        "   beqz s0, 1f",
++        "   mv a0, s0",
++        "   ld s0, 24(sp)",
++        "   ld s1, 16(sp)",
++        "   ld s2, 0(sp)",
++        "   addi sp, sp, 32",
++        "   ret",
++        "1: mv sp, s1",
++        "   li ra, 0",
++        "   ld t0, 0(s2)",
++        "   mv a0, s2",
++        "   jalr t0",
++        "2: j 2b",
++    )
++}
++
+ /// What a child of [`rfork_run`] runs: `f(self)`, which must not return.
+ #[repr(C)]
+ pub struct Run<T> {
+diff --git a/src/bootstrap/src/core/sanity.rs b/src/bootstrap/src/core/sanity.rs
+index d960b8bd765..76d8a68e1fe 100644
+--- a/src/bootstrap/src/core/sanity.rs
++++ b/src/bootstrap/src/core/sanity.rs
+@@ -40,6 +40,7 @@ pub struct Finder {
+     "x86_64-unknown-plan9",
+     "i686-unknown-plan9",
+     "aarch64-unknown-plan9",
++    "riscv64gc-unknown-plan9",
+ ];
+ 
+ /// Minimum version threshold for libstdc++ required when using prebuilt LLVM

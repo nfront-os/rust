@@ -1,0 +1,342 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 11:24:04 +0100
+Subject: [PATCH 1/7] plan9: 9front's own C library (libc.h as its gcc port
+ compiles it)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/lib.rs   |   8 ++
+ src/plan9.rs | 304 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 312 insertions(+)
+ create mode 100644 src/plan9.rs
+
+diff --git a/src/lib.rs b/src/lib.rs
+index 7afa57ac4..92b483d58 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -346,6 +346,14 @@ cfg_if! {
+         mod wasi;
+         pub use crate::wasi::*;
+ 
++        prelude!();
++    } else if #[cfg(target_os = "plan9")] {
++        mod primitives;
++        pub use crate::primitives::*;
++
++        mod plan9;
++        pub use crate::plan9::*;
++
+         prelude!();
+     } else if #[cfg(target_os = "xous")] {
+         mod primitives;
+diff --git a/src/plan9.rs b/src/plan9.rs
+new file mode 100644
+index 000000000..044614ec2
+--- /dev/null
++++ b/src/plan9.rs
+@@ -0,0 +1,304 @@
++//! 9front (Plan 9): the system's own C library, `<libc.h>` (`/$objtype/lib.gcc/libc.a`).
++//!
++//! These are the declarations as 9front's gcc port compiles them (`/$objtype/include/u.h`
++//! under `__GNUC__`): `long` is the C compiler's (64 bits on 64-bit machines), `ulong` is
++//! 32 bits on every machine (`unsigned int`), as with Plan 9's own compilers; `vlong` and
++//! `uvlong` are 64 bits. Not POSIX: Plan 9's POSIX layer (APE) is a separate library.
++
++use crate::prelude::*;
++
++pub type intmax_t = i64;
++pub type uintmax_t = u64;
++pub type size_t = usize;
++pub type ptrdiff_t = isize;
++pub type intptr_t = isize;
++pub type uintptr_t = usize;
++pub type ssize_t = isize;
++
++pub type uchar = c_uchar;
++pub type ushort = c_ushort;
++pub type uint = c_uint;
++/// 32 bits on every machine, as Plan 9's compilers have it.
++pub type ulong = c_uint;
++pub type vlong = c_longlong;
++pub type uvlong = c_ulonglong;
++pub type usize_ = c_ulonglong;
++pub type Rune = c_uint;
++
++/// `jmp_buf` of the gcc port: sp, pc and the callee-saved registers.
++#[cfg(target_pointer_width = "64")]
++pub type jmp_buf = [uintptr_t; 8];
++
++s! {
++    pub struct Qid {
++        pub path: uvlong,
++        pub vers: ulong,
++        pub type_: uchar,
++    }
++
++    pub struct Dir {
++        /// server type
++        pub type_: ushort,
++        /// server subtype
++        pub dev: uint,
++        pub qid: Qid,
++        /// permissions; `DM*`
++        pub mode: ulong,
++        pub atime: ulong,
++        pub mtime: ulong,
++        pub length: vlong,
++        pub name: *mut c_char,
++        pub uid: *mut c_char,
++        pub gid: *mut c_char,
++        pub muid: *mut c_char,
++    }
++
++    pub struct Waitmsg {
++        pub pid: c_int,
++        pub time: [ulong; 3],
++        pub msg: *mut c_char,
++    }
++
++    pub struct Lock {
++        pub val: c_int,
++    }
++
++    /// Per process profiling of `Tos`.
++    pub struct Tosprof {
++        pub pp: *mut c_void,
++        pub next: *mut c_void,
++        pub last: *mut c_void,
++        pub first: *mut c_void,
++        pub pid: ulong,
++        pub what: ulong,
++    }
++
++    /// `<tos.h>`: at the top of each proc's stack segment; `_tos` points at it.
++    pub struct Tos {
++        pub prof: Tosprof,
++        /// cycle clock frequency if there is one, 0 otherwise
++        pub cyclefreq: uvlong,
++        pub kcycles: vlong,
++        pub pcycles: vlong,
++        pub pid: ulong,
++        pub clock: ulong,
++    }
++}
++
++pub const ERRMAX: usize = 128;
++pub const IOUNIT: usize = 32768;
++pub const STATMAX: usize = 65535;
++
++/* open */
++pub const OREAD: c_int = 0;
++pub const OWRITE: c_int = 1;
++pub const ORDWR: c_int = 2;
++pub const OEXEC: c_int = 3;
++pub const OTRUNC: c_int = 16;
++pub const OCEXEC: c_int = 32;
++pub const ORCLOSE: c_int = 64;
++pub const OEXCL: c_int = 0x1000;
++
++/* access */
++pub const AEXIST: c_int = 0;
++pub const AEXEC: c_int = 1;
++pub const AWRITE: c_int = 2;
++pub const AREAD: c_int = 4;
++
++/* seek */
++pub const SEEK_SET: c_int = 0;
++pub const SEEK_CUR: c_int = 1;
++pub const SEEK_END: c_int = 2;
++
++/* bind, mount */
++pub const MREPL: c_int = 0x0000;
++pub const MBEFORE: c_int = 0x0001;
++pub const MAFTER: c_int = 0x0002;
++pub const MCREATE: c_int = 0x0004;
++pub const MCACHE: c_int = 0x0010;
++
++/* segattach */
++pub const SG_RONLY: c_int = 0o040;
++pub const SG_CEXEC: c_int = 0o100;
++
++/* noted */
++pub const NCONT: c_int = 0;
++pub const NDFLT: c_int = 1;
++pub const NSAVE: c_int = 2;
++pub const NRSTR: c_int = 3;
++
++/* postnote */
++pub const PNPROC: c_int = 1;
++pub const PNGROUP: c_int = 2;
++
++/* Qid.type */
++pub const QTDIR: uchar = 0x80;
++pub const QTAPPEND: uchar = 0x40;
++pub const QTEXCL: uchar = 0x20;
++pub const QTMOUNT: uchar = 0x10;
++pub const QTAUTH: uchar = 0x08;
++pub const QTTMP: uchar = 0x04;
++pub const QTFILE: uchar = 0x00;
++
++/* Dir.mode */
++pub const DMDIR: ulong = 0x80000000;
++pub const DMAPPEND: ulong = 0x40000000;
++pub const DMEXCL: ulong = 0x20000000;
++pub const DMMOUNT: ulong = 0x10000000;
++pub const DMAUTH: ulong = 0x08000000;
++pub const DMTMP: ulong = 0x04000000;
++pub const DMREAD: ulong = 0x4;
++pub const DMWRITE: ulong = 0x2;
++pub const DMEXEC: ulong = 0x1;
++
++/* rfork */
++pub const RFNAMEG: c_int = 1 << 0;
++pub const RFENVG: c_int = 1 << 1;
++pub const RFFDG: c_int = 1 << 2;
++pub const RFNOTEG: c_int = 1 << 3;
++pub const RFPROC: c_int = 1 << 4;
++pub const RFMEM: c_int = 1 << 5;
++pub const RFNOWAIT: c_int = 1 << 6;
++pub const RFCNAMEG: c_int = 1 << 10;
++pub const RFCENVG: c_int = 1 << 11;
++pub const RFCFDG: c_int = 1 << 12;
++pub const RFREND: c_int = 1 << 13;
++pub const RFNOMNT: c_int = 1 << 14;
++
++/* fcr (MXCSR on amd64) */
++pub const FPINEX: ulong = 1 << 12;
++pub const FPUNFL: ulong = 1 << 11;
++pub const FPOVFL: ulong = 1 << 10;
++pub const FPZDIV: ulong = 1 << 9;
++pub const FPINVAL: ulong = 1 << 7;
++
++extern "C" {
++    /// The top of the calling proc's stack segment.
++    pub static mut _tos: *mut Tos;
++    pub static mut argv0: *mut c_char;
++
++    /* memory */
++    pub fn malloc(size: ulong) -> *mut c_void;
++    pub fn mallocz(size: ulong, clr: c_int) -> *mut c_void;
++    pub fn free(p: *mut c_void);
++    pub fn realloc(p: *mut c_void, size: ulong) -> *mut c_void;
++    pub fn calloc(n: ulong, size: ulong) -> *mut c_void;
++    pub fn mallocalign(size: ulong, align: ulong, offset: c_long, span: ulong) -> *mut c_void;
++    pub fn memset(p: *mut c_void, c: c_int, n: size_t) -> *mut c_void;
++    pub fn memcmp(a: *const c_void, b: *const c_void, n: size_t) -> c_int;
++    pub fn memcpy(d: *mut c_void, s: *const c_void, n: size_t) -> *mut c_void;
++    pub fn memmove(d: *mut c_void, s: *const c_void, n: size_t) -> *mut c_void;
++    pub fn memchr(p: *const c_void, c: c_int, n: size_t) -> *mut c_void;
++    pub fn strlen(s: *const c_char) -> size_t;
++    pub fn strcmp(a: *const c_char, b: *const c_char) -> c_int;
++
++    /* errors: the calling proc's error string */
++    pub fn errstr(buf: *mut c_char, n: uint) -> c_int;
++    pub fn rerrstr(buf: *mut c_char, n: uint);
++    pub fn werrstr(fmt: *const c_char, ...);
++
++    /* files */
++    pub fn open(file: *const c_char, mode: c_int) -> c_int;
++    pub fn create(file: *const c_char, mode: c_int, perm: ulong) -> c_int;
++    pub fn close(fd: c_int) -> c_int;
++    pub fn read(fd: c_int, buf: *mut c_void, n: c_long) -> c_long;
++    pub fn write(fd: c_int, buf: *const c_void, n: c_long) -> c_long;
++    pub fn pread(fd: c_int, buf: *mut c_void, n: c_long, off: vlong) -> c_long;
++    pub fn pwrite(fd: c_int, buf: *const c_void, n: c_long, off: vlong) -> c_long;
++    pub fn seek(fd: c_int, off: vlong, type_: c_int) -> vlong;
++    pub fn dup(oldfd: c_int, newfd: c_int) -> c_int;
++    pub fn pipe(fd: *mut c_int) -> c_int;
++    pub fn remove(file: *const c_char) -> c_int;
++    pub fn access(file: *const c_char, mode: c_int) -> c_int;
++    pub fn chdir(dir: *const c_char) -> c_int;
++    pub fn getwd(buf: *mut c_char, size: c_int) -> *mut c_char;
++    pub fn fd2path(fd: c_int, buf: *mut c_char, n: c_int) -> c_int;
++    pub fn stat(name: *const c_char, edir: *mut uchar, nedir: c_int) -> c_int;
++    pub fn fstat(fd: c_int, edir: *mut uchar, nedir: c_int) -> c_int;
++    pub fn wstat(name: *const c_char, edir: *mut uchar, nedir: c_int) -> c_int;
++    pub fn fwstat(fd: c_int, edir: *mut uchar, nedir: c_int) -> c_int;
++    pub fn dirstat(name: *const c_char) -> *mut Dir;
++    pub fn dirfstat(fd: c_int) -> *mut Dir;
++    pub fn dirwstat(name: *const c_char, d: *mut Dir) -> c_int;
++    pub fn dirfwstat(fd: c_int, d: *mut Dir) -> c_int;
++    pub fn dirread(fd: c_int, d: *mut *mut Dir) -> c_long;
++    pub fn dirreadall(fd: c_int, d: *mut *mut Dir) -> c_long;
++    pub fn nulldir(d: *mut Dir);
++
++    /* name space */
++    pub fn bind(name: *const c_char, old: *const c_char, flag: c_int) -> c_int;
++    pub fn mount(
++        fd: c_int,
++        afd: c_int,
++        old: *const c_char,
++        flag: c_int,
++        aname: *const c_char,
++    ) -> c_int;
++    pub fn unmount(name: *const c_char, old: *const c_char) -> c_int;
++
++    /* processes */
++    pub fn rfork(flags: c_int) -> c_int;
++    pub fn exec(file: *const c_char, argv: *const *const c_char) -> c_int;
++    pub fn exits(msg: *const c_char) -> !;
++    pub fn _exits(msg: *const c_char) -> !;
++    pub fn abort() -> !;
++    pub fn wait() -> *mut Waitmsg;
++    pub fn waitpid() -> c_int;
++    #[link_name = "await"]
++    pub fn await_(buf: *mut c_char, n: c_int) -> c_int;
++    pub fn getpid() -> c_int;
++    pub fn getppid() -> c_int;
++    pub fn sleep(ms: c_long) -> c_int;
++    pub fn alarm(ms: ulong) -> c_long;
++    pub fn postnote(group: c_int, pid: c_int, note: *const c_char) -> c_int;
++    pub fn notify(f: Option<unsafe extern "C" fn(*mut c_void, *mut c_char)>) -> c_int;
++    pub fn noted(v: c_int) -> c_int;
++    pub fn atnotify(
++        f: Option<unsafe extern "C" fn(*mut c_void, *mut c_char) -> c_int>,
++        in_: c_int,
++    ) -> c_int;
++    pub fn segattach(attr: c_int, class: *const c_char, va: *mut c_void, len: ulong)
++        -> *mut c_void;
++    pub fn segdetach(addr: *mut c_void) -> c_int;
++    pub fn segfree(va: *mut c_void, len: ulong) -> c_int;
++    pub fn segbrk(saddr: *mut c_void, addr: *mut c_void) -> *mut c_void;
++
++    /* synchronisation; the kernel's semaphores are 32-bit (`long*` in <libc.h>) */
++    pub fn semacquire(addr: *mut c_int, block: c_int) -> c_int;
++    pub fn tsemacquire(addr: *mut c_int, ms: ulong) -> c_int;
++    pub fn semrelease(addr: *mut c_int, count: c_long) -> c_long;
++    pub fn _tas(p: *mut c_int) -> c_int;
++    pub fn lock(l: *mut Lock);
++    pub fn unlock(l: *mut Lock);
++    pub fn canlock(l: *mut Lock) -> c_int;
++    /// A slot per proc (on its stack segment): 16 for the whole program.
++    pub fn privalloc() -> *mut *mut c_void;
++
++    /* time */
++    /// Nanoseconds since the epoch.
++    pub fn nsec() -> vlong;
++    /// Nanoseconds since boot.
++    pub fn uptime() -> vlong;
++
++    /* environment: /env */
++    pub fn getenv(name: *const c_char) -> *mut c_char;
++    pub fn putenv(name: *const c_char, val: *const c_char) -> c_int;
++    pub fn getuser() -> *mut c_char;
++    pub fn sysname() -> *mut c_char;
++
++    /* network: /net */
++    pub fn dial(
++        addr: *const c_char,
++        local: *const c_char,
++        dir: *mut c_char,
++        cfdp: *mut c_int,
++    ) -> c_int;
++    pub fn announce(addr: *const c_char, dir: *mut c_char) -> c_int;
++    pub fn listen(dir: *const c_char, newdir: *mut c_char) -> c_int;
++    pub fn accept(ctl: c_int, dir: *const c_char) -> c_int;
++    pub fn reject(ctl: c_int, dir: *const c_char, cause: *const c_char) -> c_int;
++
++    /* floating point control */
++    pub fn getfcr() -> ulong;
++    pub fn setfcr(fcr: ulong);
++}

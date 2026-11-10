@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 13:15:50 +0100
+Subject: [PATCH 11/25] plan9: rustc's sysroot falls back to /$cputype/rust
+ (bound into /bin, its own path would make it /)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ compiler/rustc_session/src/filesearch.rs | 24 ++++++++++++++++++++++--
+ 1 file changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/compiler/rustc_session/src/filesearch.rs b/compiler/rustc_session/src/filesearch.rs
+index a57d99f3df6..d296785a867 100644
+--- a/compiler/rustc_session/src/filesearch.rs
++++ b/compiler/rustc_session/src/filesearch.rs
+@@ -347,6 +347,26 @@ fn from_env_args_next() -> Option<PathBuf> {
+         rustlib_path.exists().then_some(p)
+     }
+ 
+-    from_env_args_next()
+-        .unwrap_or_else(|| default_from_rustc_driver_dll().expect("Failed finding sysroot"))
++    let sysroot = from_env_args_next()
++        .unwrap_or_else(|| default_from_rustc_driver_dll().expect("Failed finding sysroot"));
++    // 9front: programs are bound into /bin (bind -b /amd64/rust/bin /bin), so the path of
++    // rustc is /bin/rustc, whose sysroot would be /: without a rustlib there, the
++    // system's place, /$cputype/rust
++    #[cfg(target_os = "plan9")]
++    {
++        let has_rustlib = |p: &Path| {
++            // relative: lib/rustlib/dummy, under p
++            let mut r = p.join(rustc_target::relative_target_rustlib_path(p, "dummy"));
++            r.pop();
++            r.exists()
++        };
++        if !has_rustlib(&sysroot) {
++            let arch = env::var("cputype").unwrap_or_else(|_| std::env::consts::ARCH.replace("x86_64", "amd64"));
++            let p = PathBuf::from(format!("/{arch}/rust"));
++            if has_rustlib(&p) {
++                return p;
++            }
++        }
++    }
++    sysroot
+ }

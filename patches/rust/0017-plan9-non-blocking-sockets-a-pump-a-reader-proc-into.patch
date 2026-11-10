@@ -1,0 +1,972 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Sat, 31 Oct 2026 00:51:25 +0100
+Subject: [PATCH 17/25] plan9: non-blocking sockets: a pump (a reader proc into
+ a buffer, a writer from one, made with the first write) for a socket set
+ non-blocking or peeked at; peek, peek_from; shutdown(Read) wakes readers;
+ os::plan9::net: readiness, set_ready_hook, connect_nonblocking (for mio)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/os/plan9/mod.rs               |   1 +
+ library/std/src/os/plan9/net.rs               |  64 +++
+ library/std/src/sys/fd/plan9.rs               |   2 +
+ library/std/src/sys/net/connection/plan9.rs   | 191 +++++--
+ .../std/src/sys/net/connection/plan9/pump.rs  | 508 ++++++++++++++++++
+ library/std/src/sys/pal/plan9/mod.rs          |  11 +-
+ 6 files changed, 732 insertions(+), 45 deletions(-)
+ create mode 100644 library/std/src/os/plan9/net.rs
+ create mode 100644 library/std/src/sys/net/connection/plan9/pump.rs
+
+diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
+index 12507a44a6f..c3742fdbc81 100644
+--- a/library/std/src/os/plan9/mod.rs
++++ b/library/std/src/os/plan9/mod.rs
+@@ -6,6 +6,7 @@
+ pub mod ffi;
+ pub mod fs;
+ pub mod io;
++pub mod net;
+ pub mod process;
+ 
+ /// A prelude for conveniently writing platform-specific code.
+diff --git a/library/std/src/os/plan9/net.rs b/library/std/src/os/plan9/net.rs
+new file mode 100644
+index 00000000000..8c9607ac1e6
+--- /dev/null
++++ b/library/std/src/os/plan9/net.rs
+@@ -0,0 +1,64 @@
++//! Plan 9-specific networking: what an event loop (mio) needs of non-blocking sockets.
++//!
++//! Plan 9 has only blocking I/O; a socket set non-blocking ([`TcpStream::set_nonblocking`]
++//! &c.) gets procs that do the blocking calls into buffers. [`readiness`] says what such a
++//! socket is ready for, a hook ([`set_ready_hook`]) is called whenever that may have changed
++//! (from one of those procs, with no lock held: it should only note and wake).
++//!
++//! [`TcpStream::set_nonblocking`]: crate::net::TcpStream::set_nonblocking
++
++#![stable(feature = "rust1", since = "1.0.0")]
++
++use crate::io;
++use crate::net::{SocketAddr, TcpStream};
++use crate::os::plan9::io::RawFd;
++use crate::sync::Arc;
++use crate::sys::FromInner;
++
++/// What a non-blocking socket is ready for. A blocking socket: everything.
++#[stable(feature = "rust1", since = "1.0.0")]
++#[derive(Clone, Copy, Default, Debug)]
++pub struct Readiness {
++    /// Data, a datagram or a call to read; or the end, or an error.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub readable: bool,
++    /// Room for a write (a stream: its buffer; connected).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub writable: bool,
++    /// The other end has closed (a read returns 0).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub read_closed: bool,
++    /// Writing failed.
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub write_closed: bool,
++    /// An error to take (`take_error`).
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub error: bool,
++}
++
++/// What the non-blocking socket `fd` is ready for.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub fn readiness(fd: RawFd) -> Readiness {
++    let r = crate::sys::net::readiness(fd);
++    Readiness {
++        readable: r.readable,
++        writable: r.writable,
++        read_closed: r.read_closed,
++        write_closed: r.write_closed,
++        error: r.error,
++    }
++}
++
++/// Sets (or clears) the hook of the non-blocking socket `fd`: called whenever it may have
++/// become ready, and at once. An error if `fd` is no non-blocking socket.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub fn set_ready_hook(fd: RawFd, hook: Option<Arc<dyn Fn() + Send + Sync>>) -> io::Result<()> {
++    crate::sys::net::set_ready_hook(fd, hook)
++}
++
++/// A non-blocking TCP stream to `addr`, connected in the background: writable once it is;
++/// if it cannot be, readable with the error (`take_error`, or the next read or write).
++#[stable(feature = "rust1", since = "1.0.0")]
++pub fn connect_nonblocking(addr: &SocketAddr) -> io::Result<TcpStream> {
++    crate::sys::net::connect_nonblocking(addr).map(TcpStream::from_inner)
++}
+diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
+index 4da9af86813..31c51f444fe 100644
+--- a/library/std/src/sys/fd/plan9.rs
++++ b/library/std/src/sys/fd/plan9.rs
+@@ -46,6 +46,8 @@ pub fn forget_state(fd: RawFd) {
+     if ANY_STATE.load(Ordering::Relaxed) {
+         STATES.lock().unwrap_or_else(|e| e.into_inner()).remove(&fd);
+     }
++    // a non-blocking socket's pump (net/connection/plan9/pump.rs)
++    crate::sys::net::pump_forget(fd);
+ }
+ 
+ /// A copy of `fd` that closes on exec (an open of dup(3)'s `#d/n` with OCEXEC; pipe(2) and
+diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
+index 0ea7669c75d..96839f3e946 100644
+--- a/library/std/src/sys/net/connection/plan9.rs
++++ b/library/std/src/sys/net/connection/plan9.rs
+@@ -7,8 +7,9 @@
+ //! descriptor's name (fd2path), so a socket made from a raw descriptor works the same. A UDP socket reads and writes its datagrams
+ //! with the `headers` of udp: 52 bytes, the remote, local and interface address (16 bytes
+ //! each, IPv4 as v4-in-v6), the remote and local port (big-endian). Timeouts: alarm(2)
+-//! around the call, which a note ends ("interrupted"). Plan 9 has no non-blocking I/O, no
+-//! peeking, no socket options but a few ctl messages.
++//! around the call, which a note ends ("interrupted"). Plan 9 has no non-blocking I/O and
++//! no peeking: a socket set non-blocking or peeked at gets a pump (pump.rs), procs that do
++//! the blocking calls into buffers. No socket options but a few ctl messages.
+ 
+ use crate::ffi::CString;
+ use crate::fmt;
+@@ -21,6 +22,10 @@
+ use crate::sys::{AsInner, FromInner, IntoInner, cvt, last_error, unsupported};
+ use crate::time::Duration;
+ 
++mod pump;
++pub use pump::{Hook, Readiness};
++use pump::Kind;
++
+ fn err(kind: io::ErrorKind, msg: &'static str) -> io::Error {
+     io::Error::new(kind, msg)
+ }
+@@ -181,20 +186,53 @@ fn remote(&self) -> io::Result<SocketAddr> {
+         parse_addr(&read_file(&format!("{}/remote", self.dir()?))?)
+     }
+ 
++    fn pump(&self) -> Option<crate::sync::Arc<pump::Pump>> {
++        pump::get(self.fd.as_raw_fd())
++    }
++
+     fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+-        with_alarm(self.state().read_ms, || self.fd.read(buf))
++        match self.pump() {
++            Some(p) => p.read(buf, false, dur_of(self.state().read_ms)),
++            None => with_alarm(self.state().read_ms, || self.fd.read(buf)),
++        }
+     }
+ 
+     fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
++        if self.pump().is_some() {
++            return crate::io::default_read_buf(|b| self.read(b), cursor);
++        }
+         with_alarm(self.state().read_ms, || self.fd.read_buf(cursor))
+     }
+ 
+     fn write(&self, buf: &[u8]) -> io::Result<usize> {
+-        with_alarm(self.state().write_ms, || self.fd.write(buf))
++        match self.pump() {
++            // a stream's writes go out through the pump's writer; datagrams at once
++            Some(p) if p.kind() == Kind::Stream => p.write(buf, dur_of(self.state().write_ms)),
++            _ => with_alarm(self.state().write_ms, || self.fd.write(buf)),
++        }
+     }
+ 
+     fn duplicate(&self) -> io::Result<Socket> {
+-        Ok(Socket::new(self.fd.duplicate()?))
++        let new = Socket::new(self.fd.duplicate()?);
++        pump::duplicated(self.fd.as_raw_fd(), new.fd.as_raw_fd());
++        Ok(new)
++    }
++
++    /// set_nonblocking: on, the socket gets its pump.
++    fn set_nonblocking(&self, kind: Kind, on: bool) -> io::Result<()> {
++        match (self.pump(), on) {
++            (Some(p), _) => p.set_nonblocking(on),
++            (None, true) => {
++                let dir = if kind == Kind::Listener { self.dir()? } else { String::new() };
++                pump::of(self, kind, dir, false)?.set_nonblocking(true)
++            }
++            (None, false) => {}
++        }
++        Ok(())
++    }
++
++    fn take_error(&self) -> io::Result<Option<io::Error>> {
++        Ok(self.pump().and_then(|p| p.take_error()))
+     }
+ 
+     fn set_read_timeout(&self, t: Option<Duration>) -> io::Result<()> {
+@@ -277,6 +315,46 @@ fn dial(addr: &SocketAddr, ms: u32) -> io::Result<Socket> {
+ 
+ /* TCP */
+ 
++/* for os::plan9::net and sys::fd */
++
++/// A descriptor is closed: its socket's pump may go.
++pub fn pump_forget(fd: RawFd) {
++    pump::forget(fd)
++}
++
++/// What a non-blocking socket is ready for; a socket without a pump (blocking): always.
++pub fn readiness(fd: RawFd) -> Readiness {
++    match pump::get(fd) {
++        Some(p) => p.readiness(),
++        None => Readiness { readable: true, writable: true, ..Readiness::default() },
++    }
++}
++
++/// The hook of a non-blocking socket, called when it may have become ready.
++pub fn set_ready_hook(fd: RawFd, hook: Option<Hook>) -> io::Result<()> {
++    match pump::get(fd) {
++        Some(p) => Ok(p.set_hook(hook)),
++        None => Err(io::const_error!(io::ErrorKind::InvalidInput, "not a non-blocking socket")),
++    }
++}
++
++/// A non-blocking TCP stream to `addr`, connected in the background: writable when it is,
++/// its error (take_error) if not. The data file is opened before the connect (as dial(2)
++/// does after it; the conversation exists from the clone).
++pub fn connect_nonblocking(addr: &SocketAddr) -> io::Result<TcpStream> {
++    let clone = CString::new("/net/tcp/clone").unwrap();
++    let ctl = cvt(unsafe { libc::open(clone.as_ptr(), libc::ORDWR | libc::OCEXEC) })?;
++    let ctl = unsafe { FileDesc::from_raw_fd(ctl) };
++    let mut buf = [0u8; 16];
++    let n = ctl.read(&mut buf)?;
++    let num = crate::str::from_utf8(&buf[..n])
++        .map_err(|_| err(io::ErrorKind::InvalidData, "bad conversation number"))?
++        .trim();
++    let s = TcpStream { inner: Socket::new(open_conv(&format!("/net/tcp/{num}"), "data")?) };
++    pump::connecting(&s, ctl, format!("connect {}!{}", addr.ip(), addr.port()))?;
++    Ok(s)
++}
++
+ pub struct TcpStream {
+     inner: Socket,
+ }
+@@ -314,8 +392,10 @@ pub fn write_timeout(&self) -> io::Result<Option<Duration>> {
+         Ok(dur_of(self.inner.state().write_ms))
+     }
+ 
+-    pub fn peek(&self, _: &mut [u8]) -> io::Result<usize> {
+-        unsupported()
++    pub fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
++        // into the pump's buffer (a blocking socket's pump reads as blocking)
++        let p = pump::of(&self.inner, Kind::Stream, String::new(), false)?;
++        p.read(buf, true, dur_of(self.inner.state().read_ms))
+     }
+ 
+     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+@@ -358,7 +438,13 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+     /// tcp's ctl "close" ends the sending side (FIN); reading goes on.
+     pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
+         match how {
+-            Shutdown::Read => Ok(()),
++            // a pumped stream's readers see the end now (Plan 9 has no half close)
++            Shutdown::Read => {
++                if let Some(p) = self.inner.pump() {
++                    p.shutdown_read();
++                }
++                Ok(())
++            }
+             Shutdown::Write | Shutdown::Both => write_ctl(&self.inner.dir()?, "close"),
+         }
+     }
+@@ -409,11 +495,11 @@ pub fn hop_limit_v6(&self) -> io::Result<u8> {
+     }
+ 
+     pub fn take_error(&self) -> io::Result<Option<io::Error>> {
+-        Ok(None)
++        self.inner.take_error()
+     }
+ 
+-    pub fn set_nonblocking(&self, _: bool) -> io::Result<()> {
+-        unsupported()
++    pub fn set_nonblocking(&self, on: bool) -> io::Result<()> {
++        self.inner.set_nonblocking(Kind::Stream, on)
+     }
+ }
+ 
+@@ -436,6 +522,19 @@ fn from_inner(inner: Socket) -> TcpStream {
+     }
+ }
+ 
++/// The next call of the announcement in `dir` (listen(2), accept(2)); a note (alarm, a pump's
++/// interrupt) ends it with Interrupted.
++fn accept_blocking(dir: &str) -> io::Result<(Socket, SocketAddr)> {
++    let dir = CString::new(dir).unwrap();
++    let mut newdir = [0u8; 40];
++    let lcfd = cvt(unsafe { libc::listen(dir.as_ptr(), newdir.as_mut_ptr().cast()) })?;
++    let lcfd = unsafe { FileDesc::from_raw_fd(lcfd) };
++    let fd = cvt(unsafe { libc::accept(lcfd.as_raw_fd(), newdir.as_ptr().cast()) })?;
++    let s = socket_of(fd)?;
++    let peer = s.remote()?;
++    Ok((s, peer))
++}
++
+ pub struct TcpListener {
+     /// the announcement's ctl
+     inner: Socket,
+@@ -465,23 +564,16 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+     }
+ 
+     pub fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+-        let dir = CString::new(self.inner.dir()?).unwrap();
+-        let mut newdir = [0u8; 40];
+-        let lcfd = loop {
+-            let fd = unsafe { libc::listen(dir.as_ptr(), newdir.as_mut_ptr().cast()) };
+-            if fd >= 0 {
+-                break fd;
+-            }
+-            let e = last_error();
+-            if e.kind() != io::ErrorKind::Interrupted {
+-                return Err(e);
+-            }
++        let (inner, peer) = match self.inner.pump() {
++            Some(p) => p.accept()?,
++            None => loop {
++                match accept_blocking(&self.inner.dir()?) {
++                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
++                    r => break r?,
++                }
++            },
+         };
+-        let lcfd = unsafe { FileDesc::from_raw_fd(lcfd) };
+-        let fd = cvt(unsafe { libc::accept(lcfd.as_raw_fd(), newdir.as_ptr().cast()) })?;
+-        let s = TcpStream { inner: socket_of(fd)? };
+-        let peer = s.peer_addr()?;
+-        Ok((s, peer))
++        Ok((TcpStream { inner }, peer))
+     }
+ 
+     pub fn duplicate(&self) -> io::Result<TcpListener> {
+@@ -513,11 +605,11 @@ pub fn only_v6(&self) -> io::Result<bool> {
+     }
+ 
+     pub fn take_error(&self) -> io::Result<Option<io::Error>> {
+-        Ok(None)
++        self.inner.take_error()
+     }
+ 
+-    pub fn set_nonblocking(&self, _: bool) -> io::Result<()> {
+-        unsupported()
++    pub fn set_nonblocking(&self, on: bool) -> io::Result<()> {
++        self.inner.set_nonblocking(Kind::Listener, on)
+     }
+ }
+ 
+@@ -591,16 +683,33 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+     }
+ 
+     pub fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+-        let mut b = vec![0u8; UDP_HDR + buf.len()];
++        self.recv_impl(buf, false)
++    }
++
++    pub fn peek_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
++        self.recv_impl(buf, true)
++    }
++
++    /// A datagram (`peek`: left for the next; through the socket's pump).
++    fn recv_impl(&self, buf: &mut [u8], peek: bool) -> io::Result<(usize, SocketAddr)> {
++        let mut b = vec![0u8; UDP_HDR + buf.len().max(65536)];
++        let p = if peek { Some(pump::of(&self.inner, Kind::Datagram, String::new(), false)?) } else { None };
+         loop {
+-            let n = self.inner.read(&mut b)?;
++            let n = match &p {
++                Some(p) => p.read(&mut b, true, dur_of(self.inner.state().read_ms))?,
++                None => self.inner.read(&mut b)?,
++            };
+             if n < UDP_HDR {
+                 return Err(err(io::ErrorKind::InvalidData, "short udp header"));
+             }
+             let from = get_addr(&b[0..16], &b[48..50]);
+             // a connected socket takes only its peer's
+-            if let Some(p) = self.inner.state().peer {
+-                if p != from {
++            if let Some(peer) = self.inner.state().peer {
++                if peer != from {
++                    if let Some(p) = &p {
++                        // not its peer's: gone
++                        p.read(&mut b, false, None)?;
++                    }
+                     continue;
+                 }
+             }
+@@ -610,10 +719,6 @@ pub fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+         }
+     }
+ 
+-    pub fn peek_from(&self, _: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+-        unsupported()
+-    }
+-
+     pub fn send_to(&self, buf: &[u8], dst: &SocketAddr) -> io::Result<usize> {
+         let mut b = vec![0u8; UDP_HDR + buf.len()];
+         put_addr(&mut b[0..16], dst);
+@@ -717,19 +822,19 @@ pub fn multicast_hop_limit_v6(&self) -> io::Result<u8> {
+     }
+ 
+     pub fn take_error(&self) -> io::Result<Option<io::Error>> {
+-        Ok(None)
++        self.inner.take_error()
+     }
+ 
+-    pub fn set_nonblocking(&self, _: bool) -> io::Result<()> {
+-        unsupported()
++    pub fn set_nonblocking(&self, on: bool) -> io::Result<()> {
++        self.inner.set_nonblocking(Kind::Datagram, on)
+     }
+ 
+     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+         self.recv_from(buf).map(|(n, _)| n)
+     }
+ 
+-    pub fn peek(&self, _: &mut [u8]) -> io::Result<usize> {
+-        unsupported()
++    pub fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
++        self.peek_from(buf).map(|(n, _)| n)
+     }
+ 
+     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
+diff --git a/library/std/src/sys/net/connection/plan9/pump.rs b/library/std/src/sys/net/connection/plan9/pump.rs
+new file mode 100644
+index 00000000000..1e274f1925d
+--- /dev/null
++++ b/library/std/src/sys/net/connection/plan9/pump.rs
+@@ -0,0 +1,508 @@
++//! Non-blocking sockets on 9front, which has only blocking I/O: a socket that is set
++//! non-blocking (or peeked at) gets a pump, procs that do the blocking calls into buffers
++//! (as APE's select has its copy procs). A reader proc reads into a buffer (a stream's bytes,
++//! a UDP socket's datagrams, a listener's accepted calls); a stream's writes go into a buffer
++//! that a writer proc writes out. read, peek, recv and accept take from the buffers, write
++//! puts into one; empty or full, a non-blocking socket says WouldBlock, a blocking one waits.
++//!
++//! The pump has a descriptor of its own (a dup), so it outlives the socket's: when the last
++//! descriptor of the socket is closed (sys::fd's forget_state), the reader is interrupted (a
++//! note, mod.rs's INTERRUPT_NOTE: its read returns "interrupted"), the writer writes out what
++//! is buffered, and the pump's descriptor goes with the last of its procs.
++//!
++//! An event loop (mio) learns of readiness through a hook, called (from a pump's proc, with no
++//! lock held) whenever the socket may have become readable or writable, and `readiness`.
++
++use super::{Socket, TcpStream, accept_blocking};
++use crate::collections::{BTreeMap, VecDeque};
++use crate::io;
++use crate::net::SocketAddr;
++use crate::os::plan9::io::{AsRawFd, RawFd};
++use crate::sync::atomic::{AtomicBool, Ordering};
++use crate::sync::{Arc, Condvar, Mutex, MutexGuard};
++use crate::sys::fd::FileDesc;
++use crate::time::{Duration, Instant};
++
++/// A stream's buffers: the reader stops above, a writer takes no more beyond.
++const STREAM_BUF: usize = 64 * 1024;
++const CHUNK: usize = 64 * 1024;
++/// Datagrams and calls held at most.
++const QUEUE: usize = 128;
++const UDP_MAX: usize = 52 + 65536;
++
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub(super) enum Kind {
++    Stream,
++    Datagram,
++    Listener,
++}
++
++/// What a socket is ready for (os::plan9::net::readiness).
++#[derive(Clone, Copy, Default, Debug)]
++pub struct Readiness {
++    pub readable: bool,
++    pub writable: bool,
++    pub read_closed: bool,
++    pub write_closed: bool,
++    pub error: bool,
++}
++
++pub type Hook = Arc<dyn Fn() + Send + Sync>;
++
++struct State {
++    nonblocking: bool,
++    /// descriptors of the socket that have the pump
++    handles: usize,
++    closed: bool,
++    // reading
++    data: VecDeque<u8>,
++    dgrams: VecDeque<Vec<u8>>,
++    calls: VecDeque<(Socket, SocketAddr)>,
++    read_eof: bool,
++    read_err: Option<io::Error>,
++    reader_pid: i32,
++    // writing (streams)
++    out: VecDeque<u8>,
++    write_err: Option<io::Error>,
++    writer_pid: i32,
++    /// the writer is made with the first write (a socket that only reads has one proc)
++    writer: bool,
++    // a connect in the background (connect_nonblocking)
++    connecting: bool,
++    connect_err: Option<io::Error>,
++    hook: Option<Hook>,
++}
++
++pub(super) struct Pump {
++    kind: Kind,
++    /// the pump's own descriptor of the conversation (a dup); a listener's: its ctl
++    fd: FileDesc,
++    /// a listener's directory (listen(2))
++    dir: String,
++    m: Mutex<State>,
++    cv: Condvar,
++}
++
++static PUMPS: Mutex<BTreeMap<RawFd, Arc<Pump>>> = Mutex::new(BTreeMap::new());
++static ANY: AtomicBool = AtomicBool::new(false);
++
++fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
++    m.lock().unwrap_or_else(|e| e.into_inner())
++}
++
++pub(super) fn get(fd: RawFd) -> Option<Arc<Pump>> {
++    if !ANY.load(Ordering::Relaxed) {
++        return None;
++    }
++    lock(&PUMPS).get(&fd).cloned()
++}
++
++/// The socket's pump, made if it has none; `connecting`: its conversation is still being
++/// connected (no reader or writer yet).
++pub(super) fn of(sock: &Socket, kind: Kind, dir: String, connecting: bool) -> io::Result<Arc<Pump>> {
++    let fd = sock.as_raw_fd();
++    let mut t = lock(&PUMPS);
++    if let Some(p) = t.get(&fd) {
++        return Ok(p.clone());
++    }
++    let p = Arc::new(Pump {
++        kind,
++        fd: sock.fd.duplicate()?,
++        dir,
++        m: Mutex::new(State {
++            nonblocking: false,
++            handles: 1,
++            closed: false,
++            data: VecDeque::new(),
++            dgrams: VecDeque::new(),
++            calls: VecDeque::new(),
++            read_eof: false,
++            read_err: None,
++            reader_pid: 0,
++            out: VecDeque::new(),
++            write_err: None,
++            writer_pid: 0,
++            writer: false,
++            connecting,
++            connect_err: None,
++            hook: None,
++        }),
++        cv: Condvar::new(),
++    });
++    t.insert(fd, p.clone());
++    ANY.store(true, Ordering::Relaxed);
++    drop(t);
++    if !connecting {
++        p.start()?;
++    }
++    Ok(p)
++}
++
++/// A new descriptor of a pumped socket (try_clone) shares its pump.
++pub(super) fn duplicated(old: RawFd, new: RawFd) {
++    if let Some(p) = get(old) {
++        lock(&p.m).handles += 1;
++        lock(&PUMPS).insert(new, p);
++    }
++}
++
++/// A descriptor is closed (sys::fd::forget_state): the last one closes the pump.
++pub(crate) fn forget(fd: RawFd) {
++    if !ANY.load(Ordering::Relaxed) {
++        return;
++    }
++    let Some(p) = lock(&PUMPS).remove(&fd) else { return };
++    let mut s = lock(&p.m);
++    s.handles -= 1;
++    if s.handles == 0 {
++        s.closed = true;
++        let reader = s.reader_pid;
++        drop(s);
++        p.cv.notify_all();
++        interrupt(reader);
++    }
++}
++
++fn interrupt(pid: i32) {
++    if pid > 0 {
++        unsafe {
++            libc::postnote(libc::PNPROC, pid, crate::sys::pal::INTERRUPT_NOTE.as_ptr());
++        }
++    }
++}
++
++fn spawn(name: &str, f: impl FnOnce() + Send + 'static) -> io::Result<()> {
++    crate::thread::Builder::new()
++        .name(name.into())
++        .stack_size(64 * 1024)
++        .spawn(f)
++        .map(drop)
++}
++
++impl Pump {
++    /// The reader; a stream's writer comes with its first write.
++    fn start(self: &Arc<Self>) -> io::Result<()> {
++        let p = self.clone();
++        spawn("socket reader", move || p.reader())
++    }
++
++    /// Calls the hook, if any (no lock held).
++    fn changed(&self, s: MutexGuard<'_, State>) {
++        let hook = s.hook.clone();
++        drop(s);
++        self.cv.notify_all();
++        if let Some(h) = hook {
++            h();
++        }
++    }
++
++    fn reader(self: Arc<Self>) {
++        lock(&self.m).reader_pid = unsafe { libc::getpid() };
++        let mut buf = vec![0u8; if self.kind == Kind::Datagram { UDP_MAX } else { CHUNK }];
++        loop {
++            {
++                let mut s = lock(&self.m);
++                loop {
++                    let full = match self.kind {
++                        Kind::Stream => s.data.len() >= STREAM_BUF,
++                        Kind::Datagram => s.dgrams.len() >= QUEUE,
++                        Kind::Listener => s.calls.len() >= QUEUE,
++                    };
++                    if s.closed || s.read_eof || !full {
++                        break;
++                    }
++                    s = self.cv.wait(s).unwrap_or_else(|e| e.into_inner());
++                }
++                if s.closed || s.read_eof {
++                    break;
++                }
++            }
++            if self.kind == Kind::Listener {
++                let r = accept_blocking(&self.dir);
++                let mut s = lock(&self.m);
++                if s.closed {
++                    break;
++                }
++                match r {
++                    Ok(call) => s.calls.push_back(call),
++                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
++                    Err(e) => {
++                        s.read_err = Some(e);
++                        self.changed(s);
++                        break;
++                    }
++                }
++                self.changed(s);
++                continue;
++            }
++            let r = self.fd.read(&mut buf);
++            let mut s = lock(&self.m);
++            if s.closed {
++                break;
++            }
++            match r {
++                Ok(0) if self.kind == Kind::Stream => {
++                    s.read_eof = true;
++                    self.changed(s);
++                    break;
++                }
++                Ok(n) if self.kind == Kind::Stream => s.data.extend(&buf[..n]),
++                Ok(n) => s.dgrams.push_back(buf[..n].to_vec()),
++                // shutdown(Read) or a close: the loop's check
++                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
++                Err(e) => {
++                    s.read_err = Some(e);
++                    self.changed(s);
++                    break;
++                }
++            }
++            self.changed(s);
++        }
++        lock(&self.m).reader_pid = 0;
++    }
++
++    fn writer(self: Arc<Self>) {
++        lock(&self.m).writer_pid = unsafe { libc::getpid() };
++        let mut chunk = Vec::with_capacity(CHUNK);
++        loop {
++            {
++                let mut s = lock(&self.m);
++                while s.out.is_empty() && !s.closed {
++                    s = self.cv.wait(s).unwrap_or_else(|e| e.into_inner());
++                }
++                if s.out.is_empty() {
++                    break;
++                }
++                let n = s.out.len().min(CHUNK);
++                chunk.clear();
++                chunk.extend(s.out.drain(..n));
++            }
++            let mut off = 0;
++            let r = loop {
++                if off == chunk.len() {
++                    break Ok(());
++                }
++                match self.fd.write(&chunk[off..]) {
++                    Ok(0) => break Err(io::Error::from(io::ErrorKind::WriteZero)),
++                    Ok(n) => off += n,
++                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
++                    Err(e) => break Err(e),
++                }
++            };
++            let mut s = lock(&self.m);
++            if let Err(e) = r {
++                s.write_err = Some(e);
++                s.out.clear();
++                self.changed(s);
++                break;
++            }
++            self.changed(s);
++        }
++        lock(&self.m).writer_pid = 0;
++    }
++
++    /// connect_nonblocking's proc: the conversation is connected (or not).
++    pub(super) fn connected(self: &Arc<Self>, r: io::Result<()>) {
++        let mut s = lock(&self.m);
++        s.connecting = false;
++        match r {
++            Ok(()) => {
++                drop(s);
++                if let Err(e) = self.start() {
++                    let mut s = lock(&self.m);
++                    s.connect_err = Some(e);
++                    self.changed(s);
++                    return;
++                }
++                self.changed(lock(&self.m));
++            }
++            Err(e) => {
++                s.connect_err = Some(e);
++                self.changed(s);
++            }
++        }
++    }
++
++    pub(super) fn kind(&self) -> Kind {
++        self.kind
++    }
++
++    pub(super) fn set_nonblocking(&self, on: bool) {
++        lock(&self.m).nonblocking = on;
++    }
++
++    pub(super) fn set_hook(&self, hook: Option<Hook>) {
++        let s = {
++            let mut s = lock(&self.m);
++            s.hook = hook;
++            s
++        };
++        // ready already: the new hook hears of it
++        self.changed(s);
++    }
++
++    pub(super) fn readiness(&self) -> Readiness {
++        let s = lock(&self.m);
++        let readable = match self.kind {
++            Kind::Stream => !s.data.is_empty(),
++            Kind::Datagram => !s.dgrams.is_empty(),
++            Kind::Listener => !s.calls.is_empty(),
++        } || s.read_eof
++            || s.read_err.is_some();
++        let error = s.read_err.is_some() || s.write_err.is_some() || s.connect_err.is_some();
++        Readiness {
++            readable: readable || s.connect_err.is_some(),
++            writable: !s.connecting
++                && match self.kind {
++                    Kind::Stream => s.out.len() < STREAM_BUF,
++                    _ => true,
++                },
++            read_closed: s.read_eof,
++            write_closed: s.write_err.is_some(),
++            error,
++        }
++    }
++
++    pub(super) fn take_error(&self) -> Option<io::Error> {
++        let mut s = lock(&self.m);
++        s.connect_err.take().or_else(|| s.write_err.take())
++    }
++
++    /// Waits on the condition (a blocking socket), at most until `deadline`.
++    fn wait<'a>(
++        &self,
++        s: MutexGuard<'a, State>,
++        deadline: Option<Instant>,
++    ) -> io::Result<MutexGuard<'a, State>> {
++        match deadline {
++            None => Ok(self.cv.wait(s).unwrap_or_else(|e| e.into_inner())),
++            Some(d) => {
++                let now = Instant::now();
++                if now >= d {
++                    return Err(io::const_error!(io::ErrorKind::TimedOut, "timed out"));
++                }
++                Ok(self.cv.wait_timeout(s, d - now).unwrap_or_else(|e| e.into_inner()).0)
++            }
++        }
++    }
++
++    /// A stream's bytes (`peek`: left in the buffer), a datagram (truncated to `buf`).
++    pub(super) fn read(&self, buf: &mut [u8], peek: bool, timeout: Option<Duration>) -> io::Result<usize> {
++        let deadline = timeout.map(|t| Instant::now() + t);
++        let mut s = lock(&self.m);
++        loop {
++            match self.kind {
++                Kind::Stream if !s.data.is_empty() => {
++                    let n = buf.len().min(s.data.len());
++                    for (d, b) in buf[..n].iter_mut().zip(s.data.iter()) {
++                        *d = *b;
++                    }
++                    if !peek {
++                        s.data.drain(..n);
++                        drop(s);
++                        self.cv.notify_all();
++                    }
++                    return Ok(n);
++                }
++                Kind::Datagram if !s.dgrams.is_empty() => {
++                    let d = if peek { s.dgrams[0].clone() } else { s.dgrams.pop_front().unwrap() };
++                    let n = buf.len().min(d.len());
++                    buf[..n].copy_from_slice(&d[..n]);
++                    drop(s);
++                    self.cv.notify_all();
++                    return Ok(n);
++                }
++                _ => {}
++            }
++            if s.read_eof {
++                return Ok(0);
++            }
++            if let Some(e) = s.read_err.take() {
++                return Err(e);
++            }
++            if let Some(e) = s.connect_err.take() {
++                return Err(e);
++            }
++            if s.nonblocking {
++                return Err(io::Error::from(io::ErrorKind::WouldBlock));
++            }
++            s = self.wait(s, deadline)?;
++        }
++    }
++
++    /// A stream's write: into the buffer.
++    pub(super) fn write(self: &Arc<Self>, buf: &[u8], timeout: Option<Duration>) -> io::Result<usize> {
++        let deadline = timeout.map(|t| Instant::now() + t);
++        let mut s = lock(&self.m);
++        loop {
++            if let Some(e) = s.write_err.take() {
++                return Err(e);
++            }
++            if let Some(e) = s.connect_err.take() {
++                return Err(e);
++            }
++            if s.closed {
++                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
++            }
++            if !s.connecting && s.out.len() < STREAM_BUF {
++                let n = buf.len().min(STREAM_BUF - s.out.len());
++                s.out.extend(&buf[..n]);
++                let start = !s.writer;
++                s.writer = true;
++                drop(s);
++                if start {
++                    let p = self.clone();
++                    if let Err(e) = spawn("socket writer", move || p.writer()) {
++                        lock(&self.m).writer = false;
++                        return Err(e);
++                    }
++                }
++                self.cv.notify_all();
++                return Ok(n);
++            }
++            if s.nonblocking {
++                return Err(io::Error::from(io::ErrorKind::WouldBlock));
++            }
++            s = self.wait(s, deadline)?;
++        }
++    }
++
++    /// A listener's next call.
++    pub(super) fn accept(&self) -> io::Result<(Socket, SocketAddr)> {
++        let mut s = lock(&self.m);
++        loop {
++            if let Some(c) = s.calls.pop_front() {
++                drop(s);
++                self.cv.notify_all();
++                return Ok(c);
++            }
++            if let Some(e) = s.read_err.take() {
++                return Err(e);
++            }
++            if s.nonblocking {
++                return Err(io::Error::from(io::ErrorKind::WouldBlock));
++            }
++            s = self.wait(s, None)?;
++        }
++    }
++
++    /// shutdown(Read): readers see the end, now.
++    pub(super) fn shutdown_read(&self) {
++        let mut s = lock(&self.m);
++        s.read_eof = true;
++        let reader = s.reader_pid;
++        self.changed(s);
++        interrupt(reader);
++    }
++}
++
++/// A stream's connect in the background (os::plan9::net::connect_nonblocking).
++pub(super) fn connecting(sock: &TcpStream, ctl: FileDesc, msg: String) -> io::Result<()> {
++    let p = of(sock.socket(), Kind::Stream, String::new(), true)?;
++    lock(&p.m).nonblocking = true;
++    spawn("socket connect", move || {
++        let r = ctl.write(msg.as_bytes()).map(drop);
++        drop(ctl);
++        p.connected(r);
++    })
++}
+diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
+index 55fe9c69a53..a68a5530693 100644
+--- a/library/std/src/sys/pal/plan9/mod.rs
++++ b/library/std/src/sys/pal/plan9/mod.rs
+@@ -33,13 +33,20 @@ pub fn unsupported_err() -> io::Error {
+ 
+ /// Notes the program goes on after: a write on a closed pipe gives an error, as POSIX
+ /// programs ignore SIGPIPE; the alarm of a timeout (sys/net) ends the call it interrupts.
++/// The note that interrupts a socket pump's blocked read (net/connection/plan9/pump.rs): the
++/// system call returns "interrupted", the proc goes on.
++pub const INTERRUPT_NOTE: &core::ffi::CStr = c"rust: interrupt";
++
+ unsafe extern "C" fn notehandler(_ureg: *mut c_void, note: *mut c_char) -> i32 {
+     let note = unsafe { CStr::from_ptr(note) }.to_bytes();
+-    if note.starts_with(b"sys: write on closed pipe") || note == b"alarm" { 1 } else { 0 }
++    (note.starts_with(b"sys: write on closed pipe")
++        || note == b"alarm"
++        || note == INTERRUPT_NOTE.to_bytes()) as i32
+ }
+ 
+ unsafe extern "C" fn alarmhandler(_ureg: *mut c_void, note: *mut c_char) -> i32 {
+-    (unsafe { CStr::from_ptr(note) }.to_bytes() == b"alarm") as i32
++    let note = unsafe { CStr::from_ptr(note) }.to_bytes();
++    (note == b"alarm" || note == INTERRUPT_NOTE.to_bytes()) as i32
+ }
+ 
+ // SAFETY: must be called only once during runtime initialization.

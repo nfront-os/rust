@@ -1,0 +1,156 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 23:34:37 +0100
+Subject: [PATCH 07/25] plan9: rustc for 9front builds (static, its LLVM
+ inside)
+
+rustc-main takes rustc_driver_impl directly (no dylibs: rustc_driver is
+one); dll_path is the program itself (current_exe: $sysroot/bin/rustc);
+path_to_c_string via std::os::plan9's OsStrExt; libc and libloading from
+9front-rust (libloading: no dynamic libraries, opening one fails, so no
+proc macros for a rustc that runs on 9front). bootstrap: a target with an
+llvm-config of its own that runs on the build host (9front-rust's
+llvm-config for build/llvm-plan9) gives rustc_llvm that one.
+
+./x build --stage 2 --host x86_64-unknown-plan9 --target x86_64-unknown-plan9 compiler/rustc
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Cargo.lock                                    |  4 ----
+ Cargo.toml                                    |  2 ++
+ compiler/rustc/Cargo.toml                     |  5 ++++-
+ compiler/rustc/src/main.rs                    |  4 ++++
+ compiler/rustc_fs_util/src/lib.rs             |  4 +++-
+ compiler/rustc_session/src/filesearch.rs      |  6 ++++++
+ src/bootstrap/src/core/build_steps/compile.rs | 12 ++++++++++--
+ 7 files changed, 29 insertions(+), 8 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 993310b99c2..181e3991d4c 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2286,8 +2286,6 @@ checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
+ [[package]]
+ name = "libc"
+ version = "0.2.191"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
+ 
+ [[package]]
+ name = "libffi"
+@@ -2324,8 +2322,6 @@ dependencies = [
+ [[package]]
+ name = "libloading"
+ version = "0.9.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+ dependencies = [
+  "cfg-if",
+  "windows-link 0.2.1",
+diff --git a/Cargo.toml b/Cargo.toml
+index 36a5d7dfbe1..b2ae1332e83 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -90,3 +90,5 @@ codegen-units = 1
+ # 9front: the crates.io crates rustc needs for plan9, changed for it (9front-rust's crates/)
+ [patch.crates-io]
+ getrandom = { path = "../crates/getrandom-0.3.3" }
++libc = { path = "../libc" }
++libloading = { path = "../crates/libloading-0.9.0" }
+diff --git a/compiler/rustc/Cargo.toml b/compiler/rustc/Cargo.toml
+index 19a9a7913c9..0e44e7ab517 100644
+--- a/compiler/rustc/Cargo.toml
++++ b/compiler/rustc/Cargo.toml
+@@ -10,7 +10,6 @@ edition = "2024"
+ # crate is intended to be used by codegen backends, which may not be in-tree.
+ rustc_codegen_ssa = { path = "../rustc_codegen_ssa" }
+ 
+-rustc_driver = { path = "../rustc_driver" }
+ rustc_driver_impl = { path = "../rustc_driver_impl" }
+ 
+ rustc_public = { path = "../rustc_public" }
+@@ -22,6 +21,10 @@ rustc_public_bridge = { path = "../rustc_public_bridge" }
+ 
+ # Pin these to avoid pulling in a package with a binary blob
+ # <https://github.com/rust-lang/rust/pull/136395#issuecomment-2692769062>
++# plan9: no dylibs (a static rustc: main.rs takes rustc_driver_impl)
++[target.'cfg(not(target_os = "plan9"))'.dependencies]
++rustc_driver = { path = "../rustc_driver" }
++
+ [target.'cfg(target_os = "wasi")'.dependencies]
+ getrandom = "=0.3.3"
+ wasi = "=0.14.2"
+diff --git a/compiler/rustc/src/main.rs b/compiler/rustc/src/main.rs
+index 6609a19fa9e..902ef48630c 100644
+--- a/compiler/rustc/src/main.rs
++++ b/compiler/rustc/src/main.rs
+@@ -3,6 +3,10 @@
+ 
+ use std::process::ExitCode;
+ 
++// plan9: no dylibs, rustc_driver's is rustc_driver_impl linked in
++#[cfg(target_os = "plan9")]
++extern crate rustc_driver_impl as rustc_driver;
++
+ // A note about jemalloc: rustc uses jemalloc when built for CI and
+ // distribution. The obvious way to do this is with the `#[global_allocator]`
+ // mechanism. However, that would not affect LLVM's C / C++ allocations and we also want
+diff --git a/compiler/rustc_fs_util/src/lib.rs b/compiler/rustc_fs_util/src/lib.rs
+index e21da4cdddf..5c6559ab888 100644
+--- a/compiler/rustc_fs_util/src/lib.rs
++++ b/compiler/rustc_fs_util/src/lib.rs
+@@ -84,11 +84,13 @@ pub fn link_or_copy<P: AsRef<Path>, Q: AsRef<Path>>(p: P, q: Q) -> io::Result<Li
+     fs::copy(p, q).map(|_| LinkOrCopy::Copy)
+ }
+ 
+-#[cfg(any(unix, all(target_os = "wasi", target_env = "p1")))]
++#[cfg(any(unix, all(target_os = "wasi", target_env = "p1"), target_os = "plan9"))]
+ pub fn path_to_c_string(p: &Path) -> CString {
+     use std::ffi::OsStr;
+     #[cfg(unix)]
+     use std::os::unix::ffi::OsStrExt;
++    #[cfg(target_os = "plan9")]
++    use std::os::plan9::ffi::OsStrExt;
+     #[cfg(all(target_os = "wasi", target_env = "p1"))]
+     use std::os::wasi::ffi::OsStrExt;
+ 
+diff --git a/compiler/rustc_session/src/filesearch.rs b/compiler/rustc_session/src/filesearch.rs
+index 10c62d932ba..a57d99f3df6 100644
+--- a/compiler/rustc_session/src/filesearch.rs
++++ b/compiler/rustc_session/src/filesearch.rs
+@@ -262,6 +262,12 @@ pub unsafe fn dll_path(_function: *mut std::ffi::c_void) -> Result<PathBuf, Stri
+     Err("dll_path is not supported on WASI".to_string())
+ }
+ 
++/// Plan 9 has no dylibs: rustc is one static program, $sysroot/bin/rustc.
++#[cfg(target_os = "plan9")]
++pub unsafe fn dll_path(_function: *mut std::ffi::c_void) -> Result<PathBuf, String> {
++    std::env::current_exe().map_err(|e| e.to_string())
++}
++
+ fn current_dll_path() -> Result<PathBuf, String> {
+     use std::sync::OnceLock;
+ 
+diff --git a/src/bootstrap/src/core/build_steps/compile.rs b/src/bootstrap/src/core/build_steps/compile.rs
+index 3021f52d159..96fff685ee5 100644
+--- a/src/bootstrap/src/core/build_steps/compile.rs
++++ b/src/bootstrap/src/core/build_steps/compile.rs
+@@ -1447,8 +1447,16 @@ fn rustc_llvm_env(builder: &Builder<'_>, cargo: &mut Cargo, target: TargetSelect
+         cargo.env("LLVM_OFFLOAD", "1");
+     }
+ 
+-    // This always has to be the host LLVM config, because it is executed by rustc_llvm
+-    cargo.env("LLVM_CONFIG", builder.host_llvm_config());
++    // This always has to be the host LLVM config, because it is executed by rustc_llvm;
++    // unless the target has an LLVM of its own with an llvm-config that runs here (9front:
++    // build/llvm-plan9, answered on Linux by 9front-rust's scripts/llvm-config-plan9.sh)
++    let target_llvm_config = builder
++        .config
++        .target_config
++        .get(&target)
++        .and_then(|c| c.llvm_config.clone())
++        .filter(|_| target.contains("plan9"));
++    cargo.env("LLVM_CONFIG", target_llvm_config.unwrap_or_else(|| builder.host_llvm_config()));
+ 
+     // Some LLVM linker flags (-L and -l) may be needed to link `rustc_llvm`. Its build script
+     // expects these to be passed via the `LLVM_LINKER_FLAGS` env variable, separated by

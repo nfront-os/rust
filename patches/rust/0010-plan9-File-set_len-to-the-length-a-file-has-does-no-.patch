@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Fri, 30 Oct 2026 11:14:53 +0100
+Subject: [PATCH 10/25] plan9: File::set_len to the length a file has does no
+ wstat (9front's ext4srv refused it)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/sys/fs/plan9.rs | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
+index d47c3947359..fbd3dc09b63 100644
+--- a/library/std/src/sys/fs/plan9.rs
++++ b/library/std/src/sys/fs/plan9.rs
+@@ -517,6 +517,11 @@ pub fn unlock(&self) -> io::Result<()> {
+     }
+ 
+     pub fn truncate(&self, size: u64) -> io::Result<()> {
++        // the length it has already: no wstat (9front's ext4srv refuses a length that is
++        // not smaller, even the same: cargo's set_len(0) of a new file)
++        if self.file_attr()?.size() == size {
++            return Ok(());
++        }
+         let fd = self.0.as_raw_fd();
+         wstat(|d| d.length = size as i64, |d| unsafe { libc::dirfwstat(fd, d) })
+     }

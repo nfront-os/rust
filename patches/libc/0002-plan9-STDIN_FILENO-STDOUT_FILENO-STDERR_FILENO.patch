@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 11:42:31 +0100
+Subject: [PATCH 2/7] plan9: STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/plan9.rs | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/plan9.rs b/src/plan9.rs
+index 044614ec2..1a141aa1f 100644
+--- a/src/plan9.rs
++++ b/src/plan9.rs
+@@ -302,3 +302,7 @@ extern "C" {
+     pub fn getfcr() -> ulong;
+     pub fn setfcr(fcr: ulong);
+ }
++
++pub const STDIN_FILENO: c_int = 0;
++pub const STDOUT_FILENO: c_int = 1;
++pub const STDERR_FILENO: c_int = 2;

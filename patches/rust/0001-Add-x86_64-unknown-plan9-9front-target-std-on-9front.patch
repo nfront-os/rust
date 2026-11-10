@@ -1,0 +1,1815 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 11:24:12 +0100
+Subject: [PATCH 01/25] Add x86_64-unknown-plan9 (9front): target, std on
+ 9front's own libc
+
+Linked by 9front's gcc port (x86_64-pc-plan9-gcc) against /amd64/lib.gcc/libc.a.
+Threads are procs (rfork RFMEM) on stacks that are segments with gaps between
+them (an overflow faults); main on such a stack through libgcc's
+__plan9_mainstack; futex from the kernel's semaphores; thread-locals in a
+privalloc slot; errors are the error strings. fs, env, process, net: not yet.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ compiler/rustc_target/src/spec/base/mod.rs    |   1 +
+ compiler/rustc_target/src/spec/base/plan9.rs  |  42 ++
+ compiler/rustc_target/src/spec/mod.rs         |   3 +
+ .../src/spec/targets/x86_64_unknown_plan9.rs  |  26 +
+ library/Cargo.lock                            |   2 -
+ library/Cargo.toml                            |   3 +
+ library/std/build.rs                          |   1 +
+ library/std/src/io/error.rs                   |   7 +
+ library/std/src/os/mod.rs                     |   2 +
+ library/std/src/os/plan9/ffi.rs               |  12 +
+ library/std/src/os/plan9/mod.rs               |  16 +
+ library/std/src/sys/alloc/mod.rs              |  12 +-
+ library/std/src/sys/alloc/plan9.rs            |  41 ++
+ library/std/src/sys/args/mod.rs               |   2 +
+ library/std/src/sys/args/unix.rs              |   5 +-
+ library/std/src/sys/env_consts.rs             |  11 +
+ library/std/src/sys/exit.rs                   |   1 +
+ library/std/src/sys/io/error/mod.rs           |   4 +
+ library/std/src/sys/io/error/plan9.rs         |  20 +
+ library/std/src/sys/pal/mod.rs                |   4 +
+ library/std/src/sys/pal/plan9/mod.rs          | 140 ++++
+ library/std/src/sys/pal/plan9/proc.rs         | 629 ++++++++++++++++++
+ library/std/src/sys/random/mod.rs             |   4 +
+ library/std/src/sys/random/plan9.rs           |  17 +
+ library/std/src/sys/stdio/mod.rs              |   4 +
+ library/std/src/sys/stdio/plan9.rs            |  75 +++
+ library/std/src/sys/sync/condvar/mod.rs       |   1 +
+ library/std/src/sys/sync/futex/mod.rs         |   7 +
+ library/std/src/sys/sync/mutex/mod.rs         |   1 +
+ library/std/src/sys/sync/once/mod.rs          |   1 +
+ library/std/src/sys/sync/rwlock/mod.rs        |   1 +
+ .../std/src/sys/sync/thread_parking/mod.rs    |   1 +
+ library/std/src/sys/thread/mod.rs             |   9 +
+ library/std/src/sys/thread/plan9.rs           |  88 +++
+ library/std/src/sys/thread_local/key/plan9.rs |  90 +++
+ library/std/src/sys/thread_local/mod.rs       |  12 +-
+ library/std/src/sys/time/mod.rs               |   4 +
+ library/std/src/sys/time/plan9.rs             |  53 ++
+ src/bootstrap/src/core/sanity.rs              |   1 +
+ 39 files changed, 1348 insertions(+), 5 deletions(-)
+ create mode 100644 compiler/rustc_target/src/spec/base/plan9.rs
+ create mode 100644 compiler/rustc_target/src/spec/targets/x86_64_unknown_plan9.rs
+ create mode 100644 library/std/src/os/plan9/ffi.rs
+ create mode 100644 library/std/src/os/plan9/mod.rs
+ create mode 100644 library/std/src/sys/alloc/plan9.rs
+ create mode 100644 library/std/src/sys/io/error/plan9.rs
+ create mode 100644 library/std/src/sys/pal/plan9/mod.rs
+ create mode 100644 library/std/src/sys/pal/plan9/proc.rs
+ create mode 100644 library/std/src/sys/random/plan9.rs
+ create mode 100644 library/std/src/sys/stdio/plan9.rs
+ create mode 100644 library/std/src/sys/thread/plan9.rs
+ create mode 100644 library/std/src/sys/thread_local/key/plan9.rs
+ create mode 100644 library/std/src/sys/time/plan9.rs
+
+diff --git a/compiler/rustc_target/src/spec/base/mod.rs b/compiler/rustc_target/src/spec/base/mod.rs
+index 726ec2c2285..a5ad3f52474 100644
+--- a/compiler/rustc_target/src/spec/base/mod.rs
++++ b/compiler/rustc_target/src/spec/base/mod.rs
+@@ -28,6 +28,7 @@
+ pub(crate) mod msvc;
+ pub(crate) mod netbsd;
+ pub(crate) mod openbsd;
++pub(crate) mod plan9;
+ pub(crate) mod qnx_sdp;
+ pub(crate) mod qtee;
+ pub(crate) mod redox;
+diff --git a/compiler/rustc_target/src/spec/base/plan9.rs b/compiler/rustc_target/src/spec/base/plan9.rs
+new file mode 100644
+index 00000000000..5734885b59a
+--- /dev/null
++++ b/compiler/rustc_target/src/spec/base/plan9.rs
+@@ -0,0 +1,42 @@
++//! 9front (Plan 9): native Plan 9 programs, linked by the gcc of 9front's gcc port
++//! (`x86_64-pc-plan9-gcc`) against the system's own libc (`/$objtype/lib.gcc/libc.a`),
++//! not APE (its POSIX layer).
++//!
++//! The driver's linker script (`/$objtype/plan9.ld`) gives a static ELF executable with
++//! a text and a data segment, which the kernel loads. Without `-nodefaultlibs` the driver
++//! would link APE (`-lap`); it is passed (`no_default_libraries`), and the rest of what it
++//! leaves out comes back here: `--wrap=main` makes libc's `_main` call libgcc's
++//! `__wrap_main`, which sets the FPU up as on POSIX systems (exceptions masked: 9front's
++//! kernel starts a process trapping on division by zero) and runs `.init_array`
++//! (`crtbegin.o` registers the unwind tables there), then the program's `main`.
++
++use crate::spec::{
++    Cc, LinkerFlavor, Lld, Os, PanicStrategy, RelocModel, StackProbeType, TargetOptions,
++};
++
++pub(crate) fn opts() -> TargetOptions {
++    let flavor = LinkerFlavor::Gnu(Cc::Yes, Lld::No);
++    TargetOptions {
++        os: Os::Plan9,
++        executables: true,
++        dynamic_linking: false,
++        only_cdylib: false,
++        relocation_model: RelocModel::Static,
++        position_independent_executables: false,
++        static_position_independent_executables: false,
++        crt_static_default: true,
++        crt_static_respected: false,
++        // libc's `main` is a C function; a thread is a proc (rfork), its
++        // locals are kept by std (no TLS segment in Plan 9's executables)
++        has_thread_local: false,
++        no_default_libraries: true,
++        pre_link_args: TargetOptions::link_args(flavor, &["-Wl,--wrap=main"]),
++        // libgcc: __wrap_main, the unwinder; it needs libc's malloc and friends
++        late_link_args: TargetOptions::link_args(flavor, &["-lgcc", "-lc"]),
++        // no dl_iterate_phdr: the unwinder finds the frames registered by crtbegin.o
++        eh_frame_header: false,
++        panic_strategy: PanicStrategy::Abort,
++        stack_probes: StackProbeType::Inline,
++        ..Default::default()
++    }
++}
+diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
+index ae17e37e29f..9f8e005e7bf 100644
+--- a/compiler/rustc_target/src/spec/mod.rs
++++ b/compiler/rustc_target/src/spec/mod.rs
+@@ -1544,6 +1544,8 @@ fn $module() {
+     ("aarch64-unknown-hermit", aarch64_unknown_hermit),
+     ("riscv64gc-unknown-hermit", riscv64gc_unknown_hermit),
+     ("x86_64-unknown-hermit", x86_64_unknown_hermit),
++
++    ("x86_64-unknown-plan9", x86_64_unknown_plan9),
+     ("x86_64-unknown-motor", x86_64_unknown_motor),
+ 
+     ("x86_64-unikraft-linux-musl", x86_64_unikraft_linux_musl),
+@@ -1877,6 +1879,7 @@ pub enum Os {
+         Nto = "nto",
+         NuttX = "nuttx",
+         OpenBsd = "openbsd",
++        Plan9 = "plan9",
+         Ps3 = "ps3",
+         Psp = "psp",
+         Psx = "psx",
+diff --git a/compiler/rustc_target/src/spec/targets/x86_64_unknown_plan9.rs b/compiler/rustc_target/src/spec/targets/x86_64_unknown_plan9.rs
+new file mode 100644
+index 00000000000..40fcfdb7f26
+--- /dev/null
++++ b/compiler/rustc_target/src/spec/targets/x86_64_unknown_plan9.rs
+@@ -0,0 +1,26 @@
++use crate::spec::{Arch, Target, TargetMetadata, TargetOptions, base};
++
++pub(crate) fn target() -> Target {
++    Target {
++        // LLVM knows no Plan 9: an unknown OS is ELF, the System V ABI, which 9front's gcc
++        // port uses too
++        llvm_target: "x86_64-unknown-plan9".into(),
++        metadata: TargetMetadata {
++            description: Some("x86_64 9front (Plan 9)".into()),
++            tier: Some(3),
++            host_tools: Some(false),
++            std: Some(true),
++        },
++        pointer_width: 64,
++        arch: Arch::X86_64,
++        data_layout:
++            "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128".into(),
++        options: TargetOptions {
++            cpu: "x86-64".into(),
++            plt_by_default: false,
++            max_atomic_width: Some(64),
++            linker: Some("x86_64-pc-plan9-gcc".into()),
++            ..base::plan9::opts()
++        },
++    }
++}
+diff --git a/library/Cargo.lock b/library/Cargo.lock
+index bd63144008d..4d5718c3e0b 100644
+--- a/library/Cargo.lock
++++ b/library/Cargo.lock
+@@ -154,8 +154,6 @@ dependencies = [
+ [[package]]
+ name = "libc"
+ version = "0.2.191"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
+ dependencies = [
+  "rustc-std-workspace-core",
+ ]
+diff --git a/library/Cargo.toml b/library/Cargo.toml
+index 788c990c163..228bacfbf45 100644
+--- a/library/Cargo.toml
++++ b/library/Cargo.toml
+@@ -88,3 +88,6 @@ rustc-std-workspace-std = { path = 'rustc-std-workspace-std' }
+ 
+ # See comments in `library/windows-sys/Cargo.toml` for why this is patched
+ windows-sys = { path = 'windows-sys' }
++
++# 9front port: the libc crate with Plan 9's own libc (../9front-rust/libc, branch plan9)
++libc = { path = '../../libc' }
+diff --git a/library/std/build.rs b/library/std/build.rs
+index 98856b58d89..9cad8db9e3b 100644
+--- a/library/std/build.rs
++++ b/library/std/build.rs
+@@ -35,6 +35,7 @@ fn main() {
+         || (target_vendor == "fortanix" && target_env == "sgx")
+         || target_os == "motor"
+         || target_os == "hermit"
++        || target_os == "plan9"
+         || target_os == "trusty"
+         || target_os == "l4re"
+         || target_os == "redox"
+diff --git a/library/std/src/io/error.rs b/library/std/src/io/error.rs
+index f1208e090f0..46211eb4c87 100644
+--- a/library/std/src/io/error.rs
++++ b/library/std/src/io/error.rs
+@@ -41,6 +41,13 @@ impl Error {
+     #[must_use]
+     #[inline]
+     pub fn last_os_error() -> Error {
++        // 9front: errors are strings
++        #[cfg(target_os = "plan9")]
++        {
++            let _ = errno;
++            return crate::sys::last_error();
++        }
++        #[cfg(not(target_os = "plan9"))]
+         Error::from_raw_os_error(errno())
+     }
+ 
+diff --git a/library/std/src/os/mod.rs b/library/std/src/os/mod.rs
+index f95c6ac8dd7..7d52b86cb58 100644
+--- a/library/std/src/os/mod.rs
++++ b/library/std/src/os/mod.rs
+@@ -127,6 +127,8 @@ pub mod windows {}
+ pub mod nuttx;
+ #[cfg(target_os = "openbsd")]
+ pub mod openbsd;
++#[cfg(target_os = "plan9")]
++pub mod plan9;
+ #[cfg(target_os = "redox")]
+ pub mod redox;
+ #[cfg(target_os = "rtems")]
+diff --git a/library/std/src/os/plan9/ffi.rs b/library/std/src/os/plan9/ffi.rs
+new file mode 100644
+index 00000000000..18125e3dbac
+--- /dev/null
++++ b/library/std/src/os/plan9/ffi.rs
+@@ -0,0 +1,12 @@
++//! Plan 9-specific extensions to primitives in the [`std::ffi`] module: strings are
++//! bytes (UTF-8 by convention).
++//!
++//! [`std::ffi`]: crate::ffi
++
++#![stable(feature = "rust1", since = "1.0.0")]
++
++#[path = "../unix/ffi/os_str.rs"]
++mod os_str;
++
++#[stable(feature = "rust1", since = "1.0.0")]
++pub use self::os_str::{OsStrExt, OsStringExt};
+diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
+new file mode 100644
+index 00000000000..7a86de9b9be
+--- /dev/null
++++ b/library/std/src/os/plan9/mod.rs
+@@ -0,0 +1,16 @@
++//! 9front (Plan 9) specific definitions.
++
++#![stable(feature = "rust1", since = "1.0.0")]
++#![deny(unsafe_op_in_unsafe_fn)]
++
++pub mod ffi;
++
++/// A prelude for conveniently writing platform-specific code.
++///
++/// Includes all extension traits, and some important type definitions.
++#[stable(feature = "rust1", since = "1.0.0")]
++pub mod prelude {
++    #[doc(no_inline)]
++    #[stable(feature = "rust1", since = "1.0.0")]
++    pub use super::ffi::{OsStrExt, OsStringExt};
++}
+diff --git a/library/std/src/sys/alloc/mod.rs b/library/std/src/sys/alloc/mod.rs
+index 66a2c3be33c..3148a19ff76 100644
+--- a/library/std/src/sys/alloc/mod.rs
++++ b/library/std/src/sys/alloc/mod.rs
+@@ -76,6 +76,10 @@ unsafe fn realloc_fallback(ptr: *mut u8, old_layout: Layout, new_size: usize) ->
+         mod hermit;
+         use hermit as imp;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        use plan9 as imp;
++    }
+     target_os = "motor" => {
+         mod motor;
+         use motor as imp;
+@@ -113,7 +117,13 @@ unsafe fn realloc_fallback(ptr: *mut u8, old_layout: Layout, new_size: usize) ->
+ pub use imp::{alloc, dealloc, realloc};
+ 
+ cfg_select! {
+-    any(target_os = "hermit", target_os = "solid_asp3", target_os = "uefi", target_os = "zkvm") => {
++    any(
++        target_os = "hermit",
++        target_os = "plan9",
++        target_os = "solid_asp3",
++        target_os = "uefi",
++        target_os = "zkvm",
++    ) => {
+         #[inline]
+         pub unsafe fn alloc_zeroed(layout: Layout) -> *mut u8 {
+             let ptr = unsafe { alloc(layout) };
+diff --git a/library/std/src/sys/alloc/plan9.rs b/library/std/src/sys/alloc/plan9.rs
+new file mode 100644
+index 00000000000..c89dd325077
+--- /dev/null
++++ b/library/std/src/sys/alloc/plan9.rs
+@@ -0,0 +1,41 @@
++//! libc's malloc (pool(2)): its sizes are `ulong`, 32 bits; blocks are aligned to 8
++//! bytes, more through `mallocalign`. `free` takes both.
++
++use crate::alloc::Layout;
++use crate::ptr;
++
++const ALIGN: usize = 8;
++
++fn size(layout: &Layout) -> Option<libc::ulong> {
++    libc::ulong::try_from(layout.size()).ok()
++}
++
++#[inline]
++pub unsafe fn alloc(layout: Layout) -> *mut u8 {
++    let Some(n) = size(&layout) else { return ptr::null_mut() };
++    unsafe {
++        if layout.align() <= ALIGN {
++            libc::malloc(n) as *mut u8
++        } else {
++            let Ok(align) = libc::ulong::try_from(layout.align()) else { return ptr::null_mut() };
++            libc::mallocalign(n, align, 0, 0) as *mut u8
++        }
++    }
++}
++
++#[inline]
++pub unsafe fn dealloc(ptr: *mut u8, _layout: Layout) {
++    unsafe { libc::free(ptr.cast()) }
++}
++
++#[inline]
++pub unsafe fn realloc(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
++    unsafe {
++        if layout.align() <= ALIGN {
++            let Ok(n) = libc::ulong::try_from(new_size) else { return ptr::null_mut() };
++            libc::realloc(ptr.cast(), n) as *mut u8
++        } else {
++            super::realloc_fallback(ptr, layout, new_size)
++        }
++    }
++}
+diff --git a/library/std/src/sys/args/mod.rs b/library/std/src/sys/args/mod.rs
+index c8011a6fed3..70f322f92d3 100644
+--- a/library/std/src/sys/args/mod.rs
++++ b/library/std/src/sys/args/mod.rs
+@@ -6,6 +6,7 @@
+     all(target_family = "unix", not(any(target_os = "espidf", target_os = "vita"))),
+     target_family = "windows",
+     target_os = "hermit",
++    target_os = "plan9",
+     target_os = "motor",
+     target_os = "uefi",
+     target_os = "wasi",
+@@ -24,6 +25,7 @@
+             ))
+         ),
+         target_os = "hermit",
++        target_os = "plan9",
+     ) => {
+         mod unix;
+         pub use unix::*;
+diff --git a/library/std/src/sys/args/unix.rs b/library/std/src/sys/args/unix.rs
+index 197931d8cc8..aace5a4b2ce 100644
+--- a/library/std/src/sys/args/unix.rs
++++ b/library/std/src/sys/args/unix.rs
+@@ -9,7 +9,9 @@
+ use crate::ffi::CStr;
+ #[cfg(target_os = "hermit")]
+ use crate::os::hermit::ffi::OsStringExt;
+-#[cfg(not(target_os = "hermit"))]
++#[cfg(target_os = "plan9")]
++use crate::os::plan9::ffi::OsStringExt;
++#[cfg(not(any(target_os = "hermit", target_os = "plan9")))]
+ use crate::os::unix::ffi::OsStringExt;
+ 
+ /// One-time global initialization.
+@@ -74,6 +76,7 @@ pub fn args() -> Args {
+     target_os = "emscripten",
+     target_os = "haiku",
+     target_os = "hermit",
++    target_os = "plan9",
+     target_os = "l4re",
+     target_os = "fuchsia",
+     target_os = "redox",
+diff --git a/library/std/src/sys/env_consts.rs b/library/std/src/sys/env_consts.rs
+index b14160cf4ad..fc82ba55a84 100644
+--- a/library/std/src/sys/env_consts.rs
++++ b/library/std/src/sys/env_consts.rs
+@@ -125,6 +125,17 @@ pub mod os {
+     pub const EXE_EXTENSION: &str = "";
+ }
+ 
++#[cfg(target_os = "plan9")]
++pub mod os {
++    pub const FAMILY: &str = "";
++    pub const OS: &str = "plan9";
++    pub const DLL_PREFIX: &str = "";
++    pub const DLL_SUFFIX: &str = "";
++    pub const DLL_EXTENSION: &str = "";
++    pub const EXE_SUFFIX: &str = "";
++    pub const EXE_EXTENSION: &str = "";
++}
++
+ #[cfg(target_os = "horizon")]
+ pub mod os {
+     pub const FAMILY: &str = "unix";
+diff --git a/library/std/src/sys/exit.rs b/library/std/src/sys/exit.rs
+index 51f8f2219c5..d7ca5cf5363 100644
+--- a/library/std/src/sys/exit.rs
++++ b/library/std/src/sys/exit.rs
+@@ -94,6 +94,7 @@ mod runtime_symbols {
+ pub fn exit(code: i32) -> ! {
+     cfg_select! {
+         target_os = "hermit" => unsafe { hermit_abi::exit(code) },
++        target_os = "plan9" => crate::sys::pal::exit(code),
+         target_os = "linux" => unsafe {
+             unique_thread_exit();
+             libc::exit(code)
+diff --git a/library/std/src/sys/io/error/mod.rs b/library/std/src/sys/io/error/mod.rs
+index a56030f1770..d1502954f06 100644
+--- a/library/std/src/sys/io/error/mod.rs
++++ b/library/std/src/sys/io/error/mod.rs
+@@ -1,4 +1,8 @@
+ cfg_select! {
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::*;
++    }
+     target_os = "hermit" => {
+         mod hermit;
+         pub use hermit::*;
+diff --git a/library/std/src/sys/io/error/plan9.rs b/library/std/src/sys/io/error/plan9.rs
+new file mode 100644
+index 00000000000..f067bab9a2a
+--- /dev/null
++++ b/library/std/src/sys/io/error/plan9.rs
+@@ -0,0 +1,20 @@
++//! Plan 9's errors are strings (errstr(2)), not numbers: `io::Error::last_os_error`
++//! gives the error string (`sys::pal::last_error`); a raw OS error has no meaning.
++
++use crate::fmt;
++
++pub fn errno() -> i32 {
++    0
++}
++
++pub fn is_interrupted(_code: i32) -> bool {
++    false
++}
++
++pub fn decode_error_kind(_code: i32) -> crate::io::ErrorKind {
++    crate::io::ErrorKind::Uncategorized
++}
++
++pub fn format_error(code: i32, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++    write!(f, "os error {code}")
++}
+diff --git a/library/std/src/sys/pal/mod.rs b/library/std/src/sys/pal/mod.rs
+index 88d9d420599..1a16d4fb2f6 100644
+--- a/library/std/src/sys/pal/mod.rs
++++ b/library/std/src/sys/pal/mod.rs
+@@ -16,6 +16,10 @@
+         mod solid;
+         pub use self::solid::*;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use self::plan9::*;
++    }
+     target_os = "hermit" => {
+         mod hermit;
+         pub use self::hermit::*;
+diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
+new file mode 100644
+index 00000000000..59ec9234e5b
+--- /dev/null
++++ b/library/std/src/sys/pal/plan9/mod.rs
+@@ -0,0 +1,140 @@
++//! System bindings for 9front (Plan 9): its own C library (`libc`'s `plan9` module),
++//! not APE.
++
++#![deny(unsafe_op_in_unsafe_fn)]
++#![allow(missing_docs, nonstandard_style)]
++
++pub mod proc;
++
++use crate::ffi::{CStr, c_char, c_void};
++use crate::io;
++
++pub fn unsupported<T>() -> io::Result<T> {
++    Err(unsupported_err())
++}
++
++pub fn unsupported_err() -> io::Error {
++    io::Error::UNSUPPORTED_PLATFORM
++}
++
++/// Notes the program goes on after, as POSIX programs ignore SIGPIPE: a write on a
++/// closed pipe gives an error.
++unsafe extern "C" fn notehandler(_ureg: *mut c_void, note: *mut c_char) -> i32 {
++    let note = unsafe { CStr::from_ptr(note) }.to_bytes();
++    if note.starts_with(b"sys: write on closed pipe") { 1 } else { 0 }
++}
++
++// SAFETY: must be called only once during runtime initialization.
++// NOTE: this is not guaranteed to run, for example when Rust code is called externally.
++pub unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
++    proc::keep_mainstack();
++    unsafe {
++        crate::sys::args::init(argc, argv);
++        // sigpipe: DEFAULT (0) ignores it, as on unix; INHERIT (1) and SIG_DFL (3) keep
++        // Plan 9's default (the note kills the program)
++        if sigpipe == 0 || sigpipe == 2 {
++            libc::atnotify(Some(notehandler), 1);
++        }
++    }
++    let _ = proc::current();
++}
++
++// SAFETY: must be called only once during runtime cleanup.
++// NOTE: this is not guaranteed to run, for example when the program aborts.
++pub unsafe fn cleanup() {}
++
++pub fn abort_internal() -> ! {
++    proc::end_program(c"abort")
++}
++
++/// The calling proc's error string.
++pub fn errstr() -> Vec<u8> {
++    let mut buf = [0u8; libc::ERRMAX];
++    unsafe { libc::rerrstr(buf.as_mut_ptr().cast(), buf.len() as libc::uint) };
++    let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
++    buf[..n].to_vec()
++}
++
++/// The kind of a Plan 9 error string, from the kernel's (port/error.h) and the file
++/// servers' messages.
++pub fn error_kind(s: &[u8]) -> io::ErrorKind {
++    use io::ErrorKind::*;
++    let has = |p: &str| s.windows(p.len()).any(|w| w.eq_ignore_ascii_case(p.as_bytes()));
++    if has("interrupted") {
++        Interrupted
++    } else if has("does not exist") || has("not found") || has("no such") {
++        NotFound
++    } else if has("permission denied") || has("access denied") {
++        PermissionDenied
++    } else if has("already exists") || has("file exists") {
++        AlreadyExists
++    } else if has("not a directory") {
++        NotADirectory
++    } else if has("is a directory") {
++        IsADirectory
++    } else if has("not empty") {
++        DirectoryNotEmpty
++    } else if has("connection refused") {
++        ConnectionRefused
++    } else if has("connection reset") {
++        ConnectionReset
++    } else if has("timed out") {
++        TimedOut
++    } else if has("closed pipe") || has("hungup") || has("hangup") {
++        BrokenPipe
++    } else if has("address in use") || has("port not available") || has("connection in use") {
++        AddrInUse
++    } else if has("unreachable") {
++        HostUnreachable
++    } else if has("file system full") || has("disk full") || has("no space") {
++        StorageFull
++    } else if has("read only") || has("read-only") {
++        ReadOnlyFilesystem
++    } else if has("name too long") {
++        InvalidFilename
++    } else if has("in use") {
++        ResourceBusy
++    } else if has("bad arg") || has("bad character") || has("file name syntax") {
++        InvalidInput
++    } else if has("not implemented") || has("not supported") {
++        Unsupported
++    } else if has("allocate failed") || has("out of memory") {
++        OutOfMemory
++    } else {
++        Uncategorized
++    }
++}
++
++/// The error of the system call that just failed: Plan 9's errors are strings.
++pub fn last_error() -> io::Error {
++    let s = errstr();
++    let kind = error_kind(&s);
++    io::Error::new(kind, String::from_utf8_lossy(&s).into_owned())
++}
++
++/// `r < 0`: the error.
++pub fn cvt<T: PartialOrd + Default>(r: T) -> io::Result<T> {
++    if r < T::default() { Err(last_error()) } else { Ok(r) }
++}
++
++/// [`cvt`], again when a note interrupted the call.
++#[allow(dead_code)]
++pub fn cvt_r<T: PartialOrd + Default, F: FnMut() -> T>(mut f: F) -> io::Result<T> {
++    loop {
++        match cvt(f()) {
++            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
++            other => return other,
++        }
++    }
++}
++
++/// The program ends with `code`: the status is empty for 0, else the number
++/// (`process::ExitStatus` reads it back).
++pub fn exit(code: i32) -> ! {
++    let mut buf = [0u8; 16];
++    if code != 0 {
++        let mut w = io::Cursor::new(&mut buf[..15]);
++        let _ = io::Write::write_fmt(&mut w, format_args!("{code}"));
++    }
++    proc::end_program(CStr::from_bytes_until_nul(&buf).unwrap_or(c"exit"))
++}
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+new file mode 100644
+index 00000000000..f010d351e87
+--- /dev/null
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -0,0 +1,629 @@
++//! Threads as procs.
++//!
++//! A Rust thread is a proc, `rfork(RFPROC|RFMEM|RFNOWAIT)`: it shares data, bss and heap
++//! with the others, and has its own copy of the stack segment, as libthread's procs. Rust
++//! hands references to locals to other threads (scoped threads, channels), so every
++//! thread runs on a stack from malloc, shared memory, `main` too: libgcc's `__wrap_main`
++//! (9front's gcc port) calls `__plan9_mainstack`, defined here, which runs `main` on such
++//! a stack and ends the program with its result.
++//!
++//! On the proc's own stack segment are libc's `_privates` (`privalloc`): one slot holds
++//! the thread's [`ThreadData`], from libc's malloc (shared memory: other threads wake it
++//! through its semaphore). A new proc returns from `rfork` onto its parent's stack, so it
++//! must not touch it: [`rfork_thread`] makes the system call itself and moves the child,
++//! before anything else, onto its own segment, below where `main`'s proc stopped using it
++//! ([`PRIVTOP`]). The thread finishes there too, off its stack from malloc, so whoever frees
++//! that stack frees one nobody runs on.
++//!
++//! A stack has an unmapped gap below it, so that an overflow faults: the kernel says
++//! `suicide: sys: trap: fault ...` and leaves the proc Broken, as any program that
++//! crashes, instead of the proc going on over its neighbour's memory. Plan 9 has no
++//! mprotect: each stack is a segment of its own (`segattach`, class "memory", which
++//! procs that share memory share), on addresses with gaps between them. A segment a proc
++//! attaches later is its own, the others do not see it: the proc that runs `main`
++//! attaches [`NSLOT`] of them before the first thread, at fixed places. A thread beyond
++//! them, or one asking for more than [`SLOT`], gets a stack from malloc, without the gap.
++//!
++//! Waiting is on 9front's semaphores (`semacquire`, `tsemacquire`): [`futex_wait`] and
++//! [`futex_wake`] give std the futex it builds its locks on, a waiter per thread queued on
++//! a hash of the address.
++
++use crate::ffi::c_void;
++use crate::ptr;
++use crate::sync::atomic::Ordering::{Acquire, Relaxed, Release, SeqCst};
++use crate::sync::atomic::{Atomic, AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicUsize};
++use crate::time::Duration;
++
++/// Per thread, from libc's malloc.
++pub struct ThreadData {
++    /// the kernel's semaphore this thread waits on
++    pub sem: AtomicI32,
++    pub pid: i32,
++    /// futex queue: the address waited on, the next waiter of the bucket
++    addr: usize,
++    next: *mut ThreadData,
++    /// all threads, for exit
++    all_next: *mut ThreadData,
++    /// thread-local keys (thread_local/key/plan9.rs)
++    pub keys: *mut *mut u8,
++}
++
++/// The stack segment below this is free in every proc: `main`'s proc left it for a
++/// stack from malloc (or the creator of the first thread for its own frame).
++static PRIVTOP: AtomicUsize = AtomicUsize::new(0);
++/// The `privalloc` slot of [`ThreadData`].
++static PRIV_SLOT: AtomicPtr<*mut c_void> = AtomicPtr::new(ptr::null_mut());
++static ALL: AtomicPtr<ThreadData> = AtomicPtr::new(ptr::null_mut());
++static ALL_LOCK: SpinLock = SpinLock::new();
++
++/// A lock for a few instructions; a proc that does not get it gives up the processor.
++pub struct SpinLock(AtomicBool);
++
++impl SpinLock {
++    pub const fn new() -> SpinLock {
++        SpinLock(AtomicBool::new(false))
++    }
++
++    pub fn lock(&self) {
++        let mut n = 0u32;
++        while self.0.swap(true, Acquire) {
++            n += 1;
++            if n < 100 {
++                crate::hint::spin_loop();
++            } else {
++                unsafe { libc::sleep(0) };
++            }
++        }
++    }
++
++    pub fn unlock(&self) {
++        self.0.store(false, Release);
++    }
++}
++
++fn slot() -> *mut *mut c_void {
++    let s = PRIV_SLOT.load(Acquire);
++    if !s.is_null() {
++        return s;
++    }
++    ALL_LOCK.lock();
++    let mut s = PRIV_SLOT.load(Acquire);
++    if s.is_null() {
++        s = unsafe { libc::privalloc() };
++        if s.is_null() {
++            rtabort!("plan9: no privalloc slot left");
++        }
++        PRIV_SLOT.store(s, Release);
++    }
++    ALL_LOCK.unlock();
++    s
++}
++
++/// The calling thread's data; made on first use (the proc that runs `main`, or a proc
++/// that is not a Rust thread).
++pub fn current() -> &'static ThreadData {
++    unsafe {
++        let s = slot();
++        let td = *s as *mut ThreadData;
++        if !td.is_null() {
++            return &*td;
++        }
++        let td = new_thread_data();
++        *s = td.cast();
++        &*td
++    }
++}
++
++unsafe fn new_thread_data() -> *mut ThreadData {
++    unsafe {
++        let td = libc::mallocz(size_of::<ThreadData>() as libc::ulong, 1) as *mut ThreadData;
++        if td.is_null() {
++            rtabort!("plan9: out of memory for a thread");
++        }
++        ptr::write(
++            td,
++            ThreadData {
++                sem: AtomicI32::new(0),
++                pid: libc::getpid(),
++                addr: 0,
++                next: ptr::null_mut(),
++                all_next: ptr::null_mut(),
++                keys: ptr::null_mut(),
++            },
++        );
++        ALL_LOCK.lock();
++        (*td).all_next = ALL.load(Relaxed);
++        ALL.store(td, Relaxed);
++        ALL_LOCK.unlock();
++        td
++    }
++}
++
++/// Off the list of threads and freed: the calling thread is done with it.
++unsafe fn free_thread_data(td: *mut ThreadData) {
++    unsafe {
++        ALL_LOCK.lock();
++        let mut l: *mut *mut ThreadData = ALL.as_ptr();
++        while !(*l).is_null() {
++            if *l == td {
++                *l = (*td).all_next;
++                break;
++            }
++            l = &raw mut (**l).all_next;
++        }
++        ALL_LOCK.unlock();
++        if !(*td).keys.is_null() {
++            libc::free((*td).keys.cast());
++        }
++        libc::free(td.cast());
++        *slot() = ptr::null_mut();
++    }
++}
++
++/// The proc that runs `main`.
++static MAIN_PID: AtomicI32 = AtomicI32::new(0);
++
++/// proc(3)'s ctl "kill": a note could be caught.
++fn kill_proc(pid: i32) {
++    let mut path = [0u8; 32];
++    let mut w = crate::io::Cursor::new(&mut path[..]);
++    let _ = crate::io::Write::write_fmt(&mut w, format_args!("/proc/{pid}/ctl\0"));
++    unsafe {
++        let fd = libc::open(path.as_ptr().cast(), libc::OWRITE);
++        if fd >= 0 {
++            libc::write(fd, c"kill".as_ptr().cast(), 4);
++            libc::close(fd);
++        }
++    }
++}
++
++/// The program ends with `status` (exits(2)): the other threads go; from a thread, the
++/// proc that runs `main` ends with a note of the status, so that its parent sees that.
++pub fn end_program(status: &crate::ffi::CStr) -> ! {
++    let me = unsafe { libc::getpid() };
++    let main = MAIN_PID.load(Relaxed);
++    ALL_LOCK.lock();
++    let mut td = ALL.load(Relaxed);
++    while !td.is_null() {
++        unsafe {
++            if (*td).pid != me && (*td).pid != main {
++                kill_proc((*td).pid);
++            }
++            td = (*td).all_next;
++        }
++    }
++    ALL_LOCK.unlock();
++    unsafe {
++        let msg = if status.is_empty() { ptr::null() } else { status.as_ptr() };
++        if main == 0 || main == me {
++            libc::exits(msg)
++        }
++        libc::postnote(libc::PNPROC, main, status.as_ptr());
++        libc::_exits(msg)
++    }
++}
++
++/* stack switching and rfork */
++
++unsafe extern "C" {
++    /// Runs `f(arg)` on the stack below `top`, back on the caller's after.
++    fn __rust_plan9_runon(top: *mut u8, f: unsafe extern "C" fn(*mut c_void), arg: *mut c_void);
++    /// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
++    /// below `privtop`, without touching its parent's.
++    fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32;
++}
++
++// amd64: the system call number in BP, the argument at 8(SP) (libc's system call stubs);
++// the kernel gives the child R14 and R15 of its parent (pc64/l.s forkret), the rest zero.
++#[cfg(target_arch = "x86_64")]
++crate::arch::global_asm!(
++    ".text",
++    ".globl __rust_plan9_runon",
++    "__rust_plan9_runon:",
++    "   pushq %rbp",
++    "   movq %rsp, %rbp",
++    "   movq %rdi, %rsp",
++    "   movq %rdx, %rdi",
++    "   call *%rsi",
++    "   movq %rbp, %rsp",
++    "   popq %rbp",
++    "   ret",
++    ".globl __rust_plan9_rforkthread",
++    "__rust_plan9_rforkthread:",
++    "   pushq %rbx",
++    "   pushq %rbp",
++    "   pushq %r12",
++    "   pushq %r13",
++    "   pushq %r14",
++    "   pushq %r15",
++    "   movq %rsi, %r14",
++    "   movq %rdx, %r15",
++    "   subq $16, %rsp",
++    "   movq %rdi, 8(%rsp)",
++    "   movq $19, %rbp", // RFORK
++    "   syscall",
++    "   testq %rax, %rax",
++    "   jz 1f",
++    "   addq $16, %rsp",
++    "   popq %r15",
++    "   popq %r14",
++    "   popq %r13",
++    "   popq %r12",
++    "   popq %rbp",
++    "   popq %rbx",
++    "   ret",
++    "1: movq %r14, %rsp",
++    "   movq %r15, %rdi",
++    "   call __rust_plan9_threadstart",
++    "2: jmp 2b",
++    options(att_syntax)
++);
++
++fn align_down(p: usize) -> usize {
++    p & !15
++}
++
++fn set_privtop_here() {
++    let here = 0u8;
++    let top = align_down((&raw const here).addr() - 65536);
++    let _ = PRIVTOP.compare_exchange(0, top, SeqCst, SeqCst);
++}
++
++/* stacks */
++
++/// Stacks with a gap below, attached by `main`'s proc.
++pub const NSLOT: usize = 64;
++/// Address space of one; its pages are made as they are touched.
++pub const SLOT: usize = 64 << 20;
++const GAP: usize = 1 << 20;
++const NOSLOT: usize = usize::MAX;
++
++/// Above the slots: slot i is [top - (i+1)*(SLOT+GAP), +SLOT)
++static SLOT_TOP: AtomicUsize = AtomicUsize::new(0);
++static NSLOTS: AtomicUsize = AtomicUsize::new(0);
++static SLOT_USED: [AtomicBool; NSLOT] = [const { AtomicBool::new(false) }; NSLOT];
++
++fn slot_va(i: usize) -> usize {
++    SLOT_TOP.load(Relaxed) - (i + 1) * (SLOT + GAP)
++}
++
++/// Only before the first thread: the others would not have them.
++fn attach_slots() {
++    let here = 0u8;
++    // a GiB below the stack segment, out of the way of the kernel's choice for
++    // segattach(…, 0, …), which goes down from there
++    let top = ((&raw const here).addr() & !((1usize << 30) - 1)) - (1usize << 30);
++    SLOT_TOP.store(top, Relaxed);
++    let mut n = 0;
++    while n < NSLOT {
++        let va = slot_va(n);
++        let r = unsafe {
++            libc::segattach(
++                libc::SG_CEXEC,
++                c"memory".as_ptr(),
++                ptr::with_exposed_provenance_mut(va),
++                SLOT as libc::ulong,
++            )
++        };
++        if r.addr() != va {
++            break;
++        }
++        n += 1;
++    }
++    NSLOTS.store(n, Release);
++}
++
++/// A stack of at least `size` bytes: (its slot or NOSLOT, the lowest address).
++fn alloc_stack(size: usize) -> Option<(usize, *mut u8)> {
++    if size <= SLOT {
++        for i in 0..NSLOTS.load(Acquire) {
++            if SLOT_USED[i].compare_exchange(false, true, Acquire, Relaxed).is_ok() {
++                return Some((i, ptr::with_exposed_provenance_mut(slot_va(i))));
++            }
++        }
++    }
++    let n = libc::ulong::try_from(size).ok()?;
++    let p = unsafe { libc::malloc(n) } as *mut u8;
++    if p.is_null() { None } else { Some((NOSLOT, p)) }
++}
++
++unsafe fn free_stack(slot: usize, stack: *mut u8) {
++    unsafe {
++        if slot == NOSLOT {
++            libc::free(stack.cast());
++        } else {
++            // its pages go back; touched again, they are zero
++            libc::segfree(stack.cast(), SLOT as libc::ulong);
++            SLOT_USED[slot].store(false, Release);
++        }
++    }
++}
++
++fn stack_top(slot: usize, stack: *mut u8, size: usize) -> *mut u8 {
++    let size = if slot == NOSLOT { size } else { SLOT };
++    ptr::with_exposed_provenance_mut(align_down(stack.addr() + size))
++}
++
++/// What a new thread runs, and its state for `join`.
++pub struct Packet {
++    pub slot: usize,
++    pub stack: *mut u8,
++    pub stack_size: usize,
++    pub main: unsafe fn(*mut c_void),
++    pub arg: *mut c_void,
++    /// RUNNING, EXITED (`join` frees it) or DETACHED (the thread frees it)
++    pub state: Atomic<u32>,
++}
++
++pub const RUNNING: u32 = 0;
++pub const EXITED: u32 = 1;
++pub const DETACHED: u32 = 2;
++
++unsafe fn free_packet(p: *mut Packet) {
++    unsafe {
++        free_stack((*p).slot, (*p).stack);
++        libc::free(p.cast());
++    }
++}
++
++/// A new thread running `main(arg)`, on a stack of `stack_size` bytes from malloc.
++pub fn spawn(stack_size: usize, main: unsafe fn(*mut c_void), arg: *mut c_void) -> *mut Packet {
++    set_privtop_here();
++    // the creator's data first, then the child's copy of the slot is overwritten
++    let _ = current();
++    let stack_size = (stack_size + 15) & !15;
++    let Ok(size) = libc::ulong::try_from(stack_size) else { return ptr::null_mut() };
++    unsafe {
++        let p = libc::mallocz(size_of::<Packet>() as libc::ulong, 1) as *mut Packet;
++        if p.is_null() {
++            return p;
++        }
++        let _ = size;
++        let Some((slot, stack)) = alloc_stack(stack_size) else {
++            libc::free(p.cast());
++            return ptr::null_mut();
++        };
++        ptr::write(
++            p,
++            Packet { slot, stack, stack_size, main, arg, state: AtomicU32::new(RUNNING) },
++        );
++        let pid = __rust_plan9_rforkthread(
++            libc::RFPROC | libc::RFMEM | libc::RFNOWAIT,
++            PRIVTOP.load(SeqCst),
++            p.cast(),
++        );
++        if pid < 0 {
++            free_packet(p);
++            return ptr::null_mut();
++        }
++        p
++    }
++}
++
++unsafe extern "C" fn run_packet(v: *mut c_void) {
++    unsafe {
++        let p = v as *mut Packet;
++        ((*p).main)((*p).arg);
++    }
++}
++
++/// The new proc, on its own copy of the stack segment.
++#[unsafe(no_mangle)]
++unsafe extern "C" fn __rust_plan9_threadstart(v: *mut c_void) -> ! {
++    unsafe {
++        let p = v as *mut Packet;
++        // the parent's data in the copied slot: not ours
++        *slot() = ptr::null_mut();
++        let td = current() as *const ThreadData as *mut ThreadData;
++        let top = stack_top((*p).slot, (*p).stack, (*p).stack_size);
++        __rust_plan9_runon(top, run_packet, v);
++        // off the stack from malloc: it can go
++        free_thread_data(td);
++        match (*p).state.compare_exchange(RUNNING, EXITED, SeqCst, SeqCst) {
++            Ok(_) => {
++                futex_wake_all(&(*p).state);
++            }
++            Err(_) => free_packet(p),
++        }
++        libc::_exits(ptr::null());
++    }
++}
++
++/// `join`: waits for the thread, frees its stack.
++pub unsafe fn join(p: *mut Packet) {
++    unsafe {
++        while (*p).state.load(Acquire) == RUNNING {
++            futex_wait(&(*p).state, RUNNING, None);
++        }
++        free_packet(p);
++    }
++}
++
++/// The thread's handle is dropped: it frees itself when done.
++pub unsafe fn detach(p: *mut Packet) {
++    unsafe {
++        if (*p).state.compare_exchange(RUNNING, DETACHED, SeqCst, SeqCst).is_err() {
++            free_packet(p);
++        }
++    }
++}
++
++const MAIN_STACK: usize = 8 << 20;
++
++struct MainArgs {
++    main: unsafe extern "C" fn(i32, *mut *mut u8, *mut *mut u8) -> i32,
++    argc: i32,
++    argv: *mut *mut u8,
++    envp: *mut *mut u8,
++    ret: i32,
++}
++
++unsafe extern "C" fn run_main(v: *mut c_void) {
++    unsafe {
++        let a = v as *mut MainArgs;
++        (*a).ret = ((*a).main)((*a).argc, (*a).argv, (*a).envp);
++    }
++}
++
++/// libgcc's `__wrap_main` (9front's gcc port): `main` on a stack from malloc, as the other
++/// threads; the program ends with its result.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __plan9_mainstack(
++    main: unsafe extern "C" fn(i32, *mut *mut u8, *mut *mut u8) -> i32,
++    argc: i32,
++    argv: *mut *mut u8,
++    envp: *mut *mut u8,
++) -> i32 {
++    // below this frame (and runon's) the segment is not used again
++    set_privtop_here();
++    MAIN_PID.store(unsafe { libc::getpid() }, Relaxed);
++    attach_slots();
++    let mut a = MainArgs { main, argc, argv, envp, ret: 0 };
++    unsafe {
++        match alloc_stack(MAIN_STACK) {
++            None => run_main((&raw mut a).cast()),
++            Some((slot, stack)) => {
++                let top = stack_top(slot, stack, MAIN_STACK);
++                __rust_plan9_runon(top, run_main, (&raw mut a).cast());
++            }
++        }
++    }
++    crate::sys::exit::exit(a.ret)
++}
++
++/// Keeps `__plan9_mainstack` in the link: libgcc refers to it only weakly.
++pub fn keep_mainstack() {
++    crate::hint::black_box((__plan9_mainstack as *const ()).expose_provenance());
++}
++
++/* futex */
++
++const NBUCKET: usize = 64;
++
++struct Bucket {
++    lock: SpinLock,
++    head: AtomicPtr<ThreadData>,
++}
++
++static BUCKETS: [Bucket; NBUCKET] =
++    [const { Bucket { lock: SpinLock::new(), head: AtomicPtr::new(ptr::null_mut()) } }; NBUCKET];
++
++fn bucket(addr: usize) -> &'static Bucket {
++    &BUCKETS[(addr >> 2).wrapping_mul(0x9e3779b9) % NBUCKET]
++}
++
++/// Off the bucket's queue; whether it was there.
++unsafe fn unqueue(b: &Bucket, td: *mut ThreadData) -> bool {
++    unsafe {
++        let mut l: *mut *mut ThreadData = b.head.as_ptr();
++        while !(*l).is_null() {
++            if *l == td {
++                *l = (*td).next;
++                (*td).next = ptr::null_mut();
++                return true;
++            }
++            l = &raw mut (**l).next;
++        }
++        false
++    }
++}
++
++fn now_ms() -> u64 {
++    (unsafe { libc::uptime() } / 1_000_000) as u64
++}
++
++/// Waits while `*futex == expected`, at most `timeout`; false: timed out.
++pub fn futex_wait(futex: &Atomic<u32>, expected: u32, timeout: Option<Duration>) -> bool {
++    let td = current() as *const ThreadData as *mut ThreadData;
++    let addr = futex.as_ptr().addr();
++    let b = bucket(addr);
++    let deadline = timeout.map(|t| {
++        // round up: a wait never ends early
++        let ms = t.as_nanos().div_ceil(1_000_000);
++        now_ms().saturating_add(u64::try_from(ms).unwrap_or(u64::MAX))
++    });
++    unsafe {
++        b.lock.lock();
++        if futex.load(Relaxed) != expected {
++            b.lock.unlock();
++            return true;
++        }
++        (*td).addr = addr;
++        (*td).next = b.head.load(Relaxed);
++        b.head.store(td, Relaxed);
++        b.lock.unlock();
++        let sem = (*td).sem.as_ptr();
++        loop {
++            let r = match deadline {
++                None => libc::semacquire(sem, 1),
++                Some(d) => {
++                    let now = now_ms();
++                    if now >= d {
++                        0
++                    } else {
++                        let ms = (d - now).min(u32::MAX as u64) as libc::ulong;
++                        libc::tsemacquire(sem, ms)
++                    }
++                }
++            };
++            if r > 0 {
++                return true;
++            }
++            if r < 0 && deadline.is_none() {
++                // a note interrupted it; a spurious wakeup is allowed
++                b.lock.lock();
++                let queued = unqueue(b, td);
++                b.lock.unlock();
++                if !queued {
++                    // woken meanwhile: the release is ours
++                    while libc::semacquire(sem, 1) < 0 {}
++                }
++                return true;
++            }
++            if r == 0 || (r < 0 && deadline.is_some_and(|d| now_ms() >= d)) {
++                b.lock.lock();
++                let queued = unqueue(b, td);
++                b.lock.unlock();
++                if queued {
++                    return false;
++                }
++                while libc::semacquire(sem, 1) < 0 {}
++                return true;
++            }
++        }
++    }
++}
++
++fn wake(futex: &Atomic<u32>, mut n: usize) -> bool {
++    let addr = futex.as_ptr().addr();
++    let b = bucket(addr);
++    let mut woke = false;
++    b.lock.lock();
++    unsafe {
++        let mut l: *mut *mut ThreadData = b.head.as_ptr();
++        while n > 0 && !(*l).is_null() {
++            let td = *l;
++            if (*td).addr == addr {
++                *l = (*td).next;
++                (*td).next = ptr::null_mut();
++                // its data stays: it waits until released
++                libc::semrelease((*td).sem.as_ptr(), 1);
++                woke = true;
++                n -= 1;
++            } else {
++                l = &raw mut (*td).next;
++            }
++        }
++    }
++    b.lock.unlock();
++    woke
++}
++
++/// Wakes one waiter; whether there was one.
++pub fn futex_wake(futex: &Atomic<u32>) -> bool {
++    wake(futex, 1)
++}
++
++pub fn futex_wake_all(futex: &Atomic<u32>) {
++    wake(futex, usize::MAX);
++}
+diff --git a/library/std/src/sys/random/mod.rs b/library/std/src/sys/random/mod.rs
+index 23f6ce8d25e..42de2e973f9 100644
+--- a/library/std/src/sys/random/mod.rs
++++ b/library/std/src/sys/random/mod.rs
+@@ -40,6 +40,10 @@
+         mod fuchsia;
+         pub use fuchsia::fill_bytes;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::fill_bytes;
++    }
+     target_os = "hermit" => {
+         mod hermit;
+         pub use hermit::fill_bytes;
+diff --git a/library/std/src/sys/random/plan9.rs b/library/std/src/sys/random/plan9.rs
+new file mode 100644
+index 00000000000..bd52b29ca48
+--- /dev/null
++++ b/library/std/src/sys/random/plan9.rs
+@@ -0,0 +1,17 @@
++//! cons(3)'s `/dev/random`: the kernel's generator, never blocks once seeded.
++
++pub fn fill_bytes(mut bytes: &mut [u8]) {
++    let fd = unsafe { libc::open(c"/dev/random".as_ptr(), libc::OREAD | libc::OCEXEC) };
++    if fd < 0 {
++        rtabort!("plan9: cannot open /dev/random");
++    }
++    while !bytes.is_empty() {
++        let n = bytes.len().min(libc::IOUNIT);
++        let r = unsafe { libc::read(fd, bytes.as_mut_ptr().cast(), n as libc::c_long) };
++        if r <= 0 {
++            rtabort!("plan9: cannot read /dev/random");
++        }
++        bytes = &mut bytes[r as usize..];
++    }
++    unsafe { libc::close(fd) };
++}
+diff --git a/library/std/src/sys/stdio/mod.rs b/library/std/src/sys/stdio/mod.rs
+index 86d0f3fe49c..1b9562ebefc 100644
+--- a/library/std/src/sys/stdio/mod.rs
++++ b/library/std/src/sys/stdio/mod.rs
+@@ -13,6 +13,10 @@
+         mod sgx;
+         pub use sgx::*;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::*;
++    }
+     target_os = "motor" => {
+         mod motor;
+         pub use motor::*;
+diff --git a/library/std/src/sys/stdio/plan9.rs b/library/std/src/sys/stdio/plan9.rs
+new file mode 100644
+index 00000000000..1c9076a13f1
+--- /dev/null
++++ b/library/std/src/sys/stdio/plan9.rs
+@@ -0,0 +1,75 @@
++//! File descriptors 0, 1 and 2.
++
++use crate::io;
++use crate::sys::pal::cvt;
++
++pub struct Stdin;
++pub struct Stdout;
++pub struct Stderr;
++
++fn read(fd: i32, buf: &mut [u8]) -> io::Result<usize> {
++    let n = buf.len().min(i32::MAX as usize);
++    cvt(unsafe { libc::read(fd, buf.as_mut_ptr().cast(), n as libc::c_long) }).map(|n| n as usize)
++}
++
++fn write(fd: i32, buf: &[u8]) -> io::Result<usize> {
++    let n = buf.len().min(i32::MAX as usize);
++    cvt(unsafe { libc::write(fd, buf.as_ptr().cast(), n as libc::c_long) }).map(|n| n as usize)
++}
++
++impl Stdin {
++    pub const fn new() -> Stdin {
++        Stdin
++    }
++}
++
++impl io::Read for Stdin {
++    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
++        read(0, buf)
++    }
++}
++
++impl Stdout {
++    pub const fn new() -> Stdout {
++        Stdout
++    }
++}
++
++impl io::Write for Stdout {
++    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
++        write(1, buf)
++    }
++
++    fn flush(&mut self) -> io::Result<()> {
++        Ok(())
++    }
++}
++
++impl Stderr {
++    pub const fn new() -> Stderr {
++        Stderr
++    }
++}
++
++impl io::Write for Stderr {
++    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
++        write(2, buf)
++    }
++
++    fn flush(&mut self) -> io::Result<()> {
++        Ok(())
++    }
++}
++
++pub const STDIN_BUF_SIZE: usize = crate::sys::io::DEFAULT_BUF_SIZE;
++
++/// A closed descriptor ("fd out of range or not open"): the standard streams are quietly
++/// nothing, as on unix.
++pub fn is_ebadf(err: &io::Error) -> bool {
++    let s = err.to_string();
++    s.contains("fd out of range") || s.contains("not open")
++}
++
++pub fn panic_output() -> Option<impl io::Write> {
++    Some(Stderr::new())
++}
+diff --git a/library/std/src/sys/sync/condvar/mod.rs b/library/std/src/sys/sync/condvar/mod.rs
+index 615781ea9b7..90a86d0d679 100644
+--- a/library/std/src/sys/sync/condvar/mod.rs
++++ b/library/std/src/sys/sync/condvar/mod.rs
+@@ -10,6 +10,7 @@
+         target_os = "fuchsia",
+         all(target_family = "wasm", target_feature = "atomics"),
+         target_os = "hermit",
++        target_os = "plan9",
+         all(target_os = "wasi", target_env = "p3"),
+     ) => {
+         mod futex;
+diff --git a/library/std/src/sys/sync/futex/mod.rs b/library/std/src/sys/sync/futex/mod.rs
+index 0edb46cc10f..143d468eeb9 100644
+--- a/library/std/src/sys/sync/futex/mod.rs
++++ b/library/std/src/sys/sync/futex/mod.rs
+@@ -15,6 +15,13 @@
+         mod windows;
+         pub use windows::*;
+     }
++    target_os = "plan9" => {
++        pub use crate::sys::pal::proc::{futex_wait, futex_wake, futex_wake_all};
++        pub type Futex = crate::sync::atomic::Atomic<Primitive>;
++        pub type Primitive = u32;
++        pub type SmallFutex = crate::sync::atomic::Atomic<SmallPrimitive>;
++        pub type SmallPrimitive = u32;
++    }
+     target_os = "hermit" => {
+         mod hermit;
+         pub use hermit::*;
+diff --git a/library/std/src/sys/sync/mutex/mod.rs b/library/std/src/sys/sync/mutex/mod.rs
+index 895ab9c8956..0622ec5bd31 100644
+--- a/library/std/src/sys/sync/mutex/mod.rs
++++ b/library/std/src/sys/sync/mutex/mod.rs
+@@ -9,6 +9,7 @@
+         target_os = "dragonfly",
+         all(target_family = "wasm", target_feature = "atomics"),
+         target_os = "hermit",
++        target_os = "plan9",
+         all(target_os = "wasi", target_env = "p3"),
+     ) => {
+         mod futex;
+diff --git a/library/std/src/sys/sync/once/mod.rs b/library/std/src/sys/sync/once/mod.rs
+index eee7edf8575..3442952b842 100644
+--- a/library/std/src/sys/sync/once/mod.rs
++++ b/library/std/src/sys/sync/once/mod.rs
+@@ -19,6 +19,7 @@
+         target_os = "dragonfly",
+         target_os = "fuchsia",
+         target_os = "hermit",
++        target_os = "plan9",
+         all(target_os = "wasi", target_env = "p3"),
+     ) => {
+         mod futex;
+diff --git a/library/std/src/sys/sync/rwlock/mod.rs b/library/std/src/sys/sync/rwlock/mod.rs
+index 9991f290e46..7ce76ab8516 100644
+--- a/library/std/src/sys/sync/rwlock/mod.rs
++++ b/library/std/src/sys/sync/rwlock/mod.rs
+@@ -9,6 +9,7 @@
+         target_os = "fuchsia",
+         all(target_family = "wasm", target_feature = "atomics"),
+         target_os = "hermit",
++        target_os = "plan9",
+         target_os = "motor",
+         all(target_os = "wasi", target_env = "p3"),
+     ) => {
+diff --git a/library/std/src/sys/sync/thread_parking/mod.rs b/library/std/src/sys/sync/thread_parking/mod.rs
+index dffa0ade947..3e06d538e98 100644
+--- a/library/std/src/sys/sync/thread_parking/mod.rs
++++ b/library/std/src/sys/sync/thread_parking/mod.rs
+@@ -10,6 +10,7 @@
+         target_os = "fuchsia",
+         target_os = "motor",
+         target_os = "hermit",
++        target_os = "plan9",
+         all(target_os = "wasi", target_env = "p3"),
+     ) => {
+         mod futex;
+diff --git a/library/std/src/sys/thread/mod.rs b/library/std/src/sys/thread/mod.rs
+index dfbfc2bc8e0..943643ff6da 100644
+--- a/library/std/src/sys/thread/mod.rs
++++ b/library/std/src/sys/thread/mod.rs
+@@ -10,6 +10,15 @@
+         mod motor;
+         pub use motor::*;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        pub use plan9::{
++            DEFAULT_MIN_STACK_SIZE, Thread, available_parallelism, current_os_id, sleep, yield_now,
++        };
++        #[expect(dead_code)]
++        mod unsupported;
++        pub use unsupported::set_name;
++    }
+     all(target_vendor = "fortanix", target_env = "sgx") => {
+         mod sgx;
+         pub use sgx::{DEFAULT_MIN_STACK_SIZE, Thread, current_os_id, sleep, yield_now};
+diff --git a/library/std/src/sys/thread/plan9.rs b/library/std/src/sys/thread/plan9.rs
+new file mode 100644
+index 00000000000..b6d5306501c
+--- /dev/null
++++ b/library/std/src/sys/thread/plan9.rs
+@@ -0,0 +1,88 @@
++//! A thread is a proc (sys/pal/plan9/proc.rs).
++
++use crate::ffi::c_void;
++use crate::io;
++use crate::num::NonZero;
++use crate::sys::pal::proc;
++use crate::thread::ThreadInit;
++use crate::time::Duration;
++
++pub const DEFAULT_MIN_STACK_SIZE: usize = 2 * 1024 * 1024;
++const MIN_STACK_SIZE: usize = 64 * 1024;
++
++pub struct Thread {
++    packet: *mut proc::Packet,
++}
++
++unsafe impl Send for Thread {}
++unsafe impl Sync for Thread {}
++
++unsafe fn thread_main(arg: *mut c_void) {
++    unsafe {
++        let init = Box::from_raw(arg as *mut ThreadInit);
++        let rust_start = init.init();
++        rust_start();
++        crate::sys::thread_local::key::run_dtors();
++    }
++    crate::rt::thread_cleanup();
++}
++
++impl Thread {
++    // unsafe: see thread::Builder::spawn_unchecked for safety requirements
++    pub unsafe fn new(stack: usize, init: Box<ThreadInit>) -> io::Result<Thread> {
++        let arg = Box::into_raw(init);
++        let packet = proc::spawn(stack.max(MIN_STACK_SIZE), thread_main, arg.cast());
++        if packet.is_null() {
++            let err = crate::sys::pal::last_error();
++            drop(unsafe { Box::from_raw(arg) });
++            return Err(err);
++        }
++        Ok(Thread { packet })
++    }
++
++    pub fn join(self) {
++        let p = self.packet;
++        crate::mem::forget(self);
++        unsafe { proc::join(p) }
++    }
++}
++
++impl Drop for Thread {
++    fn drop(&mut self) {
++        unsafe { proc::detach(self.packet) }
++    }
++}
++
++/// The processors: lines of `/dev/sysstat`.
++pub fn available_parallelism() -> io::Result<NonZero<usize>> {
++    let fd = unsafe { libc::open(c"/dev/sysstat".as_ptr(), libc::OREAD | libc::OCEXEC) };
++    if fd < 0 {
++        return Err(io::Error::UNKNOWN_THREAD_COUNT);
++    }
++    let mut buf = [0u8; 8192];
++    let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len() as libc::c_long) };
++    unsafe { libc::close(fd) };
++    if n <= 0 {
++        return Err(io::Error::UNKNOWN_THREAD_COUNT);
++    }
++    let lines = buf[..n as usize].iter().filter(|&&c| c == b'\n').count();
++    NonZero::new(lines).ok_or(io::Error::UNKNOWN_THREAD_COUNT)
++}
++
++pub fn current_os_id() -> Option<u64> {
++    Some(unsafe { libc::getpid() } as u64)
++}
++
++pub fn yield_now() {
++    unsafe { libc::sleep(0) };
++}
++
++/// sleep(2) counts milliseconds: rounded up, so it never ends early.
++pub fn sleep(dur: Duration) {
++    let mut ms = dur.as_nanos().div_ceil(1_000_000);
++    while ms > 0 {
++        let n = ms.min(i32::MAX as u128);
++        unsafe { libc::sleep(n as libc::c_long) };
++        ms -= n;
++    }
++}
+diff --git a/library/std/src/sys/thread_local/key/plan9.rs b/library/std/src/sys/thread_local/key/plan9.rs
+new file mode 100644
+index 00000000000..55f74996047
+--- /dev/null
++++ b/library/std/src/sys/thread_local/key/plan9.rs
+@@ -0,0 +1,90 @@
++//! Thread-local keys: a table per thread from libc's malloc, found through the
++//! thread's data in its `privalloc` slot (sys/pal/plan9/proc.rs). Keys are never reused;
++//! the thread runs the destructors itself when it ends (`run_dtors`).
++
++use crate::ptr;
++use crate::sync::atomic::Ordering::{Acquire, Relaxed, Release};
++use crate::sync::atomic::{Atomic, AtomicPtr, AtomicUsize};
++use crate::sys::pal::proc::{ThreadData, current};
++
++pub type Key = usize;
++pub type Dtor = unsafe extern "C" fn(*mut u8);
++
++const NKEYS: usize = 1024;
++
++static NEXT: Atomic<usize> = AtomicUsize::new(1);
++static DTORS: [Atomic<*mut ()>; NKEYS] = [const { AtomicPtr::new(ptr::null_mut()) }; NKEYS];
++
++fn table(alloc: bool) -> *mut *mut u8 {
++    let td = current() as *const ThreadData as *mut ThreadData;
++    unsafe {
++        if (*td).keys.is_null() && alloc {
++            let t = libc::mallocz((NKEYS * size_of::<*mut u8>()) as libc::ulong, 1);
++            if t.is_null() {
++                rtabort!("plan9: out of memory for thread-local storage");
++            }
++            (*td).keys = t.cast();
++        }
++        (*td).keys
++    }
++}
++
++#[inline]
++pub fn create(dtor: Option<Dtor>) -> Key {
++    let key = NEXT.fetch_add(1, Relaxed);
++    if key >= NKEYS {
++        rtabort!("out of TLS keys");
++    }
++    if let Some(dtor) = dtor {
++        // SAFETY: in bounds, checked above
++        unsafe { DTORS.get_unchecked(key) }.store(dtor as *mut (), Release);
++    }
++    key
++}
++
++#[inline]
++pub unsafe fn set(key: Key, value: *mut u8) {
++    if key == 0 || key >= NKEYS {
++        rtabort!("bad TLS key");
++    }
++    unsafe { *table(true).add(key) = value };
++}
++
++#[inline]
++pub unsafe fn get(key: Key) -> *mut u8 {
++    if key == 0 || key >= NKEYS {
++        rtabort!("bad TLS key");
++    }
++    let t = table(false);
++    if t.is_null() { ptr::null_mut() } else { unsafe { *t.add(key) } }
++}
++
++#[inline]
++pub unsafe fn destroy(_key: Key) {}
++
++/// The thread ends: the destructors of its values, in rounds while they set new ones.
++pub unsafe fn run_dtors() {
++    let t = table(false);
++    if t.is_null() {
++        return;
++    }
++    for _ in 0..5 {
++        let mut any = false;
++        let n = NEXT.load(Relaxed).min(NKEYS);
++        for key in 1..n {
++            unsafe {
++                let v = *t.add(key);
++                let d = DTORS.get_unchecked(key).load(Acquire);
++                if !v.is_null() && !d.is_null() {
++                    *t.add(key) = ptr::null_mut();
++                    let d: Dtor = crate::mem::transmute(d);
++                    d(v);
++                    any = true;
++                }
++            }
++        }
++        if !any {
++            break;
++        }
++    }
++}
+diff --git a/library/std/src/sys/thread_local/mod.rs b/library/std/src/sys/thread_local/mod.rs
+index 1c137e52d93..5cfcfc4fce7 100644
+--- a/library/std/src/sys/thread_local/mod.rs
++++ b/library/std/src/sys/thread_local/mod.rs
+@@ -134,7 +134,7 @@ pub(crate) fn enable() {
+                 use crate::rt::thread_cleanup;
+             }
+         }
+-        any(target_os = "hermit", target_os = "xous") => {
++        any(target_os = "hermit", target_os = "xous", target_os = "plan9") => {
+             // `std` is the only runtime, so it just calls the destructor functions
+             // itself when the time comes.
+             pub(crate) fn enable() {}
+@@ -205,6 +205,16 @@ pub(crate) mod key {
+             pub(super) use xous::{Key, get, set};
+             use xous::{create, destroy};
+         }
++        target_os = "plan9" => {
++            mod racy;
++            #[cfg(test)]
++            mod tests;
++            mod plan9;
++            pub(super) use racy::LazyKey;
++            pub(crate) use plan9::run_dtors;
++            pub(super) use plan9::{Key, get, set};
++            use plan9::{create, destroy};
++        }
+         target_os = "motor" => {
+             mod racy;
+             #[cfg(test)]
+diff --git a/library/std/src/sys/time/mod.rs b/library/std/src/sys/time/mod.rs
+index 179c968ee26..8d5481e59ff 100644
+--- a/library/std/src/sys/time/mod.rs
++++ b/library/std/src/sys/time/mod.rs
+@@ -6,6 +6,10 @@
+         mod sgx;
+         use sgx as imp;
+     }
++    target_os = "plan9" => {
++        mod plan9;
++        use plan9 as imp;
++    }
+     target_os = "solid_asp3" => {
+         mod solid;
+         use solid as imp;
+diff --git a/library/std/src/sys/time/plan9.rs b/library/std/src/sys/time/plan9.rs
+new file mode 100644
+index 00000000000..73ce72617f0
+--- /dev/null
++++ b/library/std/src/sys/time/plan9.rs
+@@ -0,0 +1,53 @@
++//! `/dev/bintime` through libc: `uptime` for `Instant`, `nsec` for `SystemTime`.
++
++use crate::time::Duration;
++
++#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
++pub struct Instant(Duration);
++
++#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
++pub struct SystemTime(Duration);
++
++pub const UNIX_EPOCH: SystemTime = SystemTime(Duration::from_secs(0));
++
++impl Instant {
++    pub fn now() -> Instant {
++        // nanoseconds since boot (/dev/bintime): never go back
++        Instant(Duration::from_nanos(unsafe { libc::uptime() }.max(0) as u64))
++    }
++
++    pub fn checked_sub_instant(&self, other: &Instant) -> Option<Duration> {
++        self.0.checked_sub(other.0)
++    }
++
++    pub fn checked_add_duration(&self, other: &Duration) -> Option<Instant> {
++        self.0.checked_add(*other).map(Instant)
++    }
++
++    pub fn checked_sub_duration(&self, other: &Duration) -> Option<Instant> {
++        self.0.checked_sub(*other).map(Instant)
++    }
++}
++
++impl SystemTime {
++    pub const MAX: SystemTime = SystemTime(Duration::MAX);
++
++    pub const MIN: SystemTime = SystemTime(Duration::ZERO);
++
++    pub fn now() -> SystemTime {
++        // nanoseconds since the epoch (/dev/bintime)
++        SystemTime(Duration::from_nanos(unsafe { libc::nsec() }.max(0) as u64))
++    }
++
++    pub fn sub_time(&self, other: &SystemTime) -> Result<Duration, Duration> {
++        self.0.checked_sub(other.0).ok_or_else(|| other.0 - self.0)
++    }
++
++    pub fn checked_add_duration(&self, other: &Duration) -> Option<SystemTime> {
++        Some(SystemTime(self.0.checked_add(*other)?))
++    }
++
++    pub fn checked_sub_duration(&self, other: &Duration) -> Option<SystemTime> {
++        Some(SystemTime(self.0.checked_sub(*other)?))
++    }
++}
+diff --git a/src/bootstrap/src/core/sanity.rs b/src/bootstrap/src/core/sanity.rs
+index ac44a4dfca9..829f21e2779 100644
+--- a/src/bootstrap/src/core/sanity.rs
++++ b/src/bootstrap/src/core/sanity.rs
+@@ -37,6 +37,7 @@ pub struct Finder {
+ const STAGE0_MISSING_TARGETS: &[&str] = &[
+     // just a dummy comment so the list doesn't get onelined
+     "aarch64-unknown-qtee",
++    "x86_64-unknown-plan9",
+ ];
+ 
+ /// Minimum version threshold for libstdc++ required when using prebuilt LLVM

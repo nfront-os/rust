@@ -13,6 +13,11 @@ Log of the port (German): `NOTES.md`.
 
 - `rust/`, `libc/`, `llvm-project/`: the sources, each its own git repository; the port is
   on their branch `plan9`.
+- `patches/rust`, `patches/cargo`, `patches/backtrace`, `patches/llvm-project`,
+  `patches/libc`: the branches `plan9` of rust, its submodules and libc as patch series
+  (`git format-patch`) on the upstream commit in each `BASE`. After a commit or a rebase
+  `scripts/rust-patches.sh diff` writes them; `scripts/rust-patches.sh apply` makes the
+  branches from upstream clones.
 - `tests/`: test programs; `tests/guest.sh` runs programs in the 9front guest.
 - `bootstrap.toml.example`: `rust/bootstrap.toml` (`$GCC9`: the 9front-gcc checkout).
 

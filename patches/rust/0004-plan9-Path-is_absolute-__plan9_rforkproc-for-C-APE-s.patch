@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 12:48:24 +0100
+Subject: [PATCH 04/25] plan9: Path::is_absolute; __plan9_rforkproc for C
+ (APE's read buffering in ape9); cargo
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/sys/pal/plan9/proc.rs | 52 +++++++++++++++++++++++++++
+ library/std/src/sys/path/unix.rs      |  8 ++++-
+ 2 files changed, 59 insertions(+), 1 deletion(-)
+
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index 1a0956d272e..f8c062ff481 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -305,6 +305,55 @@ pub unsafe fn rfork_run<T>(flags: i32, run: &Run<T>) -> i32 {
+     unsafe { __rust_plan9_rforkrun(flags, PRIVTOP.load(SeqCst), (run as *const Run<T>).cast()) }
+ }
+ 
++struct CProc {
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++}
++
++unsafe extern "C" fn cproc_child(run: *const Run<*mut CProc>) -> ! {
++    unsafe {
++        // the parent's data in the copied slot: not ours
++        *slot() = ptr::null_mut();
++        let td = current() as *const ThreadData as *mut ThreadData;
++        let p = (*run).data;
++        libc::free(run.cast_mut().cast());
++        let CProc { f, arg } = ptr::read(p);
++        libc::free(p.cast());
++        f(arg);
++        free_thread_data(td);
++        libc::_exits(ptr::null());
++    }
++}
++
++/// For C in the program (9front-rust's ape9: APE's read buffering): `rfork(flags|RFPROC)` of
++/// a proc that runs `f(arg)` on its own stack segment, then ends; the program's end ends it,
++/// as a thread. -1 and the error string if it cannot.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __plan9_rforkproc(
++    flags: i32,
++    f: unsafe extern "C" fn(*mut c_void),
++    arg: *mut c_void,
++) -> i32 {
++    unsafe {
++        // from the heap: the parent's stack goes on without the child
++        let p = libc::malloc(size_of::<CProc>() as libc::ulong) as *mut CProc;
++        let run = libc::malloc(size_of::<Run<*mut CProc>>() as libc::ulong) as *mut Run<*mut CProc>;
++        if p.is_null() || run.is_null() {
++            libc::free(p.cast());
++            libc::free(run.cast());
++            return -1;
++        }
++        ptr::write(p, CProc { f, arg });
++        ptr::write(run, Run { f: cproc_child, data: p });
++        let pid = rfork_run(flags | libc::RFPROC, &*run);
++        if pid < 0 {
++            libc::free(p.cast());
++            libc::free(run.cast());
++        }
++        pid
++    }
++}
++
+ fn align_down(p: usize) -> usize {
+     p & !15
+ }
+@@ -538,8 +587,11 @@ struct MainArgs {
+ }
+ 
+ /// Keeps `__plan9_mainstack` in the link: libgcc refers to it only weakly.
++/// Keeps `__plan9_mainstack` and `__plan9_rforkproc` in the link: libgcc refers to the one
++/// only weakly, the other the C after std in the link.
+ pub fn keep_mainstack() {
+     crate::hint::black_box((__plan9_mainstack as *const ()).expose_provenance());
++    crate::hint::black_box((__plan9_rforkproc as *const ()).expose_provenance());
+ }
+ 
+ /* futex */
+diff --git a/library/std/src/sys/path/unix.rs b/library/std/src/sys/path/unix.rs
+index 5a8c0c77745..11e7e37461e 100644
+--- a/library/std/src/sys/path/unix.rs
++++ b/library/std/src/sys/path/unix.rs
+@@ -58,7 +58,13 @@ pub(crate) fn absolute(path: &Path) -> io::Result<PathBuf> {
+ }
+ 
+ pub(crate) fn is_absolute(path: &Path) -> bool {
+-    if cfg!(any(unix, target_os = "hermit", target_os = "wasi", target_os = "motor")) {
++    if cfg!(any(
++        unix,
++        target_os = "hermit",
++        target_os = "wasi",
++        target_os = "motor",
++        target_os = "plan9"
++    )) {
+         path.has_root()
+     } else {
+         path.has_root() && path.prefix().is_some()

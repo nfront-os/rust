@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Thu, 29 Oct 2026 22:31:03 +0100
+Subject: [PATCH 06/25] plan9: rustc for 9front (no mmap: files read, no
+ ctrlc), getrandom 0.3.3 port; std's __plan9_exit; llvm-project on its plan9
+ branch
+
+rustc_data_structures::memmap reads the file on plan9 (as on wasm: no
+mmap); ctrlc is left out (an interrupt is a note that ends the process);
+getrandom 0.3.3 from 9front-rust's crates/ ([patch.crates-io]).
+std: __plan9_exit for APE's exit and abort (9front's _exit.c, abort.c):
+the C's exit ends the whole program. src/llvm-project: the plan9 branch
+(bootstrap had reset it to Rust's commit).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Cargo.lock                                   |  2 --
+ Cargo.toml                                   |  3 +++
+ compiler/rustc_data_structures/Cargo.toml    |  3 ++-
+ compiler/rustc_data_structures/src/memmap.rs | 18 +++++++++---------
+ compiler/rustc_driver_impl/Cargo.toml        |  3 ++-
+ compiler/rustc_driver_impl/src/lib.rs        |  2 +-
+ library/std/src/sys/pal/plan9/proc.rs        |  9 +++++++++
+ 7 files changed, 26 insertions(+), 14 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 6a677f59577..993310b99c2 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1600,8 +1600,6 @@ dependencies = [
+ [[package]]
+ name = "getrandom"
+ version = "0.3.3"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "26145e563e54f2cadc477553f1ec5ee650b00862f0a58bcd12cbdc5f0ea2d2f4"
+ dependencies = [
+  "cfg-if",
+  "libc",
+diff --git a/Cargo.toml b/Cargo.toml
+index b785c566dc6..36a5d7dfbe1 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -87,3 +87,6 @@ codegen-units = 1
+ # If you want to use a crate with local modifications, you can set a path or git dependency here.
+ # For git dependencies, also add your source to ALLOWED_SOURCES in src/tools/tidy/src/extdeps.rs.
+ #[patch.crates-io]
++# 9front: the crates.io crates rustc needs for plan9, changed for it (9front-rust's crates/)
++[patch.crates-io]
++getrandom = { path = "../crates/getrandom-0.3.3" }
+diff --git a/compiler/rustc_data_structures/Cargo.toml b/compiler/rustc_data_structures/Cargo.toml
+index bda62066a32..519b17e6a3b 100644
+--- a/compiler/rustc_data_structures/Cargo.toml
++++ b/compiler/rustc_data_structures/Cargo.toml
+@@ -53,7 +53,8 @@ features = [
+ libc = "0.2"
+ # tidy-alphabetical-end
+ 
+-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
++# plan9: no mmap, the files are read (memmap.rs)
++[target.'cfg(not(any(target_arch = "wasm32", target_os = "plan9")))'.dependencies]
+ # tidy-alphabetical-start
+ memmap2 = "0.2.1"
+ # tidy-alphabetical-end
+diff --git a/compiler/rustc_data_structures/src/memmap.rs b/compiler/rustc_data_structures/src/memmap.rs
+index d64a5862f4e..f7549b7ee44 100644
+--- a/compiler/rustc_data_structures/src/memmap.rs
++++ b/compiler/rustc_data_structures/src/memmap.rs
+@@ -2,14 +2,14 @@
+ use std::io;
+ use std::ops::{Deref, DerefMut};
+ 
+-/// A trivial wrapper for [`memmap2::Mmap`] (or `Vec<u8>` on WASM).
+-#[cfg(not(any(miri, target_arch = "wasm32")))]
++/// A trivial wrapper for [`memmap2::Mmap`] (or `Vec<u8>` on WASM and Plan 9, which has no mmap).
++#[cfg(not(any(miri, target_arch = "wasm32", target_os = "plan9")))]
+ pub struct Mmap(memmap2::Mmap);
+ 
+-#[cfg(any(miri, target_arch = "wasm32"))]
++#[cfg(any(miri, target_arch = "wasm32", target_os = "plan9"))]
+ pub struct Mmap(Vec<u8>);
+ 
+-#[cfg(not(any(miri, target_arch = "wasm32")))]
++#[cfg(not(any(miri, target_arch = "wasm32", target_os = "plan9")))]
+ impl Mmap {
+     /// # Safety
+     ///
+@@ -29,7 +29,7 @@ pub unsafe fn map(file: File) -> io::Result<Self> {
+     }
+ }
+ 
+-#[cfg(any(miri, target_arch = "wasm32"))]
++#[cfg(any(miri, target_arch = "wasm32", target_os = "plan9"))]
+ impl Mmap {
+     #[inline]
+     pub unsafe fn map(mut file: File) -> io::Result<Self> {
+@@ -56,13 +56,13 @@ fn as_ref(&self) -> &[u8] {
+     }
+ }
+ 
+-#[cfg(not(any(miri, target_arch = "wasm32")))]
++#[cfg(not(any(miri, target_arch = "wasm32", target_os = "plan9")))]
+ pub struct MmapMut(memmap2::MmapMut);
+ 
+-#[cfg(any(miri, target_arch = "wasm32"))]
++#[cfg(any(miri, target_arch = "wasm32", target_os = "plan9"))]
+ pub struct MmapMut(Vec<u8>);
+ 
+-#[cfg(not(any(miri, target_arch = "wasm32")))]
++#[cfg(not(any(miri, target_arch = "wasm32", target_os = "plan9")))]
+ impl MmapMut {
+     #[inline]
+     pub fn map_anon(len: usize) -> io::Result<Self> {
+@@ -82,7 +82,7 @@ pub fn make_read_only(self) -> std::io::Result<Mmap> {
+     }
+ }
+ 
+-#[cfg(any(miri, target_arch = "wasm32"))]
++#[cfg(any(miri, target_arch = "wasm32", target_os = "plan9"))]
+ impl MmapMut {
+     #[inline]
+     pub fn map_anon(len: usize) -> io::Result<Self> {
+diff --git a/compiler/rustc_driver_impl/Cargo.toml b/compiler/rustc_driver_impl/Cargo.toml
+index 6dba3dff473..4142ae9603f 100644
+--- a/compiler/rustc_driver_impl/Cargo.toml
++++ b/compiler/rustc_driver_impl/Cargo.toml
+@@ -52,7 +52,8 @@ features = [
+     "Win32_System_Diagnostics_Debug",
+ ]
+ 
+-[target.'cfg(not(target_family = "wasm"))'.dependencies]
++# plan9: no signals; an interrupt is a note, which ends the process
++[target.'cfg(not(any(target_family = "wasm", target_os = "plan9")))'.dependencies]
+ # tidy-alphabetical-start
+ ctrlc = "3.4.4"
+ # tidy-alphabetical-end
+diff --git a/compiler/rustc_driver_impl/src/lib.rs b/compiler/rustc_driver_impl/src/lib.rs
+index f1919cab395..8927db74ab3 100644
+--- a/compiler/rustc_driver_impl/src/lib.rs
++++ b/compiler/rustc_driver_impl/src/lib.rs
+@@ -1664,7 +1664,7 @@ pub fn init_logger_with_additional_layer<F, T>(
+ /// Install our usual `ctrlc` handler, which sets [`rustc_const_eval::CTRL_C_RECEIVED`].
+ /// Making this handler optional lets tools can install a different handler, if they wish.
+ pub fn install_ctrlc_handler() {
+-    #[cfg(all(not(miri), not(target_family = "wasm")))]
++    #[cfg(all(not(miri), not(target_family = "wasm"), not(target_os = "plan9")))]
+     ctrlc::set_handler(move || {
+         // Indicate that we have been signaled to stop, then give the rest of the compiler a bit of
+         // time to check CTRL_C_RECEIVED and run its own shutdown logic, but after a short amount
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index 931ccd53997..a93cff36f5e 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -645,6 +645,14 @@ unsafe fn cthread_main(v: *mut c_void) {
+     unsafe { detach(p.cast()) }
+ }
+ 
++/// For APE in the program (9front's ap/plan9/_exit.c, gen/abort.c): an `exit` or `abort` of
++/// the C ends the program as std does, its other threads with it, the status for the parent.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn __plan9_exit(status: *const libc::c_char) -> ! {
++    let status = if status.is_null() { c"" } else { unsafe { crate::ffi::CStr::from_ptr(status) } };
++    end_program(status)
++}
++
+ /// Keeps `__plan9_mainstack` and `__plan9_rforkproc` in the link: libgcc refers to the one
+ /// only weakly, the other the C after std in the link.
+ pub fn keep_mainstack() {
+@@ -653,6 +661,7 @@ pub fn keep_mainstack() {
+     crate::hint::black_box((__plan9_thread_spawn as *const ()).expose_provenance());
+     crate::hint::black_box((__plan9_thread_join as *const ()).expose_provenance());
+     crate::hint::black_box((__plan9_thread_detach as *const ()).expose_provenance());
++    crate::hint::black_box((__plan9_exit as *const ()).expose_provenance());
+ }
+ 
+ /* futex */
