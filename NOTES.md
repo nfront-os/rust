@@ -555,8 +555,21 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   `tests/out/cargo-port/release` löschen.
 - **Ergebnis** (QEMU virt, TCG, 4 Harts, `GCC9BUILD=…/9front-gcc/build`): run.sh 13/13,
   async.sh 5/5 (mio, tokio, http, tlsdns, proc), cargo.sh 5/5 (cargo von Linux aus gebaut,
-  `objtype=riscv64 scripts/build-cargo.sh`). Nicht gelaufen: std-Testsuite; kein rustc nativ
-  (LLVM für riscv64).
+  `objtype=riscv64 scripts/build-cargo.sh`). Kein rustc nativ (LLVM für riscv64).
+- **std-Testsuite** (`./x test library/std --target riscv64gc-unknown-plan9 --no-doc
+  --no-fail-fast`, `STDTEST_TIMEOUT=2400`): `std-runner.sh` erkennt arm64 und riscv64 (`file`),
+  riscv64 bootet `../9front-riscv`; `guest.sh -D`: die ext4-Platte als virtio-blk-pci 1.0 wie
+  arm64, im riscv64-Gast `/dev/sdF0` (ohne u-boots Platte). Nebenbei behoben: `-D` mit einem
+  Verzeichnis auf einem anderen Dateisystem kopierte nach `d1/<name>/` (das gescheiterte
+  `cp --link` hatte `d1` schon angelegt). Ergebnis: alle 29 Integrationsprogramme ok
+  (`tests/time.rs` 1418 s unter TCG); Unit-Programm 341 ok, 39 ignoriert, 1 fehlgeschlagen
+  (`net::tcp::tests::connect_error`: „connection timed out“ statt „refused“), dann hingen
+  `fs::tests::concurrent_recursive_mkdir`, `fs::tests::read_large_dir`,
+  `net::tcp::tests::close_readwrite_smoke` bis zur Grenze; dabei lief nur Hart 0 des Gasts
+  (~90 %), die anderen drei standen. **Offen**, ungeklärt (Kernel, ext4srv oder std).
+- Danach (2026-11-10) alles neu: 9front-gccwt (gcc, rebased) amd64/386/arm64 gebaut, die
+  Cross-gccs amd64/386/arm64 vom Branch gpu gegen ihn (alte in `build/<arch>.2026-11-04`),
+  rustc/std waren aktuell. run.sh amd64 13/13, riscv64 13/13.
 
 ## Offen
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# The runner of bootstrap's tests for x86_64-unknown-plan9 and i686-unknown-plan9
+# The runner of bootstrap's tests for the plan9 targets (x86_64, i686, aarch64, riscv64gc)
 # ([target.*] runner in bootstrap.toml: cargo's CARGO_TARGET_*_RUNNER): runs the test
 # binary (cargo's first argument, the rest are its arguments) in a 9front guest of its
 # objtype (tests/guest.sh, one guest per binary), /tmp on an ext4 disk, loopback up for the
@@ -12,8 +12,12 @@ bin=$1
 shift
 case $(file -b "$bin") in
 *i386*|*80386*)	export objtype=386 ;;
+*aarch64*)	export objtype=arm64 ;;
+*RISC-V*)	export objtype=riscv64 ;;
 *)	export objtype=amd64 ;;
 esac
+# riscv64: its own tree (branch riscv)
+[ $objtype != riscv64 ] || export PLAN9=${PLAN9_RISCV:-$TOP/../9front-riscv}
 export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
 name=$(basename "$bin")
 # rc quoting: each argument in '', a ' doubled

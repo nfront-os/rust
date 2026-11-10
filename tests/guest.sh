@@ -22,7 +22,10 @@ while [ $# -gt 0 ] && [ "$1" != -- ]; do
 	-x) shift; dst=${1%%=*}; mkdir -p "$T/extra$(dirname "$dst")"; cp "${1#*=}" "$T/extra$dst" ;;
 	-d) shift; dst=${1%%=*}; mkdir -p "$T/extra$dst"; cp -r "${1#*=}"/. "$T/extra$dst/" ;;
 	-D) shift; dst=${1%%=*}; nd=$((nd+1)); mkdir -p "$T/extra$dst"
-		cp -rL --link "${1#*=}" "$T/disk/d$nd" 2>/dev/null || cp -rL "${1#*=}" "$T/disk/d$nd"
+		# another file system: no hard links; the failed cp has made the directory (the
+		# second would copy into it)
+		cp -rL --link "${1#*=}" "$T/disk/d$nd" 2>/dev/null ||
+			{ rm -rf "$T/disk/d$nd"; cp -rL "${1#*=}" "$T/disk/d$nd"; }
 		binds+=("bind /n/disk/d$nd $dst") ;;
 	*) cp "$1" "$T/extra/tests/" ;;
 	esac
@@ -40,11 +43,15 @@ if [ $nd -gt 0 ]; then
 	dev=/dev/sdF0/data
 	# arm64: virtio 1.0 only (9front's sdvirtio10.c), as boot-cli.sh's own disks; sdF0 is
 	# its FAT disk (u-boot's), this one the next controller's
-	[ "${objtype:-amd64}" != arm64 ] || {
+	# riscv64 (virt, booted by -kernel without u-boot's disk): virtio 1.0 too, the first
+	# controller
+	case ${objtype:-amd64} in
+	arm64|riscv64)
 		disk=(-drive "file=$IMG,format=raw,if=none,id=ext4,cache=unsafe"
 			-device virtio-blk-pci,drive=ext4,disable-legacy=on)
 		dev=/dev/sdG0/data
-	}
+		[ $objtype = arm64 ] || dev=/dev/sdF0/data ;;
+	esac
 	# ext4srv keeps writes in its cache: sync at the end (KEEPDISK reads the image)
 	set -- "ext4srv -S -n disk; mount -c /srv/disk /n/disk $dev; bind -c /n/disk/work /tmp" \
 		"${binds[@]}" "$@" "echo sync >> /srv/disk.cmd; sleep 2"
