@@ -566,7 +566,15 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   (`net::tcp::tests::connect_error`: „connection timed out“ statt „refused“), dann hingen
   `fs::tests::concurrent_recursive_mkdir`, `fs::tests::read_large_dir`,
   `net::tcp::tests::close_readwrite_smoke` bis zur Grenze; dabei lief nur Hart 0 des Gasts
-  (~90 %), die anderen drei standen. **Offen**, ungeklärt (Kernel, ext4srv oder std).
+  (~90 %), die anderen drei standen. Geklärt (2026-11-10): die beiden fs-Tests hängen nicht,
+  sie sind unter TCG nur langsam (`read_large_dir` allein 289 s). `close_readwrite_smoke` hing
+  auf allen Architekturen: seit `shutdown(Write)` halb schließt, tat `shutdown(Read)` bei einem
+  blockierenden Socket nichts. Jetzt in std: alle Deskriptoren der Konversation im Prozess
+  (`#p/<pid>/fd`) lesen das Ende (`FdState.read_shut`, ein dup kopiert es); `shutdown_smoke`
+  läuft, `close_read_wakes_up` bleibt `ignore` (ein schon im Kernel blockierter Leser wird
+  nicht geweckt). `connect_error`: 0.0.0.0 ging an die Default-Route (SYN ohne Antwort);
+  die unbestimmte Adresse ist jetzt Loopback wie unter unix und in Gos net auf Plan 9.
+  Parallel hängen weiter Netztests am TCP-Fehler unter Last (unten), nacheinander alle grün.
 - Danach (2026-11-10) alles neu: 9front-gccwt (gcc, rebased) amd64/386/arm64 gebaut, die
   Cross-gccs amd64/386/arm64 vom Branch gpu gegen ihn (alte in `build/<arch>.2026-11-04`),
   rustc/std waren aktuell. run.sh amd64 13/13, riscv64 13/13.
@@ -578,7 +586,8 @@ Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unte
 - **async**: TCP-keepalive in std fehlt; eine gefangene Note unterbricht blockierte Aufrufe
   (Teil 12).
 - **9front-Kernel** (nicht vom Port, 9front-gccwt MEMORY.md): TCP-`connect` über Loopback hängt
-  unter Last (`tools/csstress`, auch mit kencc-Kernel).
+  unter Last (`tools/csstress`); 2026-11-10 auch auf dem unveränderten `front`, Kernel und
+  Userland mit kencc gebaut.
 - **arm64** (Teil 14): std-Testsuite nicht gelaufen; der Gast hat nur einen Prozessor.
 - **Werkzeuge**: die Doc-Tests der std nie gelaufen (`--no-doc`); rustdoc und clippy-driver
   enthalten je den ganzen Compiler (zusammen mit rustc ~490 MB; ein Programm für alle drei
