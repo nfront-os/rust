@@ -582,6 +582,34 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   Cross-gccs amd64/386/arm64 vom Branch gpu gegen ihn (alte in `build/<arch>.2026-11-04`),
   rustc/std waren aktuell. run.sh amd64 13/13, riscv64 13/13.
 
+## Rust 1.102: Rebase auf Upstream, Patch-Reihen (Teil 16, 2026-11-10)
+
+- **rust** `plan9` von `ce37c4ff837` (1.101, 29.10.) auf `origin/main` `6f1c7ee0ec0` (1.102,
+  10.11., 1737 Commits weiter) rebased: 24 Commits, zwei Konflikte. `hop_limit` in den TCP-
+  und UDP-Tests baut Upstream jetzt nur für unix und Windows: unser `ignore` entfällt. Die
+  Gitlinks der Submodule beim Rebase auf Upstreams Stand, danach ein Commit mit cargo und
+  llvm-project auf ihren `plan9`; der Commit, der nur cargos Gitlink setzte, fällt weg.
+  `Cargo.lock` bei Konflikten von Upstream, von cargo neu erzeugt. Sicherung der alten
+  Branches: `plan9-2026-11-10` in allen fünf Repositories.
+- **cargo** (3 Commits) auf `c07ac2c4d`, **llvm-project** (1 Commit) auf `0a5579eb649d`
+  (Rusts `rustc/23.1-2026-07-22`), ohne Konflikt; **backtrace** und **libc** (0.2.191,
+  `libc-0.2` unverändert) blieben.
+- **stacker**: rust verlangt 0.1.24, unser Patch war für 0.1.21 (unbenutzt, „patch was not
+  used“): `crates/stacker-0.1.24` mit derselben Änderung, `patches/crates/stacker-0.1.24.patch`.
+- **cargo für 9front**: das neue cargo pinnt libc 0.2.186 und libssh2-sys 0.3.4; gegen einen
+  gepinnten Lock greift ein `[patch]` anderer Version nicht (libz-sys: kein `off_t`).
+  `cargo update --config cargo-plan9.toml -p libc -p libssh2-sys` in `rust/src/tools/cargo`
+  (die Lock-Änderung bleibt lokal, wie vorher).
+- **Patch-Reihen**: `patches/{rust,cargo,backtrace,llvm-project,libc}` (`git format-patch`,
+  `BASE`: Upstream-URL und Basis), `scripts/rust-patches.sh diff|apply`; geprüft: auf die
+  Basis angewandt ergeben sie die Bäume von `plan9` genau.
+- Stage 1 baut ohne neue Warnungen (die 31 „unexpected cfg plan9“ sind des stage-0-Compilers).
+  Tests: run.sh amd64, 386, arm64, riscv64 je 13/13; cargo.sh 5/5 und async.sh 5/5 (amd64).
+  arm64: `9qemu.u` war älter als der neu gebaute Kernel (boot-cli verweigert): build-boot.sh.
+- Nebenbei: die Standardpfade der Skripte auf 9front-gccs `build/` und `out/` (`build-gcc`
+  gibt es nicht mehr, `out-gcc` war veraltet); die nativen gccs für 9front (amd64, 386, arm64,
+  riscv64) neu in `out/` gegen die aktuellen Bäume.
+
 ## Offen
 
 Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
