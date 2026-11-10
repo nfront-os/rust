@@ -3,7 +3,7 @@
 # environment: for 9front 386 (i686-pc-plan9); objtype=arm64: arm64 (aarch64-pc-plan9).
 get_filename_component(P9RUST "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 if(NOT DEFINED ENV{GCC9BUILD})
-  set(GCC9BUILD "${P9RUST}/../9front-gcc/build-gcc")
+  set(GCC9BUILD "${P9RUST}/../9front-gcc/build")
 else()
   set(GCC9BUILD "$ENV{GCC9BUILD}")
 endif()

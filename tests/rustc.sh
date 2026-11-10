@@ -4,14 +4,14 @@
 # (/amd64/gnu, the linker) in the guest; compiles and runs tests/std1.rs there.
 # rustc is called as /bin/rustc (bind), its sysroot /amd64/rust (rustc's fallback on plan9).
 # Prints "name ok" or "name FAIL ...". Log: logs/rustc-guest.log.
-# env: GCC9OUT (the native toolchain, default ../9front-gcc/out-gcc), MEM (guest MB, 3072),
+# env: GCC9OUT (the native toolchain, default ../9front-gcc/out), MEM (guest MB, 3072),
 # PLAN9 (the system booted: its APE and libp9.a link the program; default ../9front-gccwt)
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
 GCC9=${GCC9:-$TOP/../9front-gcc}
-GCC9OUT=${GCC9OUT:-$GCC9/out-gcc}
-GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
+GCC9OUT=${GCC9OUT:-$GCC9/out}
+GCC9BUILD=${GCC9BUILD:-$GCC9/build}
 # objtype=386: i686-unknown-plan9's rustc in a 9pc guest (logs/rustc-guest.386.log)
 case ${objtype:=amd64} in
 amd64)	TG=x86_64-unknown-plan9 XT=x86_64-pc-plan9 L= ;;

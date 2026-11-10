@@ -9,7 +9,7 @@ set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 GCC9=${GCC9:-$TOP/../9front-gcc}
 # its build directory with the toolchain over gcc's APE (9front branch gcc)
-GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
+GCC9BUILD=${GCC9BUILD:-$GCC9/build}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=guest-tests.log ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 LOG=guest-tests.386.log

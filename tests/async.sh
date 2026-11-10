@@ -14,7 +14,7 @@
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
-GCC9BUILD=${GCC9BUILD:-$TOP/../9front-gcc/build-gcc}
+GCC9BUILD=${GCC9BUILD:-$TOP/../9front-gcc/build}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 L= ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 L=.386 ;;

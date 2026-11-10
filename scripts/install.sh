@@ -1,7 +1,7 @@
 #!/bin/bash
 # The Rust toolchain for an installed 9front system, an optional install: the tree
 # out/$objtype/$objtype/rust that goes to /$objtype/rust (as 9front-gcc's
-# out-gcc/$objtype/$objtype/gnu goes to /$objtype/gnu), and two archives of it:
+# out/$objtype/$objtype/gnu goes to /$objtype/gnu), and two archives of it:
 #   out/$objtype/rust-T.tgz        rustc, cargo, std (bin/rustc, bin/cargo, lib, README)
 #   out/$objtype/rust-tools-T.tgz  rustdoc, rustfmt, cargo-fmt, clippy-driver, cargo-clippy
 # Paths in them from /, so on 9front:  cd /; tar xzf rust-T.tgz  (9front's tar).
@@ -18,7 +18,7 @@
 # usage: [objtype=386|arm64] scripts/install.sh [outdir]   (default out/$objtype)
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-GCC9BUILD=${GCC9BUILD:-$TOP/../9front-gcc/build-gcc}
+GCC9BUILD=${GCC9BUILD:-$TOP/../9front-gcc/build}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 ;;

@@ -11,8 +11,8 @@ set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
 GCC9=${GCC9:-$TOP/../9front-gcc}
-GCC9OUT=${GCC9OUT:-$GCC9/out-gcc}
-GCC9BUILD=${GCC9BUILD:-$GCC9/build-gcc}
+GCC9OUT=${GCC9OUT:-$GCC9/out}
+GCC9BUILD=${GCC9BUILD:-$GCC9/build}
 # objtype=386: i686-unknown-plan9's rustc in a 9pc guest (logs/cargo-build-guest.386.log)
 case ${objtype:=amd64} in
 amd64)	TG=x86_64-unknown-plan9 XT=x86_64-pc-plan9 L= ;;
