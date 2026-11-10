@@ -52,3 +52,12 @@ ranlib = "$GCC9/build-gcc/arm64/cross/bin/aarch64-pc-plan9-ranlib"
 linker = "$GCC9/build-gcc/arm64/cross/bin/aarch64-pc-plan9-gcc"
 # rustc for 9front arm64: its LLVM (objtype=arm64 scripts/build-llvm.sh, llvm-config-plan9.sh)
 llvm-config = "/home/stefan/Devel/9front-rust/build/llvm-plan9.arm64/bin/llvm-config"
+[target.riscv64gc-unknown-plan9]
+# riscv64: 9front-gcc's riscv64-unknown-plan9 (branch riscv, objtype=riscv64 build.sh cross;
+# its sysroot is ../9front-riscv)
+runner = "/home/stefan/Devel/9front-rust/tests/std-runner.sh"
+cc = "$GCC9/build/riscv64/cross/bin/riscv64-unknown-plan9-gcc"
+cxx = "$GCC9/build/riscv64/cross/bin/riscv64-unknown-plan9-g++"
+ar = "$GCC9/build/riscv64/cross/bin/riscv64-unknown-plan9-ar"
+ranlib = "$GCC9/build/riscv64/cross/bin/riscv64-unknown-plan9-ranlib"
+linker = "$GCC9/build/riscv64/cross/bin/riscv64-unknown-plan9-gcc"

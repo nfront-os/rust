@@ -4,6 +4,7 @@
 # test: "name ok" or "name FAIL ...". Log: logs/guest-tests.log (386: guest-tests.386.log).
 # objtype=386: i686-unknown-plan9 in a 9pc guest (the 9front tree built for 386: PLAN9);
 # objtype=arm64: aarch64-unknown-plan9 in a qemu (arm64) guest (emulated: slow).
+# objtype=riscv64: riscv64gc-unknown-plan9 in a qemu virt guest (../9front-riscv, emulated).
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 GCC9=${GCC9:-$TOP/../9front-gcc}
@@ -15,6 +16,8 @@ amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=guest-tests.log ;;
 	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
 arm64)	T=aarch64-unknown-plan9 X=aarch64-pc-plan9 LOG=guest-tests.arm64.log
 	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
+riscv64)	T=riscv64gc-unknown-plan9 X=riscv64-unknown-plan9 LOG=guest-tests.riscv64.log
+	export PLAN9=${PLAN9:-$TOP/../9front-riscv} ;;
 *)	echo "run.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype

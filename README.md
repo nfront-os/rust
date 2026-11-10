@@ -1,7 +1,7 @@
 # 9front-rust
 
 Rust for 9front (Plan 9): the targets `x86_64-unknown-plan9`, `i686-unknown-plan9` and
-`aarch64-unknown-plan9` (arm64), with std on 9front's own
+`aarch64-unknown-plan9` (arm64) and `riscv64gc-unknown-plan9` (cross only), with std on 9front's own
 C library (as `libp9.a`, its names `__p9_*`), cross-compiled on Linux. C and C++ in crates
 are APE programs as any; APE is linked beside the native libc. Programs are linked by
 [9front-gcc](../9front-gcc)'s cross gcc (`build-gcc`) against the gcc-built 9front tree,

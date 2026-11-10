@@ -530,6 +530,25 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   (cargo von Linux aus gebaut), rustc.sh 3/3 (rustc nativ: LLVM mit AArch64-Backend,
   `objtype=arm64 scripts/build-llvm.sh`, 15 min für rustc und die Werkzeuge).
 
+## riscv64: riscv64gc-unknown-plan9 (Teil 15, 2026-11-10)
+
+- **Toolchain**: 9front-gccs `riscv64-unknown-plan9` (rv64gc, lp64d, medany, `-mno-relax`, char
+  vorzeichenbehaftet), gegen den Baum `../9front-riscv` (Branch riscv, auf gcc 82ddeb288
+  rebased). Der alte Cross-gcc (Branch riscv, 21.10.) hatte noch die compat-Header im Präfix,
+  die seitdem im APE des Baums liegen: `max_align_t`/`lldiv_t` doppelt. Neu gebaut vom Branch
+  gpu (`objtype=riscv64 PLAN9=../9front-riscv ./build.sh cross`; der alte liegt in
+  `build/riscv64.2026-10-21`); damit auch `GTHREAD_USE_WEAK 0` (gleichzeitige Panics).
+- **Target** `riscv64gc_unknown_plan9.rs`: Datenlayout von riscv64gc-linux-gnu,
+  `+m,+a,+f,+d,+c,+zicsr,+zifencei,-relax` (niemand setzt gp), `CodeModel::Medium`, lp64d,
+  Linker `riscv64-unknown-plan9-gcc`. libc: `jmp_buf` 26 Wörter (sp, pc, s0-s11, fs0-fs11).
+- **std**: `proc.rs` runon/rforkthread/rforkrun in RISC-V (Nummer und Ergebnis in s0,
+  Argument bei 8(sp), `ecall`; das Kind bekommt die ganze Ureg, s0 = 0: privtop und Argument
+  in s1/s2 wie APEs pthread.c). Stack-Slots passen (USTKTOP 256 GiB, Sv39).
+- `bootstrap.toml`: die Cross-gccs liegen jetzt in `9front-gcc/build/` (nicht mehr
+  `build-gcc/`); `tests/run.sh` braucht dafür `GCC9BUILD=…/9front-gcc/build`.
+- **Ergebnis**: `objtype=riscv64 GCC9BUILD=… tests/run.sh` 13/13 (QEMU virt, TCG, 4 Harts).
+  Nicht gelaufen: async.sh, cargo.sh, std-Testsuite; kein rustc/cargo nativ (LLVM für riscv64).
+
 ## Offen
 
 Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
