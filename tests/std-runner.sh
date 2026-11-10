@@ -5,7 +5,7 @@
 # objtype (tests/guest.sh, one guest per binary), /tmp on an ext4 disk, loopback up for the
 # net tests (127.1 and ::1). Its output is this script's, its status too (a failure: 101, as the harness).
 # usage: tests/std-runner.sh binary [args...]
-# env: MEM (guest MB, 2048), SMP (4), STDTEST_TIMEOUT (seconds per binary, 900),
+# env: MEM (guest MB, 2048), SMP (4), STDTEST_TIMEOUT (seconds per binary, 900; riscv64 3600),
 #      PLAN9 (the system booted; default ../9front-gccwt), STDTEST_LOG (all guest logs, appended)
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 bin=$1
@@ -16,8 +16,10 @@ case $(file -b "$bin") in
 *RISC-V*)	export objtype=riscv64 ;;
 *)	export objtype=amd64 ;;
 esac
-# riscv64: its own tree (branch riscv)
+# riscv64: its own tree (branch riscv); under TCG its std unit tests take ~2600 s (the fs
+# tests that make thousands of files)
 [ $objtype != riscv64 ] || export PLAN9=${PLAN9_RISCV:-$TOP/../9front-riscv}
+[ $objtype != riscv64 ] || STDTEST_TIMEOUT=${STDTEST_TIMEOUT:-3600}
 export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
 name=$(basename "$bin")
 # rc quoting: each argument in '', a ' doubled

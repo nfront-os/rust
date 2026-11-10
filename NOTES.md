@@ -576,7 +576,8 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   die unbestimmte Adresse ist jetzt Loopback wie unter unix und in Gos net auf Plan 9.
   Parallel hängen weiter Netztests am TCP-Fehler unter Last (unten), nacheinander alle grün.
   Danach Unit-Programm riscv64: 346 ok, 0 fehlgeschlagen, 38 ignoriert, in 2558 s (die beiden
-  fs-Tests allein ~25 min; knapp an `STDTEST_TIMEOUT=2400` + den 300 s von guest.sh).
+  fs-Tests allein ~25 min; knapp an `STDTEST_TIMEOUT=2400` + den 300 s von guest.sh);
+  `std-runner.sh` nimmt für riscv64 jetzt 3600 s, wenn `STDTEST_TIMEOUT` nicht gesetzt ist.
 - Danach (2026-11-10) alles neu: 9front-gccwt (gcc, rebased) amd64/386/arm64 gebaut, die
   Cross-gccs amd64/386/arm64 vom Branch gpu gegen ihn (alte in `build/<arch>.2026-11-04`),
   rustc/std waren aktuell. run.sh amd64 13/13, riscv64 13/13.
