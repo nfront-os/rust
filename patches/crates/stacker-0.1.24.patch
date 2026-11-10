@@ -1,0 +1,18 @@
+diff -ruN '--exclude=target' stacker-0.1.24/src/lib.rs /home/stefan/Devel/9front-rust/crates/stacker-0.1.24/src/lib.rs
+--- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/lib.rs	2026-11-10 23:29:39.759924405 +0100
+@@ -135,11 +135,12 @@
+ 
+ psm_stack_manipulation! {
+     yes {
+-        #[cfg(not(any(target_arch = "wasm32",target_os = "hermit")))]
++        // 9front (Plan 9): no mmap; a stack from malloc, as std's threads have
++        #[cfg(not(any(target_arch = "wasm32",target_os = "hermit",target_os = "plan9")))]
+         #[path = "mmap_stack_restore_guard.rs"]
+         mod stack_restore_guard;
+ 
+-        #[cfg(any(target_arch = "wasm32",target_os = "hermit"))]
++        #[cfg(any(target_arch = "wasm32",target_os = "hermit",target_os = "plan9"))]
+         #[path = "alloc_stack_restore_guard.rs"]
+         mod stack_restore_guard;
+ 
