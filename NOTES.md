@@ -609,6 +609,12 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
 - Nebenbei: die Standardpfade der Skripte auf 9front-gccs `build/` und `out/` (`build-gcc`
   gibt es nicht mehr, `out-gcc` war veraltet); die nativen gccs für 9front (amd64, 386, arm64,
   riscv64) neu in `out/` gegen die aktuellen Bäume.
+- **Nativ (2026-11-11)**: LLVM für 9front (amd64, 386, arm64) neu aus dem rebasten
+  llvm-project (23.1.5), dann rustc 1.102 stage 2 je Host. Ein frischer LLVM-Bau hatte kein
+  `bin/llvm-config` (bootstrap: „No such file“), und llvm-native-tools nicht die Bibliotheken,
+  die `llvm-config-plan9.sh` linkt: `build-llvm.sh` baut sie mit und macht llvm-config am Ende.
+  `tests/rustc.sh` amd64, 386, arm64 je 3/3; `tests/cargo-build.sh` amd64, 386, arm64 je 10/10
+  (Proc-Macros, serde-derive); cargo für 386, arm64, riscv64 neu, `tests/cargo.sh` je 5/5.
 
 ## Offen
 
