@@ -90,8 +90,8 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/mod.rs /home/stefan
  compile_error!("The platform you're compiling for is not supported by winit");
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 --- a/src/platform_impl/plan9/event_loop.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/event_loop.rs	2026-11-07 00:27:43.810412118 +0100
-@@ -0,0 +1,790 @@
++++ b/src/platform_impl/plan9/event_loop.rs	2026-11-11 15:24:56.641359401 +0100
+@@ -0,0 +1,799 @@
 +//! 9front: the event loop of winit's plan9 backend. The readers of p9win
 +//! (threads) put what they read into a queue; the loop takes it out and makes
 +//! winit's events of it, and waits on the queue (a condition variable) for
@@ -321,6 +321,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +    last: Option<(i32, i32)>, // the pointer on the screen
 +    inside: bool,
 +    content: Rect,
++    theme: Option<String>, // the desktop's theme as last read (/dev/theme)
 +}
 +
 +impl State {
@@ -438,7 +439,9 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +        })
 +    }
 +
-+    /// the window looked up again: Resized and Moved if it changed
++    /// the window looked up again ('r': it changed, it is to be drawn again, as
++    /// rio and wsys mean it: a new place, a new wsys, a new theme): Resized and
++    /// Moved if it did, ThemeChanged if /dev/theme did, a redraw in any case
 +    fn relook(win: &WinState, st: &mut State, h: &mut Handler<'_, T>, shared: &Shared) {
 +        let c = win.relook();
 +        let old = st.content;
@@ -447,8 +450,14 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +            window_event(h, event::WindowEvent::Resized(
 +                (c.dx().max(0) as u32, c.dy().max(0) as u32).into(),
 +            ));
-+            shared.poke(|q| q.redraw = true);
 +        }
++        if let Some((theme, text)) = super::window::desktop_theme() {
++            if st.theme.as_deref().is_some_and(|t| t != text) {
++                window_event(h, event::WindowEvent::ThemeChanged(theme));
++            }
++            st.theme = Some(text);
++        }
++        shared.poke(|q| q.redraw = true);
 +        if c.x0 != old.x0 || c.y0 != old.y0 {
 +            window_event(h, event::WindowEvent::Moved((c.x0, c.y0).into()));
 +        }
@@ -1047,8 +1056,8 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/mod.rs /home/
 +}
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/window.rs
 --- a/src/platform_impl/plan9/window.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/window.rs	2026-11-06 22:28:23.715942681 +0100
-@@ -0,0 +1,484 @@
++++ b/src/platform_impl/plan9/window.rs	2026-11-11 15:24:56.641170523 +0100
+@@ -0,0 +1,498 @@
 +//! 9front: the window of winit's plan9 backend, the process's window of wsys
 +//! or rio (the screen without either). Size, place and hiding go to
 +//! /dev/wctl (rio(4)); the window system's answer comes back as a change the
@@ -1514,7 +1523,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +
 +    #[inline]
 +    pub fn theme(&self) -> Option<window::Theme> {
-+        None
++        desktop_theme().map(|(t, _)| t)
 +    }
 +
 +    #[inline]
@@ -1532,4 +1541,18 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +    fn drop(&mut self) {
 +        self.shared.poke(|q| q.destroyed = true);
 +    }
++}
++
++/// the desktop's theme (wsys(4)'s /dev/theme: its text, light or dark by its
++/// windows' colour); None without one (rio)
++pub(crate) fn desktop_theme() -> Option<(window::Theme, String)> {
++    let text = std::fs::read_to_string("/dev/theme").ok()?;
++    let back = text.lines().find_map(|l| {
++        let mut f = l.split_whitespace();
++        (f.next() == Some("window")).then(|| f.next()).flatten()
++    });
++    let rgb = back.and_then(|v| u32::from_str_radix(v.trim_start_matches('#'), 16).ok()).unwrap_or(0xFFFFFF);
++    let luma = 299 * ((rgb >> 16) & 0xFF) + 587 * ((rgb >> 8) & 0xFF) + 114 * (rgb & 0xFF);
++    let t = if luma >= 128_000 { window::Theme::Light } else { window::Theme::Dark };
++    Some((t, text))
 +}
