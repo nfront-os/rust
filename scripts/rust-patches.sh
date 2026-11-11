@@ -7,7 +7,9 @@
 #   scripts/rust-patches.sh diff   write them from the branches (after a rebase or a commit)
 #   scripts/rust-patches.sh apply  make the branches plan9 from upstream and the patches
 #                                  (a clone of each upstream repository must be there; it
-#                                  fetches the base and applies with git am)
+#                                  fetches the base and applies with git am); it stops when
+#                                  plan9 has commits the patches lack (run diff first; FORCE=1
+#                                  overrides) and keeps the old plan9 as plan9-before-apply
 # rust's bases of its submodules are the commits upstream's rust pins; libc's is the upstream
 # branch libc-0.2's commit the branch is on.
 set -e
@@ -22,6 +24,8 @@ repos=(
 	"libc $TOP/libc https://github.com/rust-lang/libc.git origin/libc-0.2"
 )
 die(){ echo "rust-patches: $*" >&2; exit 1; }
+# the patch ids of a series, sorted (equal for the same changes, whatever the commit ids)
+ids(){ git -C "$1" patch-id --stable | awk '{print $1}' | sort; }
 
 # the submodule's commit in rust's upstream base
 pin(){
@@ -55,6 +59,13 @@ apply)
 		read url base < "$P/$name/BASE"
 		[ -d "$dir/.git" ] || [ -f "$dir/.git" ] || die "$name: no clone in $dir (git clone $url)"
 		git -C "$dir" cat-file -e "$base^{commit}" 2>/dev/null || git -C "$dir" fetch "$url" "$base"
+		if git -C "$dir" rev-parse -q --verify plan9 >/dev/null; then
+			if [ "$FORCE" != 1 ] && [ "$(git -C "$dir" log -p --reverse "$base..plan9" | ids "$dir")" != \
+				"$(cat "$P/$name"/*.patch | ids "$dir")" ]; then
+				die "$name: plan9 differs from patches/$name (run diff first, or FORCE=1)"
+			fi
+			git -C "$dir" branch -f plan9-before-apply plan9
+		fi
 		git -C "$dir" checkout -q -B plan9 "$base"
 		git -C "$dir" am -q --keep-cr "$P/$name"/*.patch
 		echo "$name: plan9 $(git -C "$dir" rev-parse --short plan9)"
