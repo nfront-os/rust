@@ -196,6 +196,14 @@ impl Draw {
     /// the window again, by the name /dev/winname has now (rio names a window
     /// anew when it changes); without /dev/winname the screen
     pub fn attach(&mut self) -> io::Result<()> {
+        // the connection's devdraw gone (the window's wsys: wsys.rs made the
+        // window again in the next one): a new connection, its images anew
+        // (a flush: harmless, it fails only there; ctl cannot tell, a new connection's
+        // ctl is read once)
+        if self.flush().is_err() {
+            *self = Draw::open()?;
+            return Ok(());
+        }
         let name = match Fd::open("/dev/winname", OREAD) {
             Ok(fd) => {
                 let mut b = [0u8; 256];

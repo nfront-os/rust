@@ -33,7 +33,16 @@ unsafe extern "C" {
     fn p9create(file: *const c_char, mode: c_int, perm: c_uint) -> c_int;
     #[link_name = "__p9_remove"]
     fn p9remove(file: *const c_char) -> c_int;
+    #[link_name = "__p9_mount"]
+    fn p9mount(fd: c_int, afd: c_int, old: *const c_char, flag: c_int, aname: *const c_char) -> c_int;
+    #[link_name = "__p9_bind"]
+    fn p9bind(new: *const c_char, old: *const c_char, flag: c_int) -> c_int;
+    #[link_name = "__p9_unmount"]
+    fn p9unmount(new: *const c_char, old: *const c_char) -> c_int;
 }
+
+pub const MREPL: c_int = 0;
+pub const MBEFORE: c_int = 1;
 
 /// the process's error string as an io::Error
 pub fn err() -> io::Error {
@@ -126,4 +135,30 @@ pub fn post(name: &str, fd: &Fd) -> io::Result<Fd> {
 pub fn remove(name: &str) -> io::Result<()> {
     let cs = CString::new(name).map_err(|_| io::Error::other("nul in name"))?;
     if unsafe { p9remove(cs.as_ptr()) } < 0 { Err(err()) } else { Ok(()) }
+}
+
+fn cstr(s: &str) -> io::Result<CString> {
+    CString::new(s).map_err(|_| io::Error::other("nul in name"))
+}
+
+/// fd (a 9P conversation) mounted on old with attach name aname; mount(2)
+/// closes fd when it works
+pub fn mount(fd: Fd, old: &str, flag: c_int, aname: &str) -> io::Result<()> {
+    let (o, a) = (cstr(old)?, cstr(aname)?);
+    if unsafe { p9mount(fd.0, -1, o.as_ptr(), flag, a.as_ptr()) } < 0 {
+        return Err(err());
+    }
+    std::mem::forget(fd);
+    Ok(())
+}
+
+pub fn bind(new: &str, old: &str, flag: c_int) -> io::Result<()> {
+    let (n, o) = (cstr(new)?, cstr(old)?);
+    if unsafe { p9bind(n.as_ptr(), o.as_ptr(), flag) } < 0 { Err(err()) } else { Ok(()) }
+}
+
+/// new taken away from old (unmount(2))
+pub fn unmount(new: &str, old: &str) -> io::Result<()> {
+    let (n, o) = (cstr(new)?, cstr(old)?);
+    if unsafe { p9unmount(n.as_ptr(), o.as_ptr()) } < 0 { Err(err()) } else { Ok(()) }
 }

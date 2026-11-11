@@ -33,7 +33,8 @@ For Rust programs in windows of wsys or rio (../9front-ui PLAN §6.1): winit,
 raw-window-handle, softbuffer and wgpu with backends for 9front, on top of our
 own `plan9/p9win` (MIT, only std: the process's window through draw(3), readers
 of `/dev/mouse`, `/dev/kbd` and `/dev/wctl`, `/dev/cursor`, label, wctl,
-snarf). Their changes are patches like the other crates' (`patches/crates`,
+snarf; a window that outlives its wsys: made again in the next one, `wsys.rs`).
+Their changes are patches like the other crates' (`patches/crates`,
 "9front" in them; `cargo --config cargo-plan9.toml`):
 
 - `raw-window-handle-0.6.2`: `RawWindowHandle::Plan9`, `RawDisplayHandle::Plan9`.
