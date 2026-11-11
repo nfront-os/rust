@@ -616,6 +616,11 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   die `llvm-config-plan9.sh` linkt: `build-llvm.sh` baut sie mit und macht llvm-config am Ende.
   `tests/rustc.sh` amd64, 386, arm64 je 3/3; `tests/cargo-build.sh` amd64, 386, arm64 je 10/10
   (Proc-Macros, serde-derive); cargo für 386, arm64, riscv64 neu, `tests/cargo.sh` je 5/5.
+- **std für 386 und arm64 im stage-1-Sysroot (2026-11-11, für 9fronts cargo.sh):** die
+  Zielliste in `bootstrap.toml` hat jetzt auch `i686-unknown-plan9` und `aarch64-unknown-plan9`.
+  Falle: `./x build library --stage 1 --target A,B` räumt das Sysroot
+  (`build/host/stage1/lib/rustlib`) auf genau A und B — die std von `x86_64-unknown-plan9`
+  war danach weg; immer alle Ziele angeben (oder die Liste aus `bootstrap.toml` nehmen).
 
 ## Offen
 
