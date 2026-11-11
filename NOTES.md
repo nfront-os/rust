@@ -378,17 +378,18 @@ zurück (`STDTEST_LOG`: alle Gastprotokolle).
   APEs pthread.o nicht ins Rust-Programm, die FDE-Listen blieben ungesperrt. Behoben in
   9front-gcc (`GTHREAD_USE_WEAK 0` in `gcc/config/plan9.h`). Das `abort` der Testkopie von std
   beendete nur deren Threads: main (Sysroot-std) wartete ewig.
-- **Offen: TCP unter Last.** Mit 12 Test-Threads scheitern `multiple_connect_interleaved_*`
-  (je 10 Verbindungen vor dem ersten accept): „connection refused“, „i/o on hungup channel“,
-  danach liest die Gegenseite 0 Bytes (`buf[0] == 99`); auch einmal „listen hungup“ in
-  `clone_accept_*`. Mit einem Test-Thread grün (40 Läufe). Nicht die incall-Grenze
-  (`Maxincall` 10, keine Meldung „incall queue full“), keine doppelten Ports (zufällig aus
-  2^15..2^16). Ungeklärt: 9fronts TCP über Loopback unter Last oder std's Netzcode.
-- **Offen, Bug in 9front: TCP-`connect` über Loopback hängt unter Last** (nicht `/net/cs`, wie
-  zuerst gedeutet: im Stack lag `call` von dial(2), das `connect` ans ctl schreibt). Mit C
-  nachgestellt (`tools/csstress.c`, `tools/csstress.rc`), gleich mit dem kencc-Kernel: ein Fehler von
-  9front, nicht vom gcc-Port (9front-gccwt MEMORY.md). std wählt numerische Adressen
-  trotzdem direkt (`/net/tcp/clone`), cs ist für SocketAddr unnötig.
+- **Gelöst 2026-11-11: TCP unter Last** (früher zwei offene Punkte: mit 12 Test-Threads
+  scheiterten `multiple_connect_interleaved_*` mit „connection refused“, „i/o on hungup
+  channel“, einmal „listen hungup“; und `connect` über Loopback hing, nachgestellt mit C in
+  `tools/csstress.c`, `tools/csstress.rc`, auch mit dem kencc-Kernel). Ursache in 9front, in
+  `devip.c:closeconv`: es setzte `inuse` auf 0, bevor `tcpclose` lief, und dieses gibt in
+  `tcpoutput` den Conv-Lock frei. Kam inzwischen das ACK auf das FIN, vergab `Fsprotoclone` die
+  Verbindung neu, und das alte `closeconv` setzte danach den Zustand des neuen Besitzers auf
+  Idle: dessen `connect` schlief für immer. Fix in ../9front-gccwt (`gcc` 237bfdd4b, Patch
+  `patch-upstream/0025`, Einzelheiten dort in MEMORY.md). Danach mit 12 Test-Threads die
+  Netztests 6 von 6 Läufen grün (61 ok, je ~1,1 s; `logs/stdtest.net-fix*.log`), csstress mit
+  12, 24, 50 Procs durch. std wählt numerische Adressen weiter direkt (`/net/tcp/clone`), cs
+  ist für SocketAddr unnötig.
 - **Offen: TCP halb schließen.** 9fronts ctl `close` legt auch die Leseseite auf (`tcpclose`:
   `qhangup(c->rq)`), `shutdown(Write)` beendet also beide Richtungen: eine Antwort der
   Gegenseite geht still verloren (HTTP-Clients, nc-artige Werkzeuge). Nur im Kernel lösbar.
