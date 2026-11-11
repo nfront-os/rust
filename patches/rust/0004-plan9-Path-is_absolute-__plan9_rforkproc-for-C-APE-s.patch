@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 29 Oct 2026 12:48:24 +0100
-Subject: [PATCH 04/25] plan9: Path::is_absolute; __plan9_rforkproc for C
+Subject: [PATCH 04/26] plan9: Path::is_absolute; __plan9_rforkproc for C
  (APE's read buffering in ape9); cargo
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

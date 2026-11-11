@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 30 Oct 2026 15:22:32 +0100
-Subject: [PATCH 15/25] plan9: i686-unknown-plan9 (386, SSE2): the target,
+Subject: [PATCH 15/26] plan9: i686-unknown-plan9 (386, SSE2): the target,
  std's rfork and stack switch for x86 (INT $64; the child gets its parent's
  registers)
 

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 29 Oct 2026 22:31:03 +0100
-Subject: [PATCH 06/25] plan9: rustc for 9front (no mmap: files read, no
+Subject: [PATCH 06/26] plan9: rustc for 9front (no mmap: files read, no
  ctrlc), getrandom 0.3.3 port; std's __plan9_exit; llvm-project on its plan9
  branch
 

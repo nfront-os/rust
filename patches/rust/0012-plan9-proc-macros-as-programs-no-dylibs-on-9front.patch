@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 30 Oct 2026 13:56:43 +0100
-Subject: [PATCH 12/25] plan9: proc macros as programs (no dylibs on 9front)
+Subject: [PATCH 12/26] plan9: proc macros as programs (no dylibs on 9front)
 
 A proc-macro crate for a plan9 host is linked as a static program: its
 harness adds #[rustc_main] fn main() { proc_macro::bridge::remote::serve(_DECLS) },

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 30 Oct 2026 10:06:04 +0100
-Subject: [PATCH 09/25] plan9: __plan9_abort for APE's abort: the program's
+Subject: [PATCH 09/26] plan9: __plan9_abort for APE's abort: the program's
  other procs go, the aborting one ends with a trap (ud2) and stays Broken
 
 Tested (tests/run.sh cexit-abort): one cexit proc left, Broken, its PC in

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 29 Oct 2026 11:24:12 +0100
-Subject: [PATCH 01/25] Add x86_64-unknown-plan9 (9front): target, std on
+Subject: [PATCH 01/26] Add x86_64-unknown-plan9 (9front): target, std on
  9front's own libc
 
 Linked by 9front's gcc port (x86_64-pc-plan9-gcc) against /amd64/lib.gcc/libc.a.

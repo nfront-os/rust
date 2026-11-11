@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 13:27:29 +0100
-Subject: [PATCH 21/25] plan9: aarch64-unknown-plan9 (arm64): the target (no
+Subject: [PATCH 21/26] plan9: aarch64-unknown-plan9 (arm64): the target (no
  outline atomics), c_char signed on Plan 9, std's rfork and stack switch for
  aarch64 (SVC #0, the child gets its parent's registers)
 

@@ -621,6 +621,13 @@ Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
   Falle: `./x build library --stage 1 --target A,B` räumt das Sysroot
   (`build/host/stage1/lib/rustlib`) auf genau A und B — die std von `x86_64-unknown-plan9`
   war danach weg; immer alle Ziele angeben (oder die Liste aus `bootstrap.toml` nehmen).
+- **386: Stack-Slots nahmen den ganzen unteren Adressraum (2026-11-11, gefunden an wsys im
+  9pc-Gast, `/proc/N/segment`):** 64 Slots zu 64 MB ab 1 GiB unter dem Stack belegten auf 386
+  alles von 0x2100000 bis 0x7ff00000 (31 Stück, bis zum Überlapp mit bss) — darin segment(3)s
+  gemeinsamer Bereich (SHAREDBASE 0x6fe00000: wsys konnte Wayland-Pools nicht einblenden,
+  „segments overlap“) und der Heap behielt 31 MB. Jetzt auf 32 Bit 16 Slots zu 8 MB direkt
+  unter SHAREDBASE (USTKTOP/2, aus der Lage des Stacks), ~1,5 GB Heap; 64 Bit unverändert.
+  `tests/run.sh` 386 13/13.
 
 ## Offen
 

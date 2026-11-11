@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Tue, 10 Nov 2026 22:58:14 +0100
-Subject: [PATCH 24/25] plan9: submodules: cargo and llvm-project on their
+Subject: [PATCH 24/26] plan9: submodules: cargo and llvm-project on their
  plan9 branches (9front: cargo's process, paths, Cargo.toml search, file
  locks; LLVM against APE)
 

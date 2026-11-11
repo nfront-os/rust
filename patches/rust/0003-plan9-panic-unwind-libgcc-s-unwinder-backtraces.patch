@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 29 Oct 2026 11:47:24 +0100
-Subject: [PATCH 03/25] plan9: panic=unwind (libgcc's unwinder), backtraces
+Subject: [PATCH 03/26] plan9: panic=unwind (libgcc's unwinder), backtraces
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---

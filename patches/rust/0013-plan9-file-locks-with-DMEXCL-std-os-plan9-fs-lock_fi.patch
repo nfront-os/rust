@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 30 Oct 2026 14:33:58 +0100
-Subject: [PATCH 13/25] plan9: file locks with DMEXCL:
+Subject: [PATCH 13/26] plan9: file locks with DMEXCL:
  std::os::plan9::fs::lock_file (an exclusive-use file opened alone, kept alive
  against the server's lock timeout as upas does; "file is locked" is
  WouldBlock), rustc's flock and cargo use it

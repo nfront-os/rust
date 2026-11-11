@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Stefan Hertenberger <erde74@gmail.com>
+Date: Wed, 11 Nov 2026 20:32:56 +0100
+Subject: [PATCH 26/26] plan9 std: 386's thread stacks 16 slots of 8 MB below
+ segment(3)'s shared region (64 of 64 MB took all below 2 GB: the shared
+ region, and the heap left 31 MB)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ library/std/src/sys/pal/plan9/proc.rs | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
+index 13bcf31c316..165d0c07175 100644
+--- a/library/std/src/sys/pal/plan9/proc.rs
++++ b/library/std/src/sys/pal/plan9/proc.rs
+@@ -666,9 +666,17 @@ fn set_privtop_here() {
+ /* stacks */
+ 
+ /// Stacks with a gap below, attached by `main`'s proc.
++#[cfg(target_pointer_width = "64")]
+ pub const NSLOT: usize = 64;
+ /// Address space of one; its pages are made as they are touched.
++#[cfg(target_pointer_width = "64")]
+ pub const SLOT: usize = 64 << 20;
++// 386 (3.5 GB of addresses): fewer and smaller, the heap needs the room (64 of
++// 64 MB took all below 2 GB: a heap of 31 MB)
++#[cfg(target_pointer_width = "32")]
++pub const NSLOT: usize = 16;
++#[cfg(target_pointer_width = "32")]
++pub const SLOT: usize = 8 << 20;
+ const GAP: usize = 1 << 20;
+ const NOSLOT: usize = usize::MAX;
+ 
+@@ -686,7 +694,13 @@ fn attach_slots() {
+     let here = 0u8;
+     // a GiB below the stack segment, out of the way of the kernel's choice for
+     // segattach(…, 0, …), which goes down from there
++    #[cfg(target_pointer_width = "64")]
+     let top = ((&raw const here).addr() & !((1usize << 30) - 1)) - (1usize << 30);
++    // 386: below the region segment(3) gives "va 0" segments (portdat.h's
++    // SHAREDBASE: half of USTKTOP, where the stack segment ends; 16 MB above
++    // here), which other processes' segments are attached in; the heap below
++    #[cfg(target_pointer_width = "32")]
++    let top = ((((&raw const here).addr() | ((16usize << 20) - 1)) / 2 + 1) & !((64usize << 20) - 1)) - (64usize << 20);
+     SLOT_TOP.store(top, Relaxed);
+     let mut n = 0;
+     while n < NSLOT {

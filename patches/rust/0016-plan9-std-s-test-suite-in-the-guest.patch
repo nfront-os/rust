@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 30 Oct 2026 22:44:42 +0100
-Subject: [PATCH 16/25] plan9: std's test suite in the guest
+Subject: [PATCH 16/26] plan9: std's test suite in the guest
 
 std's unit tests link a second std: the assembly as naked functions (each copy its own),
 the C exports (malloc, __plan9_*) only outside cfg(test), PRIVTOP and MAIN_PID one instance

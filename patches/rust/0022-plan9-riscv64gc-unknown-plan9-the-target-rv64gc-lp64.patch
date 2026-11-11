@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Tue, 10 Nov 2026 14:52:42 +0100
-Subject: [PATCH 22/25] plan9: riscv64gc-unknown-plan9: the target (rv64gc,
+Subject: [PATCH 22/26] plan9: riscv64gc-unknown-plan9: the target (rv64gc,
  lp64d, medany, no linker relaxation), std's rfork and stack switch for
  riscv64 (ecall, number and result in s0, the child gets its parent's
  registers)
