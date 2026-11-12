@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Tue, 10 Nov 2026 23:22:23 +0100
-Subject: [PATCH 25/26] plan9: stacker 0.1.24 from crates/ (upstream's version
+Subject: [PATCH 24/25] plan9: stacker 0.1.24 from crates/ (upstream's version
  now; the plan9 change as for 0.1.21), Cargo.lock
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

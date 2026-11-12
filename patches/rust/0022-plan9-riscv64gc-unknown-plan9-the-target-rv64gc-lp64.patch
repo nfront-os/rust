@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Tue, 10 Nov 2026 14:52:42 +0100
-Subject: [PATCH 22/26] plan9: riscv64gc-unknown-plan9: the target (rv64gc,
+Subject: [PATCH 22/25] plan9: riscv64gc-unknown-plan9: the target (rv64gc,
  lp64d, medany, no linker relaxation), std's rfork and stack switch for
  riscv64 (ecall, number and result in s0, the child gets its parent's
  registers)
@@ -16,7 +16,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 compiler/rustc_target/src/spec/targets/riscv64gc_unknown_plan9.rs
 
 diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
-index f3c0240500e..c1f015c2c5f 100644
+index be71fe913f5..f15f1ebc348 100644
 --- a/compiler/rustc_target/src/spec/mod.rs
 +++ b/compiler/rustc_target/src/spec/mod.rs
 @@ -1548,6 +1548,7 @@ fn $module() {

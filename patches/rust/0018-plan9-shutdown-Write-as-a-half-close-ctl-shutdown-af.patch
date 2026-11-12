@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 01:35:31 +0100
-Subject: [PATCH 18/26] plan9: shutdown(Write) as a half close (ctl "shutdown",
+Subject: [PATCH 18/25] plan9: shutdown(Write) as a half close (ctl "shutdown",
  after what a pump has buffered, on the ctl opened at the call: a later open
  by name could find another conversation); a dropped non-blocking listener
  frees its port at once

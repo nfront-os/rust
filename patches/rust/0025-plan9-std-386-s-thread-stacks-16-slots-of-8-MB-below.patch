@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Wed, 11 Nov 2026 20:32:56 +0100
-Subject: [PATCH 26/26] plan9 std: 386's thread stacks 16 slots of 8 MB below
+Subject: [PATCH 25/25] plan9 std: 386's thread stacks 16 slots of 8 MB below
  segment(3)'s shared region (64 of 64 MB took all below 2 GB: the shared
  region, and the heap left 31 MB)
 

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Tue, 10 Nov 2026 19:54:40 +0100
-Subject: [PATCH 23/26] plan9: shutdown(Read) of a blocking stream ends the
+Subject: [PATCH 23/25] plan9: shutdown(Read) of a blocking stream ends the
  reads of every descriptor of its conversation (the process' fd table;
  FdState, copied by dup): close_readwrite_smoke hung since shutdown(Write)
  became a half close; the unspecified remote address (0.0.0.0, ::) is the

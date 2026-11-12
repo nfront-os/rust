@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 13:27:29 +0100
-Subject: [PATCH 21/26] plan9: aarch64-unknown-plan9 (arm64): the target (no
+Subject: [PATCH 21/25] plan9: aarch64-unknown-plan9 (arm64): the target (no
  outline atomics), c_char signed on Plan 9, std's rfork and stack switch for
  aarch64 (SVC #0, the child gets its parent's registers)
 
@@ -17,7 +17,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 compiler/rustc_target/src/spec/targets/aarch64_unknown_plan9.rs
 
 diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
-index 34d4f18a8c3..f3c0240500e 100644
+index 86d525c7da5..be71fe913f5 100644
 --- a/compiler/rustc_target/src/spec/mod.rs
 +++ b/compiler/rustc_target/src/spec/mod.rs
 @@ -1547,6 +1547,7 @@ fn $module() {

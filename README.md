@@ -11,13 +11,17 @@ Log of the port (German): `NOTES.md`.
 
 ## Layout
 
-- `rust/`, `libc/`, `llvm-project/`: the sources, each its own git repository; the port is
-  on their branch `plan9`.
+- `rust/`, `libc/`: the sources from archives, not clones (`./fetch.sh`: `sources.txt`,
+  `sha256.txt`, Rust's release key in `keys/`): Rust's nightly source archive (with its
+  cargo, backtrace and llvm-project in it) and libc's crate, each made a repository of its
+  own with the archive tagged (`nightly-<date>`, the version); the port is on their branch
+  `plan9`.
 - `patches/rust`, `patches/cargo`, `patches/backtrace`, `patches/llvm-project`,
-  `patches/libc`: the branches `plan9` of rust, its submodules and libc as patch series
-  (`git format-patch`) on the upstream commit in each `BASE`. After a commit or a rebase
-  `scripts/rust-patches.sh diff` writes them; `scripts/rust-patches.sh apply` makes the
-  branches from upstream clones.
+  `patches/libc`: the branches `plan9` as patch series (`git format-patch`); cargo,
+  backtrace and llvm-project are directories of `rust/` and their series apply there.
+  After a commit `scripts/rust-patches.sh diff` writes them; `scripts/rust-patches.sh
+  apply` makes the branches from the tags (`fetch.sh` runs it). `BASE`: the upstream
+  commit (rust: the nightly's) or version, for reference.
 - `tests/`: test programs; `tests/guest.sh` runs programs in the 9front guest.
 - `bootstrap.toml.example`: `rust/bootstrap.toml` (`$GCC9`: the 9front-gcc checkout, GCC_DIR; `$RUST9`: this one, RUST_DIR).
 
@@ -70,6 +74,8 @@ the processor without a GPU, also without wgpu) uses that copy; its `scripts/rus
 
 ## Build
 
+    ./fetch.sh                                 # the nightly and libc's crate (signature, sha256), the patches on plan9
+    cp bootstrap.toml.example rust/bootstrap.toml   # $GCC9, $RUST9 set to the real paths
     cd rust && ./x build --stage 1 library --target x86_64-unknown-linux-gnu,x86_64-unknown-plan9
     scripts/build-cargo.sh                     # cargo for 9front
     tests/run.sh; tests/cargo.sh               # in the 9front guest

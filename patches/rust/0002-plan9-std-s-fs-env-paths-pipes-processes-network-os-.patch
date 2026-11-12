@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 29 Oct 2026 11:42:33 +0100
-Subject: [PATCH 02/26] plan9: std's fs, env, paths, pipes, processes, network;
+Subject: [PATCH 02/25] plan9: std's fs, env, paths, pipes, processes, network;
  os::fd, os::plan9
 
 Files on open/create and stat(5) entries (rename stays in a directory, across

@@ -1,16 +1,15 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 29 Oct 2026 11:47:24 +0100
-Subject: [PATCH 03/26] plan9: panic=unwind (libgcc's unwinder), backtraces
+Subject: [PATCH 03/25] plan9: panic=unwind (libgcc's unwinder), backtraces
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  compiler/rustc_target/src/spec/base/plan9.rs | 3 ++-
- library/backtrace                            | 2 +-
  library/panic_unwind/src/lib.rs              | 1 +
  library/std/src/sys/personality/mod.rs       | 1 +
  library/unwind/src/lib.rs                    | 1 +
- 5 files changed, 6 insertions(+), 2 deletions(-)
+ 4 files changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/compiler/rustc_target/src/spec/base/plan9.rs b/compiler/rustc_target/src/spec/base/plan9.rs
 index 5734885b59a..104e9f300c1 100644
@@ -26,13 +25,6 @@ index 5734885b59a..104e9f300c1 100644
          stack_probes: StackProbeType::Inline,
          ..Default::default()
      }
-diff --git a/library/backtrace b/library/backtrace
-index d902726a1dc..46368be7ea7 160000
---- a/library/backtrace
-+++ b/library/backtrace
-@@ -1 +1 @@
--Subproject commit d902726a1dcdc1e1c66f73d1162181b5423c645b
-+Subproject commit 46368be7ea7c8616d383f2d5c14699584f10253d
 diff --git a/library/panic_unwind/src/lib.rs b/library/panic_unwind/src/lib.rs
 index d25d94258a1..a269ba636e1 100644
 --- a/library/panic_unwind/src/lib.rs

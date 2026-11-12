@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Fri, 30 Oct 2026 11:14:53 +0100
-Subject: [PATCH 10/26] plan9: File::set_len to the length a file has does no
+Subject: [PATCH 10/25] plan9: File::set_len to the length a file has does no
  wstat (9front's ext4srv refused it)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 11:53:54 +0100
-Subject: [PATCH 20/26] plan9: rustdoc, rustfmt and clippy for 9front: static
+Subject: [PATCH 20/25] plan9: rustdoc, rustfmt and clippy for 9front: static
  as rustc (rustc_driver_impl instead of the rustc_driver dylib; bootstrap
  keeps the compiler's rlibs in a plan9 sysroot), rustdoc's Os::Plan9 and its
  lock through os::plan9::fs::lock_file; stacker and dirs-sys from crates/
@@ -99,7 +99,7 @@ index 385c0bcc84c..0f9ef6d5118 100644
          }
      }
 diff --git a/src/librustdoc/lib.rs b/src/librustdoc/lib.rs
-index 4f974b35cf0..07819b2d123 100644
+index 9a16942a2e5..d78ae0e1ae1 100644
 --- a/src/librustdoc/lib.rs
 +++ b/src/librustdoc/lib.rs
 @@ -34,7 +34,11 @@

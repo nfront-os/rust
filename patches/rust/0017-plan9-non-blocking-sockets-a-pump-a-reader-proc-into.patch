@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Sat, 31 Oct 2026 00:51:25 +0100
-Subject: [PATCH 17/26] plan9: non-blocking sockets: a pump (a reader proc into
+Subject: [PATCH 17/25] plan9: non-blocking sockets: a pump (a reader proc into
  a buffer, a writer from one, made with the first write) for a socket set
  non-blocking or peeked at; peek, peek_from; shutdown(Read) wakes readers;
  os::plan9::net: readiness, set_ready_hook, connect_nonblocking (for mio)

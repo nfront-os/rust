@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Stefan Hertenberger <erde74@gmail.com>
 Date: Thu, 29 Oct 2026 23:34:37 +0100
-Subject: [PATCH 07/26] plan9: rustc for 9front builds (static, its LLVM
+Subject: [PATCH 07/25] plan9: rustc for 9front builds (static, its LLVM
  inside)
 
 rustc-main takes rustc_driver_impl directly (no dylibs: rustc_driver is

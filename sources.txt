@@ -1,0 +1,5 @@
+# name	url	file in dl/	key (signature url.asc against keys/<key>.pub; "-": none)
+# rust: the nightly the patches are on (its commit: patches/rust/BASE)
+rust	https://static.rust-lang.org/dist/2026-11-11/rustc-nightly-src.tar.xz	rustc-nightly-src-2026-11-11.tar.xz	rust
+# libc: the release std's patched libc is made of (crates.io; sha256 as its index has it)
+libc	https://static.crates.io/crates/libc/libc-0.2.191.crate	libc-0.2.191.crate	-
