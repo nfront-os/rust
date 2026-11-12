@@ -27,13 +27,6 @@ export AR_${T//-/_}=$X-ar
 # libz-sys: its own zlib (APE's is old)
 export LIBZ_SYS_STATIC=1
 export CARGO_TARGET_${TV}_LINKER=$X-gcc
-# cargo's Cargo.lock (from the archive) pins libc and libssh2-sys at other versions than
-# our patched crates (cargo-plan9.toml's [patch.crates-io]); a [patch] of another version
-# does not apply to a pinned lock ("patch was not used", libz-sys: no off_t). Pin them to
-# ours; the lock change stays local (rust/ is the archive). From here, not in rust/: its
-# .cargo/config.toml would take rust/vendor instead of crates.io.
-cargo update -q --manifest-path "$TOP/rust/src/tools/cargo/Cargo.toml" \
-	--config "$TOP/cargo-plan9.toml" -p libc -p libssh2-sys
 cargo build --keep-going --release --target $T \
 	--manifest-path "$TOP/rust/src/tools/cargo/Cargo.toml" \
 	--config "$TOP/cargo-plan9.toml" "$@" > "$TOP/logs/$LOG" 2>&1

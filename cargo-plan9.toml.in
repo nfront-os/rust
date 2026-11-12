@@ -8,7 +8,6 @@ getrandom-0_3_4 = { package = "getrandom", path = "@TOP@/crates/getrandom-0.3.4"
 filetime = { package = "filetime", path = "@TOP@/crates/filetime-0.2.29" }
 gix-sec = { package = "gix-sec", path = "@TOP@/crates/gix-sec-0.16.0" }
 curl = { package = "curl", path = "@TOP@/crates/curl-0.4.50" }
-libssh2-sys = { package = "libssh2-sys", path = "@TOP@/crates/libssh2-sys-0.3.2" }
 libgit2-sys = { package = "libgit2-sys", path = "@TOP@/crates/libgit2-sys-0.18.7+1.9.6" }
 curl-sys = { package = "curl-sys", path = "@TOP@/crates/curl-sys-0.4.90+curl-8.21.0" }
 ring = { package = "ring", path = "@TOP@/crates/ring-0.17.14" }
@@ -45,3 +44,7 @@ cc = { package = "cc", path = "@TOP@/crates/cc-1.4.3" }
 cc-1_10_0 = { package = "cc", path = "@TOP@/crates/cc-1.10.0" }
 cc-1_11_1 = { package = "cc", path = "@TOP@/crates/cc-1.11.1" }
 stacker-0_1_24 = { package = "stacker", path = "@TOP@/crates/stacker-0.1.24" }
+libssh2-sys = { package = "libssh2-sys", path = "@TOP@/crates/libssh2-sys-0.3.4" }
+# cargo (rust/src/tools/cargo/Cargo.lock) locks libc 0.2.186: our libc series (patches/libc,
+# made on 0.2.191, the version of std) on that crate; change both when the series changes
+libc-0_2_186 = { package = "libc", path = "@TOP@/crates/libc-0.2.186" }

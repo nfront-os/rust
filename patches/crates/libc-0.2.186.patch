@@ -1,0 +1,531 @@
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -154,6 +154,14 @@
+         pub use crate::wasi::*;
+ 
+         prelude!();
++    } else if #[cfg(target_os = "plan9")] {
++        mod primitives;
++        pub use crate::primitives::*;
++
++        mod plan9;
++        pub use crate::plan9::*;
++
++        prelude!();
+     } else if #[cfg(target_os = "xous")] {
+         mod primitives;
+         pub use crate::primitives::*;
+diff -ruN a/src/plan9.rs b/src/plan9.rs
+--- a/src/plan9.rs
++++ b/src/plan9.rs
+@@ -0,0 +1,509 @@
++//! 9front (Plan 9): the system's own C library, `<libc.h>` (`/$objtype/lib.gcc/libc.a`).
++//!
++//! These are the declarations as 9front's gcc port compiles them (`/$objtype/include/u.h`
++//! under `__GNUC__`): `long` is the C compiler's (64 bits on 64-bit machines), `ulong` is
++//! 32 bits on every machine (`unsigned int`), as with Plan 9's own compilers; `vlong` and
++//! `uvlong` are 64 bits. Not POSIX: Plan 9's POSIX layer (APE) is a separate library.
++
++use crate::prelude::*;
++
++pub type intmax_t = i64;
++pub type uintmax_t = u64;
++pub type size_t = usize;
++pub type ptrdiff_t = isize;
++pub type intptr_t = isize;
++pub type uintptr_t = usize;
++pub type ssize_t = isize;
++
++pub type uchar = c_uchar;
++pub type ushort = c_ushort;
++pub type uint = c_uint;
++/// 32 bits on every machine, as Plan 9's compilers have it.
++pub type ulong = c_uint;
++pub type vlong = c_longlong;
++pub type uvlong = c_ulonglong;
++/// `usize` of `<u.h>`: `unsigned long` of the C compiler.
++pub type usize_ = c_ulong;
++pub type Rune = c_uint;
++
++/// `jmp_buf` of the gcc port: sp, pc and the callee-saved registers.
++#[cfg(target_arch = "x86_64")]
++pub type jmp_buf = [uintptr_t; 8];
++/// arm64: sp, pc, x19-x29 and d8-d15 (AAPCS64's callee-saved)
++#[cfg(target_arch = "aarch64")]
++pub type jmp_buf = [uintptr_t; 22];
++/// riscv64: sp, pc, s0-s11 and fs0-fs11 (the psABI's callee-saved)
++#[cfg(target_arch = "riscv64")]
++pub type jmp_buf = [uintptr_t; 26];
++/// 386: sp, pc, %ebx, %esi, %edi, %ebp (cdecl's callee-saved)
++#[cfg(target_pointer_width = "32")]
++pub type jmp_buf = [uintptr_t; 6];
++
++s! {
++    pub struct Qid {
++        pub path: uvlong,
++        pub vers: ulong,
++        pub type_: uchar,
++    }
++
++    pub struct Dir {
++        /// server type
++        pub type_: ushort,
++        /// server subtype
++        pub dev: uint,
++        pub qid: Qid,
++        /// permissions; `DM*`
++        pub mode: ulong,
++        pub atime: ulong,
++        pub mtime: ulong,
++        pub length: vlong,
++        pub name: *mut c_char,
++        pub uid: *mut c_char,
++        pub gid: *mut c_char,
++        pub muid: *mut c_char,
++    }
++
++    pub struct Waitmsg {
++        pub pid: c_int,
++        pub time: [ulong; 3],
++        pub msg: *mut c_char,
++    }
++
++    pub struct Lock {
++        pub val: c_int,
++    }
++
++    /// Per process profiling of `Tos`.
++    pub struct Tosprof {
++        pub pp: *mut c_void,
++        pub next: *mut c_void,
++        pub last: *mut c_void,
++        pub first: *mut c_void,
++        pub pid: ulong,
++        pub what: ulong,
++    }
++
++    /// `<tos.h>`: at the top of each proc's stack segment; `_tos` points at it.
++    pub struct Tos {
++        pub prof: Tosprof,
++        /// cycle clock frequency if there is one, 0 otherwise
++        pub cyclefreq: uvlong,
++        pub kcycles: vlong,
++        pub pcycles: vlong,
++        pub pid: ulong,
++        pub clock: ulong,
++    }
++}
++
++pub const ERRMAX: usize = 128;
++pub const IOUNIT: usize = 32768;
++pub const STATMAX: usize = 65535;
++
++/* open */
++pub const OREAD: c_int = 0;
++pub const OWRITE: c_int = 1;
++pub const ORDWR: c_int = 2;
++pub const OEXEC: c_int = 3;
++pub const OTRUNC: c_int = 16;
++pub const OCEXEC: c_int = 32;
++pub const ORCLOSE: c_int = 64;
++pub const OEXCL: c_int = 0x1000;
++
++/* access */
++pub const AEXIST: c_int = 0;
++pub const AEXEC: c_int = 1;
++pub const AWRITE: c_int = 2;
++pub const AREAD: c_int = 4;
++
++/* seek */
++pub const SEEK_SET: c_int = 0;
++pub const SEEK_CUR: c_int = 1;
++pub const SEEK_END: c_int = 2;
++
++/* bind, mount */
++pub const MREPL: c_int = 0x0000;
++pub const MBEFORE: c_int = 0x0001;
++pub const MAFTER: c_int = 0x0002;
++pub const MCREATE: c_int = 0x0004;
++pub const MCACHE: c_int = 0x0010;
++
++/* segattach */
++pub const SG_RONLY: c_int = 0o040;
++pub const SG_CEXEC: c_int = 0o100;
++
++/* noted */
++pub const NCONT: c_int = 0;
++pub const NDFLT: c_int = 1;
++pub const NSAVE: c_int = 2;
++pub const NRSTR: c_int = 3;
++
++/* postnote */
++pub const PNPROC: c_int = 1;
++pub const PNGROUP: c_int = 2;
++
++/* Qid.type */
++pub const QTDIR: uchar = 0x80;
++pub const QTAPPEND: uchar = 0x40;
++pub const QTEXCL: uchar = 0x20;
++pub const QTMOUNT: uchar = 0x10;
++pub const QTAUTH: uchar = 0x08;
++pub const QTTMP: uchar = 0x04;
++pub const QTFILE: uchar = 0x00;
++
++/* Dir.mode */
++pub const DMDIR: ulong = 0x80000000;
++pub const DMAPPEND: ulong = 0x40000000;
++pub const DMEXCL: ulong = 0x20000000;
++pub const DMMOUNT: ulong = 0x10000000;
++pub const DMAUTH: ulong = 0x08000000;
++pub const DMTMP: ulong = 0x04000000;
++pub const DMREAD: ulong = 0x4;
++pub const DMWRITE: ulong = 0x2;
++pub const DMEXEC: ulong = 0x1;
++
++/* rfork */
++pub const RFNAMEG: c_int = 1 << 0;
++pub const RFENVG: c_int = 1 << 1;
++pub const RFFDG: c_int = 1 << 2;
++pub const RFNOTEG: c_int = 1 << 3;
++pub const RFPROC: c_int = 1 << 4;
++pub const RFMEM: c_int = 1 << 5;
++pub const RFNOWAIT: c_int = 1 << 6;
++pub const RFCNAMEG: c_int = 1 << 10;
++pub const RFCENVG: c_int = 1 << 11;
++pub const RFCFDG: c_int = 1 << 12;
++pub const RFREND: c_int = 1 << 13;
++pub const RFNOMNT: c_int = 1 << 14;
++
++/* fcr (MXCSR on amd64) */
++pub const FPINEX: ulong = 1 << 12;
++pub const FPUNFL: ulong = 1 << 11;
++pub const FPOVFL: ulong = 1 << 10;
++pub const FPZDIV: ulong = 1 << 9;
++pub const FPINVAL: ulong = 1 << 7;
++
++/*
++ * The native libc as libp9.a (9front's /$objtype/lib.gcc, scripts/build/libp9.sh):
++ * every name renamed __p9_*, so that APE (the C of a program's crates: open, read,
++ * malloc, ... of their own) can be linked beside it.
++ */
++extern "C" {
++    /// The top of the calling proc's stack segment.
++    #[link_name = "__p9__tos"]
++    pub static mut _tos: *mut Tos;
++    #[link_name = "__p9_argv0"]
++    pub static mut argv0: *mut c_char;
++
++    /* memory */
++    #[link_name = "__p9_malloc"]
++    pub fn malloc(size: ulong) -> *mut c_void;
++    #[link_name = "__p9_mallocz"]
++    pub fn mallocz(size: ulong, clr: c_int) -> *mut c_void;
++    #[link_name = "__p9_free"]
++    pub fn free(p: *mut c_void);
++    #[link_name = "__p9_realloc"]
++    pub fn realloc(p: *mut c_void, size: ulong) -> *mut c_void;
++    #[link_name = "__p9_calloc"]
++    pub fn calloc(n: ulong, size: ulong) -> *mut c_void;
++    #[link_name = "__p9_mallocalign"]
++    pub fn mallocalign(size: ulong, align: ulong, offset: c_long, span: ulong) -> *mut c_void;
++    #[link_name = "__p9_memset"]
++    pub fn memset(p: *mut c_void, c: c_int, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_memcmp"]
++    pub fn memcmp(a: *const c_void, b: *const c_void, n: size_t) -> c_int;
++    #[link_name = "__p9_memcpy"]
++    pub fn memcpy(d: *mut c_void, s: *const c_void, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_memmove"]
++    pub fn memmove(d: *mut c_void, s: *const c_void, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_memchr"]
++    pub fn memchr(p: *const c_void, c: c_int, n: size_t) -> *mut c_void;
++    #[link_name = "__p9_strlen"]
++    pub fn strlen(s: *const c_char) -> size_t;
++    #[link_name = "__p9_strcmp"]
++    pub fn strcmp(a: *const c_char, b: *const c_char) -> c_int;
++
++    /* errors: the calling proc's error string */
++    #[link_name = "__p9_errstr"]
++    pub fn errstr(buf: *mut c_char, n: uint) -> c_int;
++    #[link_name = "__p9_rerrstr"]
++    pub fn rerrstr(buf: *mut c_char, n: uint);
++    #[link_name = "__p9_werrstr"]
++    pub fn werrstr(fmt: *const c_char, ...);
++
++    /* files */
++    #[link_name = "__p9_open"]
++    pub fn open(file: *const c_char, mode: c_int) -> c_int;
++    #[link_name = "__p9_create"]
++    pub fn create(file: *const c_char, mode: c_int, perm: ulong) -> c_int;
++    #[link_name = "__p9_close"]
++    pub fn close(fd: c_int) -> c_int;
++    #[link_name = "__p9_read"]
++    pub fn read(fd: c_int, buf: *mut c_void, n: c_long) -> c_long;
++    #[link_name = "__p9_write"]
++    pub fn write(fd: c_int, buf: *const c_void, n: c_long) -> c_long;
++    #[link_name = "__p9_pread"]
++    pub fn pread(fd: c_int, buf: *mut c_void, n: c_long, off: vlong) -> c_long;
++    #[link_name = "__p9_pwrite"]
++    pub fn pwrite(fd: c_int, buf: *const c_void, n: c_long, off: vlong) -> c_long;
++    #[link_name = "__p9_seek"]
++    pub fn seek(fd: c_int, off: vlong, type_: c_int) -> vlong;
++    #[link_name = "__p9_dup"]
++    pub fn dup(oldfd: c_int, newfd: c_int) -> c_int;
++    #[link_name = "__p9_pipe"]
++    pub fn pipe(fd: *mut c_int) -> c_int;
++    #[link_name = "__p9_remove"]
++    pub fn remove(file: *const c_char) -> c_int;
++    #[link_name = "__p9_access"]
++    pub fn access(file: *const c_char, mode: c_int) -> c_int;
++    #[link_name = "__p9_chdir"]
++    pub fn chdir(dir: *const c_char) -> c_int;
++    #[link_name = "__p9_getwd"]
++    pub fn getwd(buf: *mut c_char, size: c_int) -> *mut c_char;
++    #[link_name = "__p9_fd2path"]
++    pub fn fd2path(fd: c_int, buf: *mut c_char, n: c_int) -> c_int;
++    #[link_name = "__p9_stat"]
++    pub fn stat(name: *const c_char, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_fstat"]
++    pub fn fstat(fd: c_int, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_wstat"]
++    pub fn wstat(name: *const c_char, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_fwstat"]
++    pub fn fwstat(fd: c_int, edir: *mut uchar, nedir: c_int) -> c_int;
++    #[link_name = "__p9_dirstat"]
++    pub fn dirstat(name: *const c_char) -> *mut Dir;
++    #[link_name = "__p9_dirfstat"]
++    pub fn dirfstat(fd: c_int) -> *mut Dir;
++    #[link_name = "__p9_dirwstat"]
++    pub fn dirwstat(name: *const c_char, d: *mut Dir) -> c_int;
++    #[link_name = "__p9_dirfwstat"]
++    pub fn dirfwstat(fd: c_int, d: *mut Dir) -> c_int;
++    #[link_name = "__p9_dirread"]
++    pub fn dirread(fd: c_int, d: *mut *mut Dir) -> c_long;
++    #[link_name = "__p9_dirreadall"]
++    pub fn dirreadall(fd: c_int, d: *mut *mut Dir) -> c_long;
++    #[link_name = "__p9_nulldir"]
++    pub fn nulldir(d: *mut Dir);
++
++    /* name space */
++    #[link_name = "__p9_bind"]
++    pub fn bind(name: *const c_char, old: *const c_char, flag: c_int) -> c_int;
++    #[link_name = "__p9_mount"]
++    pub fn mount(
++        fd: c_int,
++        afd: c_int,
++        old: *const c_char,
++        flag: c_int,
++        aname: *const c_char,
++    ) -> c_int;
++    #[link_name = "__p9_unmount"]
++    pub fn unmount(name: *const c_char, old: *const c_char) -> c_int;
++
++    /* processes */
++    #[link_name = "__p9_rfork"]
++    pub fn rfork(flags: c_int) -> c_int;
++    #[link_name = "__p9_exec"]
++    pub fn exec(file: *const c_char, argv: *const *const c_char) -> c_int;
++    #[link_name = "__p9_exits"]
++    pub fn exits(msg: *const c_char) -> !;
++    #[link_name = "__p9__exits"]
++    pub fn _exits(msg: *const c_char) -> !;
++    #[link_name = "__p9_abort"]
++    pub fn abort() -> !;
++    #[link_name = "__p9_wait"]
++    pub fn wait() -> *mut Waitmsg;
++    #[link_name = "__p9_waitpid"]
++    pub fn waitpid() -> c_int;
++    #[link_name = "__p9_await"]
++    pub fn await_(buf: *mut c_char, n: c_int) -> c_int;
++    #[link_name = "__p9_getpid"]
++    pub fn getpid() -> c_int;
++    #[link_name = "__p9_getppid"]
++    pub fn getppid() -> c_int;
++    #[link_name = "__p9_sleep"]
++    pub fn sleep(ms: c_long) -> c_int;
++    #[link_name = "__p9_alarm"]
++    pub fn alarm(ms: ulong) -> c_long;
++    #[link_name = "__p9_postnote"]
++    pub fn postnote(group: c_int, pid: c_int, note: *const c_char) -> c_int;
++    #[link_name = "__p9_notify"]
++    pub fn notify(f: Option<unsafe extern "C" fn(*mut c_void, *mut c_char)>) -> c_int;
++    #[link_name = "__p9_noted"]
++    pub fn noted(v: c_int) -> c_int;
++    #[link_name = "__p9_atnotify"]
++    pub fn atnotify(
++        f: Option<unsafe extern "C" fn(*mut c_void, *mut c_char) -> c_int>,
++        in_: c_int,
++    ) -> c_int;
++    #[link_name = "__p9_segattach"]
++    pub fn segattach(attr: c_int, class: *const c_char, va: *mut c_void, len: ulong)
++        -> *mut c_void;
++    #[link_name = "__p9_segdetach"]
++    pub fn segdetach(addr: *mut c_void) -> c_int;
++    #[link_name = "__p9_segfree"]
++    pub fn segfree(va: *mut c_void, len: ulong) -> c_int;
++    #[link_name = "__p9_segbrk"]
++    pub fn segbrk(saddr: *mut c_void, addr: *mut c_void) -> *mut c_void;
++
++    /* synchronisation; the kernel's semaphores are 32-bit (`long*` in <libc.h>) */
++    #[link_name = "__p9_semacquire"]
++    pub fn semacquire(addr: *mut c_int, block: c_int) -> c_int;
++    #[link_name = "__p9_tsemacquire"]
++    pub fn tsemacquire(addr: *mut c_int, ms: ulong) -> c_int;
++    #[link_name = "__p9_semrelease"]
++    pub fn semrelease(addr: *mut c_int, count: c_long) -> c_long;
++    #[link_name = "__p9__tas"]
++    pub fn _tas(p: *mut c_int) -> c_int;
++    #[link_name = "__p9_lock"]
++    pub fn lock(l: *mut Lock);
++    #[link_name = "__p9_unlock"]
++    pub fn unlock(l: *mut Lock);
++    #[link_name = "__p9_canlock"]
++    pub fn canlock(l: *mut Lock) -> c_int;
++    /// A slot per proc (on its stack segment): 16 for the whole program.
++    #[link_name = "__p9_privalloc"]
++    pub fn privalloc() -> *mut *mut c_void;
++
++    /* time */
++    /// Nanoseconds since the epoch.
++    #[link_name = "__p9_nsec"]
++    pub fn nsec() -> vlong;
++    /// Nanoseconds since boot.
++    #[link_name = "__p9_uptime"]
++    pub fn uptime() -> vlong;
++
++    /* environment: /env */
++    #[link_name = "__p9_getenv"]
++    pub fn getenv(name: *const c_char) -> *mut c_char;
++    #[link_name = "__p9_putenv"]
++    pub fn putenv(name: *const c_char, val: *const c_char) -> c_int;
++    #[link_name = "__p9_getuser"]
++    pub fn getuser() -> *mut c_char;
++    #[link_name = "__p9_sysname"]
++    pub fn sysname() -> *mut c_char;
++
++    /* network: /net */
++    #[link_name = "__p9_dial"]
++    pub fn dial(
++        addr: *const c_char,
++        local: *const c_char,
++        dir: *mut c_char,
++        cfdp: *mut c_int,
++    ) -> c_int;
++    #[link_name = "__p9_announce"]
++    pub fn announce(addr: *const c_char, dir: *mut c_char) -> c_int;
++    #[link_name = "__p9_listen"]
++    pub fn listen(dir: *const c_char, newdir: *mut c_char) -> c_int;
++    #[link_name = "__p9_accept"]
++    pub fn accept(ctl: c_int, dir: *const c_char) -> c_int;
++    #[link_name = "__p9_reject"]
++    pub fn reject(ctl: c_int, dir: *const c_char, cause: *const c_char) -> c_int;
++
++    /* floating point control */
++    #[link_name = "__p9_getfcr"]
++    pub fn getfcr() -> ulong;
++    #[link_name = "__p9_setfcr"]
++    pub fn setfcr(fcr: ulong);
++}
++
++pub const STDIN_FILENO: c_int = 0;
++pub const STDOUT_FILENO: c_int = 1;
++pub const STDERR_FILENO: c_int = 2;
++
++/*
++ * APE's: the POSIX types of the C libraries built against Plan 9's POSIX layer
++ * (<sys/types.h> &c. of /sys/include/ape, as 9front's gcc port compiles them), for
++ * the bindings of such libraries (zlib, curl, ...). Its functions are not here.
++ */
++pub type off_t = c_longlong;
++pub type mode_t = c_ushort;
++pub type uid_t = c_short;
++pub type gid_t = c_short;
++pub type pid_t = c_int;
++pub type time_t = c_long;
++pub type socklen_t = c_int;
++
++s! {
++    pub struct fd_set {
++        pub fds_bits: [c_long; 3],
++    }
++
++    pub struct sockaddr {
++        pub sa_family: c_ushort,
++        pub sa_data: [c_char; 108],
++    }
++}
++
++/* APE's errno values (<errno.h> of /sys/include/ape, 9front-gcc's compat for the rest) */
++pub const E2BIG: c_int = 1;
++pub const EACCES: c_int = 2;
++pub const EADDRINUSE: c_int = 42;
++pub const EADDRNOTAVAIL: c_int = 48;
++pub const EAFNOSUPPORT: c_int = 39;
++pub const EAGAIN: c_int = 3;
++pub const EALREADY: c_int = 1101;
++pub const EBADF: c_int = 4;
++pub const EBUSY: c_int = 5;
++pub const ECANCELED: c_int = 61;
++pub const ECHILD: c_int = 6;
++pub const ECONNABORTED: c_int = 52;
++pub const ECONNREFUSED: c_int = 38;
++pub const ECONNRESET: c_int = 1102;
++pub const EDEADLK: c_int = 7;
++pub const EDESTADDRREQ: c_int = 43;
++pub const EDOM: c_int = 1000;
++pub const EEXIST: c_int = 8;
++pub const EFAULT: c_int = 9;
++pub const EFBIG: c_int = 10;
++pub const EGREG: c_int = 60;
++pub const EHOSTDOWN: c_int = 58;
++pub const EHOSTUNREACH: c_int = 59;
++pub const EILSEQ: c_int = 1100;
++pub const EINPROGRESS: c_int = 62;
++pub const EINTR: c_int = 11;
++pub const EINVAL: c_int = 12;
++pub const EIO: c_int = 13;
++pub const EISCONN: c_int = 53;
++pub const EISDIR: c_int = 14;
++pub const ELOOP: c_int = 1103;
++pub const EMFILE: c_int = 15;
++pub const EMLINK: c_int = 16;
++pub const EMSGSIZE: c_int = 44;
++pub const ENAMETOOLONG: c_int = 17;
++pub const ENETDOWN: c_int = 49;
++pub const ENETRESET: c_int = 51;
++pub const ENETUNREACH: c_int = 50;
++pub const ENFILE: c_int = 18;
++pub const ENOBUFS: c_int = 40;
++pub const ENODEV: c_int = 19;
++pub const ENOENT: c_int = 20;
++pub const ENOEXEC: c_int = 21;
++pub const ENOLCK: c_int = 22;
++pub const ENOMEM: c_int = 23;
++pub const ENOMSG: c_int = 1104;
++pub const ENOPROTOOPT: c_int = 45;
++pub const ENOSPC: c_int = 24;
++pub const ENOSYS: c_int = 25;
++pub const ENOTCONN: c_int = 54;
++pub const ENOTDIR: c_int = 26;
++pub const ENOTEMPTY: c_int = 27;
++pub const ENOTSOCK: c_int = 36;
++pub const ENOTTY: c_int = 28;
++pub const ENXIO: c_int = 29;
++pub const EOPNOTSUPP: c_int = 41;
++pub const EOVERFLOW: c_int = 1105;
++pub const EPERM: c_int = 30;
++pub const EPFNOSUPPORT: c_int = 47;
++pub const EPIPE: c_int = 31;
++pub const EPLAN9: c_int = 1002;
++pub const EPROTONOSUPPORT: c_int = 37;
++pub const EPROTOTYPE: c_int = 37;
++pub const ERANGE: c_int = 1001;
++pub const EROFS: c_int = 32;
++pub const ESHUTDOWN: c_int = 55;
++pub const ESOCKTNOSUPPORT: c_int = 46;
++pub const ESPIPE: c_int = 33;
++pub const ESRCH: c_int = 34;
++pub const ETIMEDOUT: c_int = 57;
++pub const ETOOMANYREFS: c_int = 56;
++pub const EWOULDBLOCK: c_int = 3;
++pub const EXDEV: c_int = 35;

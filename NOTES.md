@@ -629,6 +629,16 @@ Plan 9 has no epoll/kqueue/poll for native fds, only blocking calls.
   below SHAREDBASE (USTKTOP/2, from the position of the stack), ~1.5 GB heap; 64 bit unchanged.
   `tests/run.sh` 386 13/13.
 
+- **cargo on the nightly's own crates (2026-11-12):** with the sources from the archive
+  (nightly-2026-11-11) cargo's `Cargo.lock` stays as published; our crates follow it instead of
+  pinning the lock to ours (the earlier `cargo update -p libc -p libssh2-sys`, a local step lost
+  with the fresh archive: "patch was not used", libz-sys without `off_t`). For cargo's plan9
+  build only libc (0.2.186) and libssh2-sys (0.3.4) differed: `crates/libc-0.2.186` is our
+  libc series (made on 0.2.191, std's version) applied there unchanged, src/plan9.rs identical;
+  `crates/libssh2-sys-0.3.4` the 0.3.2 change (0.3.2 dropped, nothing used it). tokio,
+  hyper-util and home 0.5.14 of the lock are not built for plan9. cargo still adds the
+  dependencies of our curl-sys (rustls) to its lock; no locked version changes.
+
 ## Open
 
 As of 2026-10-31: amd64 and 386 cross and native (std, rustc, cargo, proc macros as programs,

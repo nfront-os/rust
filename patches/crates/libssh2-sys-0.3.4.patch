@@ -1,8 +1,8 @@
 diff -ruN a/build.rs b/build.rs
 --- a/build.rs
 +++ b/build.rs
-@@ -10,6 +10,10 @@
- use std::process::Command;
+@@ -20,6 +20,10 @@
+ const MIN_LIBSSH2_VERSION: semver::Version = semver::Version::new(1, 10, 0);
  
  fn main() {
 +    // 9front: no SSH (cargo's git goes over curl); nothing is built, nothing may use it
