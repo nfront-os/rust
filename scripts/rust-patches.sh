@@ -25,6 +25,9 @@ parts=(
 )
 SUBDIRS=(src/tools/cargo library/backtrace src/llvm-project)
 die(){ echo "rust-patches: $*" >&2; exit 1; }
+# git am needs a committer; without a git identity (a new machine) a neutral one: the
+# branches are local, each commit keeps its author from the patch
+git config user.email >/dev/null 2>&1 || export GIT_COMMITTER_NAME=${GIT_COMMITTER_NAME:-nfront} GIT_COMMITTER_EMAIL=${GIT_COMMITTER_EMAIL:-nfront@localhost}
 # git for a repository: rust's git data is rust.git beside rust/ (core.worktree=../rust):
 # Rust's bootstrap takes rust/ for a source archive only without rust/.git, and only so
 # finds its LLVM by the archive's git-commit-info

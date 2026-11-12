@@ -4,7 +4,9 @@
 # is named; sha256.txt always), unpacked to <name>/ and made a repository of its own,
 # the archive as a commit with a tag (rust: nightly-<date>, from the URL; libc: its
 # version; rust's git data is rust.git beside rust/).  scripts/rust-patches.sh apply
-# then puts the port on the branches plan9.
+# then puts the port on the branches plan9; then rust/bootstrap.toml, crates/ and
+# cargo-plan9.toml are written (scripts/bootstrap-config.sh, crates-patch.sh init,
+# cargo-config.sh): after fetch.sh the sources are complete for ./x and build-cargo.sh.
 # A <name>/ that is there is left as it is.
 # usage: ./fetch.sh
 set -e
@@ -44,4 +46,6 @@ while IFS=$'\t' read -r name url file key; do
 	echo "fetch: $name/: $tag"
 done < sources.txt
 scripts/rust-patches.sh apply
+scripts/bootstrap-config.sh	# rust/bootstrap.toml (Rust's ./x configuration)
+scripts/crates-patch.sh init	# crates/: the crates.io crates with our patches (those not there yet)
 scripts/cargo-config.sh	# cargo-plan9.toml (the patched crates of crates/)

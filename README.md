@@ -74,8 +74,8 @@ the processor without a GPU, also without wgpu) uses that copy; its `scripts/rus
 
 ## Build
 
-    ./fetch.sh                                 # the nightly and libc's crate (signature, sha256), the patches on plan9
-    cp bootstrap.toml.example rust/bootstrap.toml   # $GCC9, $RUST9 set to the real paths
+    ./fetch.sh                                 # the nightly and libc's crate (signature, sha256), the patches on plan9,
+                                               # rust/bootstrap.toml, crates/ (the patched crates), cargo-plan9.toml
     cd rust && ./x build --stage 1 library --target x86_64-unknown-linux-gnu,x86_64-unknown-plan9
     scripts/build-cargo.sh                     # cargo for 9front
     tests/run.sh; tests/cargo.sh               # in the 9front guest

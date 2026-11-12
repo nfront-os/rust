@@ -19,6 +19,8 @@ extended = false
 [rust]
 channel = "dev"
 download-rustc = false
+# our patches leave warnings in the port's code (cfg plan9 unknown to the stage-0 compiler)
+deny-warnings = false
 lld = false
 llvm-tools = false
 
