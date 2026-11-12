@@ -9,9 +9,10 @@
 # there (--relative); rust's own series is rust/ without those directories.
 #   scripts/rust-patches.sh diff   write the series from the branches plan9 (after a commit)
 #   scripts/rust-patches.sh apply  make the branches plan9: the archive's tag and the
-#                                  series; stops when plan9 has commits the series lack
-#                                  (run diff first; FORCE=1 overrides), keeps the old
-#                                  plan9 as plan9-before-apply
+#                                  series (also after a pull brought new patches); stops
+#                                  when plan9 has commits of its own since the last apply
+#                                  that the series lack (run diff first; FORCE=1
+#                                  overrides), keeps the old plan9 as plan9-before-apply
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 P=$TOP/patches
@@ -64,7 +65,10 @@ apply)
 		[ -d "$d/.git" ] || [ -d "$TOP/$repo.git" ] || die "$repo: no $repo/ (./fetch.sh)"
 		t=$(tag "$repo")
 		if g "$repo" rev-parse -q --verify plan9 >/dev/null; then
-			if [ "$FORCE" != 1 ]; then
+			# plan9 as the last apply made it (refs/nfront/applied): no work of its own
+			# there, so the series (perhaps new from a pull) replaces it without a check
+			applied=$(g "$repo" rev-parse -q --verify refs/nfront/applied || true)
+			if [ "$FORCE" != 1 ] && [ "$(g "$repo" rev-parse plan9)" != "$applied" ]; then
 				want=$(for r in "${parts[@]}"; do set -- $r; [ "$2" = "$repo" ] && cat "$P/$1"/*.patch; done | ids "$d")
 				have=$(g "$repo" log -p --reverse "$t..plan9" | ids "$d")
 				[ "$have" = "$want" ] || [ -z "$have" ] ||
@@ -79,6 +83,7 @@ apply)
 			dirarg=(); [ "$3" = . ] || dirarg=(--directory="$3")
 			g "$repo" am -q --keep-cr "${dirarg[@]}" "$P/$1"/*.patch
 		done
+		g "$repo" update-ref refs/nfront/applied plan9
 		echo "$repo: plan9 $(g "$repo" rev-parse --short plan9) on $t"
 	done ;;
 *)	die "usage: rust-patches.sh diff|apply" ;;
