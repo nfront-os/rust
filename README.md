@@ -19,7 +19,7 @@ Log of the port (German): `NOTES.md`.
   `scripts/rust-patches.sh diff` writes them; `scripts/rust-patches.sh apply` makes the
   branches from upstream clones.
 - `tests/`: test programs; `tests/guest.sh` runs programs in the 9front guest.
-- `bootstrap.toml.example`: `rust/bootstrap.toml` (`$GCC9`: the 9front-gcc checkout).
+- `bootstrap.toml.example`: `rust/bootstrap.toml` (`$GCC9`: the 9front-gcc checkout, GCC_DIR; `$RUST9`: this one, RUST_DIR).
 
 ## Porting crates
 
