@@ -8,8 +8,9 @@
 # PLAN9 (the system booted: its APE and libp9.a link the program; default ../9front-gccwt)
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
-GCC9=${GCC9:-$TOP/../9front-gcc}
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
+export PLAN9=${PLAN9:-$TREE_GCC}
+GCC9=${GCC9:-$GCC_DIR}
 GCC9OUT=${GCC9OUT:-$GCC9/out}
 GCC9BUILD=${GCC9BUILD:-$GCC9/build}
 # objtype=386: i686-unknown-plan9's rustc in a 9pc guest (logs/rustc-guest.386.log)

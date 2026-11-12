@@ -10,8 +10,9 @@
 # objtype=386: i686-unknown-plan9 in a 9pc guest.
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
-GCC9OUT=${GCC9OUT:-$TOP/../9front-gcc/out}
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
+export PLAN9=${PLAN9:-$TREE_GCC}
+GCC9OUT=${GCC9OUT:-$GCC_DIR/out}
 case ${objtype:=amd64} in
 amd64)	L= ;;
 386)	L=.386 ;;

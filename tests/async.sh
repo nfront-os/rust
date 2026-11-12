@@ -13,14 +13,15 @@
 # objtype=riscv64: riscv64gc-unknown-plan9 in the qemu virt guest of ../9front-riscv (PLAN9_RISCV).
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
-GCC9BUILD=${GCC9BUILD:-$TOP/../9front-gcc/build}
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
+export PLAN9=${PLAN9:-$TREE_GCC}
+GCC9BUILD=${GCC9BUILD:-$GCC_DIR/build}
 case ${objtype:=amd64} in
 amd64)	T=x86_64-unknown-plan9 X=x86_64-pc-plan9 L= ;;
 386)	T=i686-unknown-plan9 X=i686-pc-plan9 L=.386 ;;
 arm64)	T=aarch64-unknown-plan9 X=aarch64-pc-plan9 L=.arm64 ;;
 riscv64)	T=riscv64gc-unknown-plan9 X=riscv64-unknown-plan9 L=.riscv64
-	PLAN9=${PLAN9_RISCV:-$TOP/../9front-riscv} ;;
+	PLAN9=${PLAN9_RISCV:-$TREE_RISCV} ;;
 *)	echo "async.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype

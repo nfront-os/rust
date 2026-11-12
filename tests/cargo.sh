@@ -7,17 +7,18 @@
 # objtype=386: i686-unknown-plan9's cargo in a 9pc guest (log cargo-guest.386.log).
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-GCC9=${GCC9:-$TOP/../9front-gcc}
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
+GCC9=${GCC9:-$GCC_DIR}
 # its build directory with the toolchain over gcc's APE (9front branch gcc)
 GCC9BUILD=${GCC9BUILD:-$GCC9/build}
 case ${objtype:=amd64} in
 amd64)	TG=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=cargo-guest.log ;;
 386)	TG=i686-unknown-plan9 X=i686-pc-plan9 LOG=cargo-guest.386.log
-	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
+	export PLAN9=${PLAN9:-$TREE_GCC} ;;
 arm64)	TG=aarch64-unknown-plan9 X=aarch64-pc-plan9 LOG=cargo-guest.arm64.log
-	export PLAN9=${PLAN9:-$TOP/../9front-gccwt} ;;
+	export PLAN9=${PLAN9:-$TREE_GCC} ;;
 riscv64)	TG=riscv64gc-unknown-plan9 X=riscv64-unknown-plan9 LOG=cargo-guest.riscv64.log
-	export PLAN9=${PLAN9:-$TOP/../9front-riscv} ;;
+	export PLAN9=${PLAN9:-$TREE_RISCV} ;;
 *)	echo "cargo.sh: objtype=$objtype: no target" >&2; exit 1 ;;
 esac
 export objtype

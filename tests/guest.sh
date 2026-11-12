@@ -10,7 +10,8 @@
 #        [-D /guest/dir=hostdir]... -f file... -- cmd...
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-PLAN9=$(cd "${PLAN9:-$TOP/../9front}" && pwd)
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
+PLAN9=$(cd "${PLAN9:-$TREE}" && pwd)
 mkdir -p "$TOP/build"
 T=$(mktemp -d -p "$TOP/build")	# beside the trees -D links from
 trap 'rm -rf "$T"' EXIT

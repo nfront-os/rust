@@ -6,7 +6,8 @@
 # logs/cargo-port.386.log); objtype=arm64 likewise for aarch64-unknown-plan9, objtype=riscv64 for
 # riscv64gc-unknown-plan9.
 TOP=$(cd "$(dirname "$0")/.." && pwd)
-GCC9=${GCC9:-$TOP/../9front-gcc}
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
+GCC9=${GCC9:-$GCC_DIR}
 # its build directory with the toolchain over gcc's APE (9front branch gcc)
 GCC9BUILD=${GCC9BUILD:-$GCC9/build}
 case ${objtype:=amd64} in

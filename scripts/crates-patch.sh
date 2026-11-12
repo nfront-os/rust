@@ -6,6 +6,7 @@
 #                                   (cargo fetch first: the registry needs the sources)
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
 P=$TOP/patches/crates
 REG=$(ls -d ~/.cargo/registry/src/*/ | head -1)
 case $1 in
@@ -19,7 +20,7 @@ diff)
 	done
 	ls "$P"
 	# native libc functions declared by hand: without __p9_ they are APE's (README.md)
-	nat=$(nm -g --defined-only "${PLAN9:-$TOP/../9front-gccwt}/amd64/lib.gcc/libp9.a" 2>/dev/null |
+	nat=$(nm -g --defined-only "${PLAN9:-$TREE_GCC}/amd64/lib.gcc/libp9.a" 2>/dev/null |
 		awk 'NF == 3 && $3 ~ /^__p9_/ {print substr($3, 6)}' | sort -u)
 	for p in "$P"/*.patch; do
 		awk '/^\+.*extern "C"/ {ext = 1}

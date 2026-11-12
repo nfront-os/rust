@@ -8,6 +8,7 @@
 # env: MEM (guest MB, 2048), SMP (4), STDTEST_TIMEOUT (seconds per binary, 900; riscv64 3600),
 #      PLAN9 (the system booted; default ../9front-gccwt), STDTEST_LOG (all guest logs, appended)
 TOP=$(cd "$(dirname "$0")/.." && pwd)
+. "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
 bin=$1
 shift
 case $(file -b "$bin") in
@@ -18,9 +19,9 @@ case $(file -b "$bin") in
 esac
 # riscv64: its own tree (branch riscv); under TCG its std unit tests take ~2600 s (the fs
 # tests that make thousands of files)
-[ $objtype != riscv64 ] || export PLAN9=${PLAN9_RISCV:-$TOP/../9front-riscv}
+[ $objtype != riscv64 ] || export PLAN9=${PLAN9_RISCV:-$TREE_RISCV}
 [ $objtype != riscv64 ] || STDTEST_TIMEOUT=${STDTEST_TIMEOUT:-3600}
-export PLAN9=${PLAN9:-$TOP/../9front-gccwt}
+export PLAN9=${PLAN9:-$TREE_GCC}
 name=$(basename "$bin")
 # rc quoting: each argument in '', a ' doubled
 args=
