@@ -12,10 +12,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/symbolize/gimli/libs_plan9.rs | 19 +++++++++++++++++++
  src/symbolize/mod.rs              |  2 +-
  5 files changed, 27 insertions(+), 1 deletion(-)
- create mode 100644 src/symbolize/gimli/libs_plan9.rs
+ create mode 100644 library/backtrace/src/symbolize/gimli/libs_plan9.rs
 
 diff --git a/src/backtrace/mod.rs b/src/backtrace/mod.rs
-index 2a36214..21c54f9 100644
+index 2a36214bd71cb81e4fcf4d0d9a805a6b55be7879..21c54f94c8aef6ad9429917799c6fbcde80c8657 100644
 --- a/src/backtrace/mod.rs
 +++ b/src/backtrace/mod.rs
 @@ -181,6 +181,7 @@ cfg_if::cfg_if! {
@@ -27,7 +27,7 @@ index 2a36214..21c54f9 100644
      )] {
          mod libunwind;
 diff --git a/src/symbolize/gimli.rs b/src/symbolize/gimli.rs
-index cbc0b76..d4ed642 100644
+index cbc0b7685a45f575147f7d948f0f7727ba0afb10..d4ed6424bc40ea72d3e16f534cd152bde0196f3b 100644
 --- a/src/symbolize/gimli.rs
 +++ b/src/symbolize/gimli.rs
 @@ -238,6 +238,9 @@ cfg_if::cfg_if! {
@@ -41,7 +41,7 @@ index cbc0b76..d4ed642 100644
          mod libs_libnx;
          use libs_libnx::native_libraries;
 diff --git a/src/symbolize/gimli/elf.rs b/src/symbolize/gimli/elf.rs
-index fd9903d..008e6cd 100644
+index fd9903d1702871a6aec9063757cd536409a8a980..008e6cd91e9de3f78d01c1aa3537f43e101c1983 100644
 --- a/src/symbolize/gimli/elf.rs
 +++ b/src/symbolize/gimli/elf.rs
 @@ -3,7 +3,10 @@
@@ -57,7 +57,7 @@ index fd9903d..008e6cd 100644
  use alloc::string::String;
 diff --git a/src/symbolize/gimli/libs_plan9.rs b/src/symbolize/gimli/libs_plan9.rs
 new file mode 100644
-index 0000000..2e3cd85
+index 0000000000000000000000000000000000000000..2e3cd85bc91393e2456807f7801a398706bacfa2
 --- /dev/null
 +++ b/src/symbolize/gimli/libs_plan9.rs
 @@ -0,0 +1,19 @@
@@ -81,7 +81,7 @@ index 0000000..2e3cd85
 +    ret
 +}
 diff --git a/src/symbolize/mod.rs b/src/symbolize/mod.rs
-index d221ce8..2d1420f 100644
+index d221ce800c25cb039d86e21c4884026328b1188e..2d1420f7f9d18a88425645aef472d9f25fd37629 100644
 --- a/src/symbolize/mod.rs
 +++ b/src/symbolize/mod.rs
 @@ -438,7 +438,7 @@ cfg_if::cfg_if! {

@@ -13,7 +13,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 70 insertions(+), 8 deletions(-)
 
 diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
-index 96839f3e946..a6a73a689cb 100644
+index 96839f3e9461700c568220170bda2a01739b2353..a6a73a689cb0ca07e0bc2a2a2b1d692c11966076 100644
 --- a/library/std/src/sys/net/connection/plan9.rs
 +++ b/library/std/src/sys/net/connection/plan9.rs
 @@ -355,6 +355,15 @@ pub fn connect_nonblocking(addr: &SocketAddr) -> io::Result<TcpStream> {
@@ -32,7 +32,7 @@ index 96839f3e946..a6a73a689cb 100644
  pub struct TcpStream {
      inner: Socket,
  }
-@@ -445,7 +454,17 @@ pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
+@@ -445,7 +454,17 @@ impl TcpStream {
                  }
                  Ok(())
              }
@@ -52,7 +52,7 @@ index 96839f3e946..a6a73a689cb 100644
      }
  
 diff --git a/library/std/src/sys/net/connection/plan9/pump.rs b/library/std/src/sys/net/connection/plan9/pump.rs
-index 1e274f1925d..ed5779e0159 100644
+index 1e274f1925d8bf022dec0bcf34e37a1cfdc081cc..ed5779e01590f5f05ff4d06cfd534564c41efa86 100644
 --- a/library/std/src/sys/net/connection/plan9/pump.rs
 +++ b/library/std/src/sys/net/connection/plan9/pump.rs
 @@ -67,6 +67,13 @@ struct State {
@@ -115,7 +115,7 @@ index 1e274f1925d..ed5779e0159 100644
      }
  }
  
-@@ -235,7 +252,7 @@ fn reader(self: Arc<Self>) {
+@@ -235,7 +252,7 @@ impl Pump {
                  self.changed(s);
                  continue;
              }
@@ -124,7 +124,7 @@ index 1e274f1925d..ed5779e0159 100644
              let mut s = lock(&self.m);
              if s.closed {
                  break;
-@@ -267,22 +284,31 @@ fn writer(self: Arc<Self>) {
+@@ -267,22 +284,31 @@ impl Pump {
          loop {
              {
                  let mut s = lock(&self.m);
@@ -158,7 +158,7 @@ index 1e274f1925d..ed5779e0159 100644
                      Ok(0) => break Err(io::Error::from(io::ErrorKind::WriteZero)),
                      Ok(n) => off += n,
                      Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-@@ -290,6 +316,7 @@ fn writer(self: Arc<Self>) {
+@@ -290,6 +316,7 @@ impl Pump {
                  }
              };
              let mut s = lock(&self.m);
@@ -166,7 +166,7 @@ index 1e274f1925d..ed5779e0159 100644
              if let Err(e) = r {
                  s.write_err = Some(e);
                  s.out.clear();
-@@ -441,7 +468,7 @@ pub(super) fn write(self: &Arc<Self>, buf: &[u8], timeout: Option<Duration>) ->
+@@ -441,7 +468,7 @@ impl Pump {
              if let Some(e) = s.connect_err.take() {
                  return Err(e);
              }
@@ -175,7 +175,7 @@ index 1e274f1925d..ed5779e0159 100644
                  return Err(io::Error::from(io::ErrorKind::BrokenPipe));
              }
              if !s.connecting && s.out.len() < STREAM_BUF {
-@@ -486,6 +513,22 @@ pub(super) fn accept(&self) -> io::Result<(Socket, SocketAddr)> {
+@@ -486,6 +513,22 @@ impl Pump {
          }
      }
  

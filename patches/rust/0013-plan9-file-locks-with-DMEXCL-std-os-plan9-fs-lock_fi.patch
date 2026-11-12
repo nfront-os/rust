@@ -16,7 +16,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 154 insertions(+), 7 deletions(-)
 
 diff --git a/compiler/rustc_data_structures/src/flock/plan9.rs b/compiler/rustc_data_structures/src/flock/plan9.rs
-index 32a64d73945..5fea5098f8c 100644
+index 32a64d73945728907f3b8ee715dddb6d0cf75dbc..5fea5098f8cf69a4eea1986e19cde2f7c333cb4a 100644
 --- a/compiler/rustc_data_structures/src/flock/plan9.rs
 +++ b/compiler/rustc_data_structures/src/flock/plan9.rs
 @@ -1,17 +1,30 @@
@@ -58,7 +58,7 @@ index 32a64d73945..5fea5098f8c 100644
      }
  }
 diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
-index 6503f4e0d86..cd9f9785d72 100644
+index 6503f4e0d8627fe0e0de5d65a779d6541e68acb3..cd9f9785d7298163fd8635d80c95acf68dcbb4a5 100644
 --- a/library/std/src/os/plan9/fs.rs
 +++ b/library/std/src/os/plan9/fs.rs
 @@ -8,6 +8,11 @@
@@ -73,7 +73,7 @@ index 6503f4e0d86..cd9f9785d72 100644
  use crate::sys::{AsInner, AsInnerMut, FromInner};
  
  /// The stat(5) entry of a file.
-@@ -179,3 +184,74 @@ fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
+@@ -179,3 +184,74 @@ impl FileExt for File {
          self.as_inner().write_at(buf, offset)
      }
  }
@@ -149,10 +149,10 @@ index 6503f4e0d86..cd9f9785d72 100644
 +    }
 +}
 diff --git a/library/std/src/sys/fs/mod.rs b/library/std/src/sys/fs/mod.rs
-index 11cbd136027..e42bb52a451 100644
+index 11cbd136027daab9235466068aaddb7ca37de740..e42bb52a45129e1b175f10fa9827c9a3bf6ed360 100644
 --- a/library/std/src/sys/fs/mod.rs
 +++ b/library/std/src/sys/fs/mod.rs
-@@ -69,6 +69,9 @@ pub fn with_native_path<T>(path: &Path, f: &dyn Fn(&Path) -> io::Result<T>) -> i
+@@ -69,6 +69,9 @@ pub use imp::{
      FileTimes, FileType, OpenOptions, ReadDir,
  };
  
@@ -163,7 +163,7 @@ index 11cbd136027..e42bb52a451 100644
      // FIXME: use with_native_path on all platforms
      imp::readdir(path)
 diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
-index fbd3dc09b63..054f73bde2f 100644
+index fbd3dc09b63b64d2f56fce15303c6d6b0de9b54c..054f73bde2f0e055f0c46eb23b4ca830d1c21f68 100644
 --- a/library/std/src/sys/fs/plan9.rs
 +++ b/library/std/src/sys/fs/plan9.rs
 @@ -436,6 +436,58 @@ fn wstat(f: impl FnOnce(&mut libc::Dir), w: impl FnOnce(*mut libc::Dir) -> i32)
@@ -226,7 +226,7 @@ index fbd3dc09b63..054f73bde2f 100644
      if let Some(t) = times.accessed {
          d.atime = t.to_secs();
 diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
-index b191f5c0af3..cfa0993199d 100644
+index b191f5c0af3c46a3b86b7ee862124c3a95ed605d..cfa0993199d7c3ecb14bdd6ffc29404575d0b610 100644
 --- a/library/std/src/sys/pal/plan9/mod.rs
 +++ b/library/std/src/sys/pal/plan9/mod.rs
 @@ -115,6 +115,9 @@ pub fn error_kind(s: &[u8]) -> io::ErrorKind {

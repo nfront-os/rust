@@ -15,10 +15,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs
 
 diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
-index 1c7aa8fd64d..86d525c7da5 100644
+index 1c7aa8fd64d12b79d0be3c7a1f43683a60272ab9..86d525c7da504c2b30336fe8492b620169379774 100644
 --- a/compiler/rustc_target/src/spec/mod.rs
 +++ b/compiler/rustc_target/src/spec/mod.rs
-@@ -1546,6 +1546,7 @@ fn $module() {
+@@ -1546,6 +1546,7 @@ supported_targets! {
      ("x86_64-unknown-hermit", x86_64_unknown_hermit),
  
      ("x86_64-unknown-plan9", x86_64_unknown_plan9),
@@ -28,7 +28,7 @@ index 1c7aa8fd64d..86d525c7da5 100644
      ("x86_64-unikraft-linux-musl", x86_64_unikraft_linux_musl),
 diff --git a/compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs b/compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs
 new file mode 100644
-index 00000000000..a6769d4ff42
+index 0000000000000000000000000000000000000000..a6769d4ff421408521366548f81f7a3ccabf93fc
 --- /dev/null
 +++ b/compiler/rustc_target/src/spec/targets/i686_unknown_plan9.rs
 @@ -0,0 +1,29 @@
@@ -62,10 +62,10 @@ index 00000000000..a6769d4ff42
 +    }
 +}
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index 1e09971c275..6ecdae9863a 100644
+index 1e09971c275c82c16f1030017d56e204b050a39b..6ecdae9863a254c05859f9e0b1d39d99a0829d68 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
-@@ -297,6 +297,82 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+@@ -297,6 +297,82 @@ crate::arch::global_asm!(
      options(att_syntax)
  );
  
@@ -149,10 +149,10 @@ index 1e09971c275..6ecdae9863a 100644
  #[repr(C)]
  pub struct Run<T> {
 diff --git a/src/bootstrap/src/core/sanity.rs b/src/bootstrap/src/core/sanity.rs
-index 829f21e2779..076a5ec1d69 100644
+index 829f21e2779ab6e345ba2dc0111f753eece1280d..076a5ec1d69a9e34757dae6c1aa0de5a46255b0c 100644
 --- a/src/bootstrap/src/core/sanity.rs
 +++ b/src/bootstrap/src/core/sanity.rs
-@@ -38,6 +38,7 @@ pub struct Finder {
+@@ -38,6 +38,7 @@ const STAGE0_MISSING_TARGETS: &[&str] = &[
      // just a dummy comment so the list doesn't get onelined
      "aarch64-unknown-qtee",
      "x86_64-unknown-plan9",

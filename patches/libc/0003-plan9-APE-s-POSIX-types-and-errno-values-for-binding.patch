@@ -10,7 +10,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 99 insertions(+)
 
 diff --git a/src/plan9.rs b/src/plan9.rs
-index 1a141aa1f..1245de453 100644
+index 1a141aa1f0244ae878d9b7584f1f5dfc48a80656..1245de453b92cf58e269c699953fe66132b176b6 100644
 --- a/src/plan9.rs
 +++ b/src/plan9.rs
 @@ -306,3 +306,102 @@ extern "C" {

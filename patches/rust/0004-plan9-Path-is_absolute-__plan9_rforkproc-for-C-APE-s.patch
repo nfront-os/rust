@@ -11,7 +11,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 59 insertions(+), 1 deletion(-)
 
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index 1a0956d272e..f8c062ff481 100644
+index 1a0956d272ecd66cc8bd930641b3034185dc56f2..f8c062ff4813812a96d76a341141e476c095c88c 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
 @@ -305,6 +305,55 @@ pub unsafe fn rfork_run<T>(flags: i32, run: &Run<T>) -> i32 {
@@ -70,7 +70,7 @@ index 1a0956d272e..f8c062ff481 100644
  fn align_down(p: usize) -> usize {
      p & !15
  }
-@@ -538,8 +587,11 @@ struct MainArgs {
+@@ -538,8 +587,11 @@ pub unsafe extern "C" fn __plan9_mainstack(
  }
  
  /// Keeps `__plan9_mainstack` in the link: libgcc refers to it only weakly.
@@ -83,7 +83,7 @@ index 1a0956d272e..f8c062ff481 100644
  
  /* futex */
 diff --git a/library/std/src/sys/path/unix.rs b/library/std/src/sys/path/unix.rs
-index 5a8c0c77745..11e7e37461e 100644
+index 5a8c0c77745e0ca744f10410ce2d67534f59ae83..11e7e37461eb627fe360cc227ffe444de9c4643b 100644
 --- a/library/std/src/sys/path/unix.rs
 +++ b/library/std/src/sys/path/unix.rs
 @@ -58,7 +58,13 @@ pub(crate) fn absolute(path: &Path) -> io::Result<PathBuf> {

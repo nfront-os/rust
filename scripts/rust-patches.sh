@@ -25,15 +25,19 @@ parts=(
 )
 SUBDIRS=(src/tools/cargo library/backtrace src/llvm-project)
 die(){ echo "rust-patches: $*" >&2; exit 1; }
+# git for a repository: rust's git data is rust.git beside rust/ (core.worktree=../rust):
+# Rust's bootstrap takes rust/ for a source archive only without rust/.git, and only so
+# finds its LLVM by the archive's git-commit-info
+g(){ local r=$1; shift; if [ -d "$TOP/$r.git" ]; then git --git-dir="$TOP/$r.git" "$@"; else git -C "$TOP/$r" "$@"; fi; }
 # the archive's tag of a repository (the one tag there is)
-tag(){ git -C "$TOP/$1" describe --tags --abbrev=0 archive; }
+tag(){ g "$1" describe --tags --abbrev=0 archive; }
 # the pathspec of a part
 spec(){
 	if [ "$2" != . ]; then echo "$2"
 	elif [ "$1" = rust ]; then echo .; for d in "${SUBDIRS[@]}"; do echo ":(exclude)$d"; done
 	else echo .; fi
 }
-ids(){ git -C "$1" patch-id --stable | awk '{print $1}' | sort; }
+ids(){ git patch-id --stable | awk '{print $1}' | sort; }
 
 case $1 in
 diff)
@@ -48,31 +52,31 @@ diff)
 		mkdir -p "$P/$name"
 		echo "$url ${old:-$t}" > "$P/$name/BASE"
 		mapfile -t ps < <(spec "$name" "$dir")
-		git -C "$d" format-patch -q --no-signature --zero-commit "${rel[@]}" -o "$P/$name" "$t..plan9" -- "${ps[@]}"
+		g "$repo" format-patch -q --no-signature --zero-commit --full-index "${rel[@]}" -o "$P/$name" "$t..plan9" -- "${ps[@]}"
 		echo "$name: $(ls "$P/$name" | grep -c '\.patch$') patches on $t"
 	done ;;
 apply)
 	for repo in rust libc; do
 		d=$TOP/$repo
-		[ -d "$d/.git" ] || die "$repo: no $repo/ (./fetch.sh)"
+		[ -d "$d/.git" ] || [ -d "$TOP/$repo.git" ] || die "$repo: no $repo/ (./fetch.sh)"
 		t=$(tag "$repo")
-		if git -C "$d" rev-parse -q --verify plan9 >/dev/null; then
+		if g "$repo" rev-parse -q --verify plan9 >/dev/null; then
 			if [ "$FORCE" != 1 ]; then
 				want=$(for r in "${parts[@]}"; do set -- $r; [ "$2" = "$repo" ] && cat "$P/$1"/*.patch; done | ids "$d")
-				have=$(git -C "$d" log -p --reverse "$t..plan9" | ids "$d")
+				have=$(g "$repo" log -p --reverse "$t..plan9" | ids "$d")
 				[ "$have" = "$want" ] || [ -z "$have" ] ||
 					die "$repo: plan9 differs from the patches (run diff first, or FORCE=1)"
 			fi
-			git -C "$d" branch -f plan9-before-apply plan9
+			g "$repo" branch -f plan9-before-apply plan9
 		fi
-		git -C "$d" checkout -q -B plan9 "$t"
+		g "$repo" checkout -q -B plan9 "$t"
 		for r in "${parts[@]}"; do
 			set -- $r
 			[ "$2" = "$repo" ] || continue
 			dirarg=(); [ "$3" = . ] || dirarg=(--directory="$3")
-			git -C "$d" am -q --keep-cr "${dirarg[@]}" "$P/$1"/*.patch
+			g "$repo" am -q --keep-cr "${dirarg[@]}" "$P/$1"/*.patch
 		done
-		echo "$repo: plan9 $(git -C "$d" rev-parse --short plan9) on $t"
+		echo "$repo: plan9 $(g "$repo" rev-parse --short plan9) on $t"
 	done ;;
 *)	die "usage: rust-patches.sh diff|apply" ;;
 esac

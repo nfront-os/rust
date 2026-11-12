@@ -17,10 +17,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 library/std/src/os/plan9/note.rs
 
 diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
-index c3742fdbc81..aa7cf2fc3f1 100644
+index c3742fdbc81cdcf1c2df90c5bf91fe092da2b987..aa7cf2fc3f166449b76887283aaab6a55a7e4400 100644
 --- a/library/std/src/os/plan9/mod.rs
 +++ b/library/std/src/os/plan9/mod.rs
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,7 @@ pub mod ffi;
  pub mod fs;
  pub mod io;
  pub mod net;
@@ -30,7 +30,7 @@ index c3742fdbc81..aa7cf2fc3f1 100644
  /// A prelude for conveniently writing platform-specific code.
 diff --git a/library/std/src/os/plan9/note.rs b/library/std/src/os/plan9/note.rs
 new file mode 100644
-index 00000000000..2a94febb3f5
+index 0000000000000000000000000000000000000000..2a94febb3f5bcc8d009637f86cdd86c6ddb6362b
 --- /dev/null
 +++ b/library/std/src/os/plan9/note.rs
 @@ -0,0 +1,159 @@
@@ -194,7 +194,7 @@ index 00000000000..2a94febb3f5
 +    }
 +}
 diff --git a/library/std/src/os/plan9/process.rs b/library/std/src/os/plan9/process.rs
-index 01c229acfdc..13d7a02f15d 100644
+index 01c229acfdc29c28644c2d4adc604932c3a8c988..13d7a02f15dbd2d7c3a222a109afe4cc88afd12f 100644
 --- a/library/std/src/os/plan9/process.rs
 +++ b/library/std/src/os/plan9/process.rs
 @@ -4,8 +4,9 @@
@@ -208,7 +208,7 @@ index 01c229acfdc..13d7a02f15d 100644
  
  /// A Plan 9 program ends with a message (exits(2)), not a number.
  #[stable(feature = "rust1", since = "1.0.0")]
-@@ -21,3 +22,52 @@ fn msg(&self) -> &[u8] {
+@@ -21,3 +22,52 @@ impl ExitStatusExt for process::ExitStatus {
          self.as_inner().msg()
      }
  }
@@ -262,7 +262,7 @@ index 01c229acfdc..13d7a02f15d 100644
 +child_pipe!(ChildStdout);
 +child_pipe!(ChildStderr);
 diff --git a/library/std/src/sys/net/connection/plan9/pump.rs b/library/std/src/sys/net/connection/plan9/pump.rs
-index ed5779e0159..ffdb2231998 100644
+index ed5779e01590f5f05ff4d06cfd534564c41efa86..ffdb22319981809e17a2dabf6deab9349f23d3bb 100644
 --- a/library/std/src/sys/net/connection/plan9/pump.rs
 +++ b/library/std/src/sys/net/connection/plan9/pump.rs
 @@ -61,6 +61,8 @@ struct State {
@@ -321,7 +321,7 @@ index ed5779e0159..ffdb2231998 100644
      }
  
      /// Calls the hook, if any (no lock held).
-@@ -275,7 +301,11 @@ fn reader(self: Arc<Self>) {
+@@ -275,7 +301,11 @@ impl Pump {
              }
              self.changed(s);
          }
@@ -335,7 +335,7 @@ index ed5779e0159..ffdb2231998 100644
  
      fn writer(self: Arc<Self>) {
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index 25ce8b9a41a..c1a26768f3e 100644
+index 25ce8b9a41a6e44eb5486a90daa61c48b6ea6b94..c1a26768f3ec689c78a1a2a674fbae3412abc841 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
 @@ -170,6 +170,11 @@ unsafe fn free_thread_data(td: *mut ThreadData) {

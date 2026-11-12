@@ -3,7 +3,8 @@
 # downloaded to dl/, checked (signature url.asc against keys/<key>.pub where a key
 # is named; sha256.txt always), unpacked to <name>/ and made a repository of its own,
 # the archive as a commit with a tag (rust: nightly-<date>, from the URL; libc: its
-# version).  scripts/rust-patches.sh apply then puts the port on the branches plan9.
+# version; rust's git data is rust.git beside rust/).  scripts/rust-patches.sh apply
+# then puts the port on the branches plan9.
 # A <name>/ that is there is left as it is.
 # usage: ./fetch.sh
 set -e
@@ -34,6 +35,12 @@ while IFS=$'\t' read -r name url file key; do
 	 git -c user.name=archive -c user.email=archive@localhost commit -qm "$name $tag (the archive)" &&
 	 git tag "$tag")
 	mv "$name.tmp" "$name"
+	if [ "$name" = rust ]; then
+		# the git data beside the tree: Rust's bootstrap takes rust/ for an archive (and
+		# its LLVM by git-commit-info) only without rust/.git
+		mv rust/.git rust.git
+		git --git-dir=rust.git config core.worktree ../rust
+	fi
 	echo "fetch: $name/: $tag"
 done < sources.txt
 scripts/rust-patches.sh apply

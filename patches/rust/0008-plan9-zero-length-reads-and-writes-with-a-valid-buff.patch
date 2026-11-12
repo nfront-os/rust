@@ -26,7 +26,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 compiler/rustc_data_structures/src/flock/plan9.rs
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 181e3991d4c..f46ace9765a 100644
+index 181e3991d4c666bff8826d1238547e877231db06..f46ace9765a8976597f38d9cf9d2b729c1592b73 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -2195,8 +2195,6 @@ dependencies = [
@@ -39,7 +39,7 @@ index 181e3991d4c..f46ace9765a 100644
   "getrandom 0.3.3",
   "libc",
 diff --git a/Cargo.toml b/Cargo.toml
-index b2ae1332e83..74ac247ddfa 100644
+index b2ae1332e830cbd56e88edb8a954d00230a4c346..74ac247ddfac7bbbad134ff5007e60ef8c68ad2d 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -92,3 +92,4 @@ codegen-units = 1
@@ -48,10 +48,10 @@ index b2ae1332e83..74ac247ddfa 100644
  libloading = { path = "../crates/libloading-0.9.0" }
 +jobserver = { path = "../crates/jobserver-0.1.34" }
 diff --git a/compiler/rustc_data_structures/src/flock.rs b/compiler/rustc_data_structures/src/flock.rs
-index deb779a4996..862ac136f98 100644
+index deb779a4996dd5a5e3fabc171e0f004f6cd0ecff..862ac136f98c30b83351a737e5d20d76cc5f5695 100644
 --- a/compiler/rustc_data_structures/src/flock.rs
 +++ b/compiler/rustc_data_structures/src/flock.rs
-@@ -64,6 +64,10 @@ pub fn error_unsupported(err: &io::Error) -> bool {
+@@ -64,6 +64,10 @@ cfg_select! {
          mod unix;
          use unix as fallback;
      }
@@ -64,7 +64,7 @@ index deb779a4996..862ac136f98 100644
          use unsupported as fallback;
 diff --git a/compiler/rustc_data_structures/src/flock/plan9.rs b/compiler/rustc_data_structures/src/flock/plan9.rs
 new file mode 100644
-index 00000000000..32a64d73945
+index 0000000000000000000000000000000000000000..32a64d73945728907f3b8ee715dddb6d0cf75dbc
 --- /dev/null
 +++ b/compiler/rustc_data_structures/src/flock/plan9.rs
 @@ -0,0 +1,17 @@
@@ -86,7 +86,7 @@ index 00000000000..32a64d73945
 +    }
 +}
 diff --git a/library/std/src/sys/env/plan9.rs b/library/std/src/sys/env/plan9.rs
-index 6d2a5900e19..817cd3bcb25 100644
+index 6d2a5900e190409bf2a08e476e20af18f69da471..817cd3bcb25494a8400861541d5d6c254b75659a 100644
 --- a/library/std/src/sys/env/plan9.rs
 +++ b/library/std/src/sys/env/plan9.rs
 @@ -32,7 +32,7 @@ fn read_value(p: &CString) -> Option<Vec<u8>> {
@@ -108,10 +108,10 @@ index 6d2a5900e19..817cd3bcb25 100644
          if n < 0 || n as usize != v.len() {
              return Err(crate::sys::last_error());
 diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
-index b48de364dcd..4da9af86813 100644
+index b48de364dcd794361098d4e1d9a3aecc2840c195..4da9af86813f0bf2335e9c52b4dc169356168946 100644
 --- a/library/std/src/sys/fd/plan9.rs
 +++ b/library/std/src/sys/fd/plan9.rs
-@@ -69,14 +69,14 @@ pub struct FileDesc {
+@@ -69,14 +69,14 @@ const MAX_IO: usize = i32::MAX as usize;
  impl FileDesc {
      pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
          let n = buf.len().min(MAX_IO);
@@ -128,7 +128,7 @@ index b48de364dcd..4da9af86813 100644
          })?;
          unsafe { cursor.advance(r as usize) };
          Ok(())
-@@ -99,14 +99,14 @@ pub fn read_to_end(&self, buf: &mut Vec<u8>) -> io::Result<usize> {
+@@ -99,14 +99,14 @@ impl FileDesc {
      pub fn read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
          let n = buf.len().min(MAX_IO);
          let r = cvt(unsafe {
@@ -145,7 +145,7 @@ index b48de364dcd..4da9af86813 100644
          Ok(r as usize)
      }
  
-@@ -122,7 +122,7 @@ pub fn is_write_vectored(&self) -> bool {
+@@ -122,7 +122,7 @@ impl FileDesc {
      pub fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
          let n = buf.len().min(MAX_IO);
          let r = cvt(unsafe {
@@ -155,10 +155,10 @@ index b48de364dcd..4da9af86813 100644
          Ok(r as usize)
      }
 diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
-index 07e67636747..b191f5c0af3 100644
+index 07e676367473a46af6c8321b4ec478d6a7e58168..b191f5c0af3c46a3b86b7ee862124c3a95ed605d 100644
 --- a/library/std/src/sys/pal/plan9/mod.rs
 +++ b/library/std/src/sys/pal/plan9/mod.rs
-@@ -9,6 +9,20 @@
+@@ -9,6 +9,20 @@ pub mod proc;
  use crate::ffi::{CStr, c_char, c_void};
  use crate::io;
  
@@ -180,10 +180,10 @@ index 07e67636747..b191f5c0af3 100644
      Err(unsupported_err())
  }
 diff --git a/library/std/src/sys/process/plan9.rs b/library/std/src/sys/process/plan9.rs
-index ab1ea41cc81..1198197e4ae 100644
+index ab1ea41cc81c2869303ba004e197a1525bd05b13..1198197e4ae64b54594f4abbe81a75680b08bcff 100644
 --- a/library/std/src/sys/process/plan9.rs
 +++ b/library/std/src/sys/process/plan9.rs
-@@ -328,7 +328,7 @@ struct ChildArgs {
+@@ -328,7 +328,7 @@ unsafe extern "C" fn child(run: *const Run<ChildArgs>) -> ! {
                  if fd < 0 {
                      fail(a.errw);
                  }
@@ -202,10 +202,10 @@ index ab1ea41cc81..1198197e4ae 100644
      }
  }
 diff --git a/library/std/src/sys/stdio/plan9.rs b/library/std/src/sys/stdio/plan9.rs
-index 1c9076a13f1..03b32613e33 100644
+index 1c9076a13f1ffc65bca1ba5434bbed3212649f6b..03b32613e33e21aa6536974eed246781169c6259 100644
 --- a/library/std/src/sys/stdio/plan9.rs
 +++ b/library/std/src/sys/stdio/plan9.rs
-@@ -9,12 +9,12 @@
+@@ -9,12 +9,12 @@ pub struct Stderr;
  
  fn read(fd: i32, buf: &mut [u8]) -> io::Result<usize> {
      let n = buf.len().min(i32::MAX as usize);

@@ -10,7 +10,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 3 insertions(+)
 
 diff --git a/src/plan9.rs b/src/plan9.rs
-index 5f4014ee0..1e5bd700e 100644
+index 5f4014ee03e420cc69ba8a63965601cba1251c96..1e5bd700e548078effa4a28200b35c315e54d4e4 100644
 --- a/src/plan9.rs
 +++ b/src/plan9.rs
 @@ -32,6 +32,9 @@ pub type jmp_buf = [uintptr_t; 8];

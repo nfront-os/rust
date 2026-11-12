@@ -11,7 +11,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/compiler/rustc_data_structures/src/flock/plan9.rs b/compiler/rustc_data_structures/src/flock/plan9.rs
-index 5fea5098f8c..9ad3e3ef304 100644
+index 5fea5098f8cf69a4eea1986e19cde2f7c333cb4a..9ad3e3ef3046b730482d599bfe967e16b7e3b2be 100644
 --- a/compiler/rustc_data_structures/src/flock/plan9.rs
 +++ b/compiler/rustc_data_structures/src/flock/plan9.rs
 @@ -1,7 +1,7 @@
@@ -24,10 +24,10 @@ index 5fea5098f8c..9ad3e3ef304 100644
  use std::io;
  use std::os::plan9::fs::{FileLock, lock_file};
 diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
-index cd9f9785d72..155122561f5 100644
+index cd9f9785d7298163fd8635d80c95acf68dcbb4a5..155122561f54c97b30fbf19293a66cdf0df37f3a 100644
 --- a/library/std/src/os/plan9/fs.rs
 +++ b/library/std/src/os/plan9/fs.rs
-@@ -190,7 +190,8 @@ fn write_at(&self, buf: &[u8], offset: u64) -> io::Result<usize> {
+@@ -190,7 +190,8 @@ impl FileExt for File {
  /// ([`io::ErrorKind::WouldBlock`]). `path` is made exclusive-use if it is not (made with it
  /// if it does not exist). `wait`: try again until it is free, else return the error. There
  /// are no shared locks: a reader locks as a writer does. Most of 9front's file servers keep

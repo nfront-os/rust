@@ -10,7 +10,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 93 insertions(+), 1 deletion(-)
 
 diff --git a/src/plan9.rs b/src/plan9.rs
-index 1245de453..6db19f8ad 100644
+index 1245de453b92cf58e269c699953fe66132b176b6..6db19f8ad1afe3357cf3778900e11451576c8ef6 100644
 --- a/src/plan9.rs
 +++ b/src/plan9.rs
 @@ -172,61 +172,112 @@ pub const FPOVFL: ulong = 1 << 10;

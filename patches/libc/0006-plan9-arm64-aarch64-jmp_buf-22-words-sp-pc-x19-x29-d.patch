@@ -10,7 +10,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/src/plan9.rs b/src/plan9.rs
-index 243962c0b..5f4014ee0 100644
+index 243962c0ba6e1d4f931433d2c0340204eafc066b..5f4014ee03e420cc69ba8a63965601cba1251c96 100644
 --- a/src/plan9.rs
 +++ b/src/plan9.rs
 @@ -27,8 +27,11 @@ pub type usize_ = c_ulong;

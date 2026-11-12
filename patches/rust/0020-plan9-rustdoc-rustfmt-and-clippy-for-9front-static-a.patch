@@ -22,7 +22,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  11 files changed, 47 insertions(+), 1 deletion(-)
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 74ac247ddfa..3d997d1de57 100644
+index 74ac247ddfac7bbbad134ff5007e60ef8c68ad2d..3d997d1de57779958661c945626ed93081f27e00 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -93,3 +93,5 @@ getrandom = { path = "../crates/getrandom-0.3.3" }
@@ -32,10 +32,10 @@ index 74ac247ddfa..3d997d1de57 100644
 +stacker = { path = "../crates/stacker-0.1.21" }
 +dirs-sys = { path = "../crates/dirs-sys-0.5.0" }
 diff --git a/src/bootstrap/src/core/build_steps/compile.rs b/src/bootstrap/src/core/build_steps/compile.rs
-index 96fff685ee5..3d7f7ad2cfe 100644
+index 96fff685ee55fc6c7524ee31e1fa704e22522136..3d7f7ad2cfedaeb0c318cfbf385219ec5599c955 100644
 --- a/src/bootstrap/src/core/build_steps/compile.rs
 +++ b/src/bootstrap/src/core/build_steps/compile.rs
-@@ -1150,6 +1150,9 @@ fn run(self, builder: &Builder<'_>) -> Self::Output {
+@@ -1150,6 +1150,9 @@ impl CommandLineStep for Rustc {
              target,
          );
          let stamp = build_stamp::librustc_stamp(builder, build_compiler, target);
@@ -45,7 +45,7 @@ index 96fff685ee5..3d7f7ad2cfe 100644
  
          run_cargo(
              builder,
-@@ -1157,7 +1160,10 @@ fn run(self, builder: &Builder<'_>) -> Self::Output {
+@@ -1157,7 +1160,10 @@ impl CommandLineStep for Rustc {
              vec![],
              &stamp,
              vec![],
@@ -58,7 +58,7 @@ index 96fff685ee5..3d7f7ad2cfe 100644
                      || filename.contains("rustc_public_bridge")
                      || filename.contains("rustc_public")
 diff --git a/src/librustdoc/clean/cfg.rs b/src/librustdoc/clean/cfg.rs
-index 22bbac3fd0b..328ca3318b7 100644
+index 22bbac3fd0b385180d7863611be7f6ed9712cc5d..328ca3318b7b991bd63e90aeeca36ab4fddee1a3 100644
 --- a/src/librustdoc/clean/cfg.rs
 +++ b/src/librustdoc/clean/cfg.rs
 @@ -684,6 +684,7 @@ fn human_readable_target_os(os: Symbol) -> Option<&'static str> {
@@ -70,7 +70,7 @@ index 22bbac3fd0b..328ca3318b7 100644
          Psp => "Play Station Portable",
          Psx => "Play Station 1",
 diff --git a/src/librustdoc/html/render/write_shared/flock.rs b/src/librustdoc/html/render/write_shared/flock.rs
-index 385c0bcc84c..0f9ef6d5118 100644
+index 385c0bcc84cd303f8883a93d0d0ff2650691ac35..0f9ef6d5118ca78f95b70654e9ea7c73ada7626e 100644
 --- a/src/librustdoc/html/render/write_shared/flock.rs
 +++ b/src/librustdoc/html/render/write_shared/flock.rs
 @@ -15,6 +15,11 @@ pub(super) enum Lock {
@@ -85,7 +85,7 @@ index 385c0bcc84c..0f9ef6d5118 100644
  }
  
  impl Lock {
-@@ -35,6 +40,12 @@ pub(super) fn new(p: &Path) -> io::Result<Lock> {
+@@ -35,6 +40,12 @@ impl Lock {
              Err(err) if matches!(err.kind(), io::ErrorKind::Unsupported) => {
                  Ok(Lock::FcntlFallback { _lock: FcntlLock::new(file)? })
              }
@@ -99,10 +99,10 @@ index 385c0bcc84c..0f9ef6d5118 100644
          }
      }
 diff --git a/src/librustdoc/lib.rs b/src/librustdoc/lib.rs
-index 9a16942a2e5..d78ae0e1ae1 100644
+index 9a16942a2e5bcc6900bc3828179433cd05e0c4c2..d78ae0e1ae1f246a4b73234a154c646f3756cb1c 100644
 --- a/src/librustdoc/lib.rs
 +++ b/src/librustdoc/lib.rs
-@@ -34,7 +34,11 @@
+@@ -34,7 +34,11 @@ extern crate rustc_ast_pretty;
  extern crate rustc_attr_ir;
  extern crate rustc_attr_parsing;
  extern crate rustc_data_structures;
@@ -115,10 +115,10 @@ index 9a16942a2e5..d78ae0e1ae1 100644
  extern crate rustc_feature;
  extern crate rustc_hir;
 diff --git a/src/tools/clippy/clippy_utils/src/lib.rs b/src/tools/clippy/clippy_utils/src/lib.rs
-index eb5befb52c3..04ce3a5da68 100644
+index eb5befb52c3e4cd03571309ff35ae9b07ac9208a..04ce3a5da68d2f838b8f298fb85a455fd168bbf9 100644
 --- a/src/tools/clippy/clippy_utils/src/lib.rs
 +++ b/src/tools/clippy/clippy_utils/src/lib.rs
-@@ -25,6 +25,8 @@
+@@ -25,6 +25,8 @@ extern crate rustc_data_structures;
      unused_extern_crates,
      reason = "The `rustc_driver` crate seems to be required in order to use the `rust_ast` crate."
  )]
@@ -128,7 +128,7 @@ index eb5befb52c3..04ce3a5da68 100644
  extern crate rustc_errors;
  extern crate rustc_hir;
 diff --git a/src/tools/clippy/src/driver.rs b/src/tools/clippy/src/driver.rs
-index e83fe592a7c..71aed94e3c5 100644
+index e83fe592a7ca690678aaabd23f5e1cefe478df27..71aed94e3c5916427683c532e015020e06a30283 100644
 --- a/src/tools/clippy/src/driver.rs
 +++ b/src/tools/clippy/src/driver.rs
 @@ -7,7 +7,11 @@
@@ -144,7 +144,7 @@ index e83fe592a7c..71aed94e3c5 100644
  extern crate rustc_session;
  extern crate rustc_span;
 diff --git a/src/tools/clippy/src/main.rs b/src/tools/clippy/src/main.rs
-index 14a437fc874..2f02ceb2c18 100644
+index 14a437fc874fe6b4f9dab10b3fa46754af0f4ec3..2f02ceb2c18af3840e8cbd1c35f1c031f8dea2fb 100644
 --- a/src/tools/clippy/src/main.rs
 +++ b/src/tools/clippy/src/main.rs
 @@ -4,7 +4,13 @@
@@ -162,7 +162,7 @@ index 14a437fc874..2f02ceb2c18 100644
  use std::env;
  use std::io::Write as _;
 diff --git a/src/tools/rustdoc/main.rs b/src/tools/rustdoc/main.rs
-index 15fd67a5038..b643b81582d 100644
+index 15fd67a50383072910b53562fe0298c4a5459f18..b643b81582d9ac756487c743b045d3de494d541e 100644
 --- a/src/tools/rustdoc/main.rs
 +++ b/src/tools/rustdoc/main.rs
 @@ -1,7 +1,11 @@
@@ -178,10 +178,10 @@ index 15fd67a5038..b643b81582d 100644
  use std::process::ExitCode;
  
 diff --git a/src/tools/rustfmt/src/bin/main.rs b/src/tools/rustfmt/src/bin/main.rs
-index 0653ad3d937..9f587334fc5 100644
+index 0653ad3d937582e7d69e8cb0795ee2661236061c..9f587334fc5f35b13332942c161ce4ea2655b353 100644
 --- a/src/tools/rustfmt/src/bin/main.rs
 +++ b/src/tools/rustfmt/src/bin/main.rs
-@@ -24,7 +24,11 @@
+@@ -24,7 +24,11 @@ use crate::rustfmt::{
  const BUG_REPORT_URL: &str = "https://github.com/rust-lang/rustfmt/issues/new?labels=bug";
  
  // N.B. these crates are loaded from the sysroot, so they need extern crate.
@@ -194,10 +194,10 @@ index 0653ad3d937..9f587334fc5 100644
  fn main() {
      rustc_driver::install_ice_hook(BUG_REPORT_URL, |_| ());
 diff --git a/src/tools/rustfmt/src/lib.rs b/src/tools/rustfmt/src/lib.rs
-index fb42b06d469..2ee2cada776 100644
+index fb42b06d469b459583cb8dbb6eadb27432952d23..2ee2cada776e86a6c751abb990cb3f6fc4ee25c2 100644
 --- a/src/tools/rustfmt/src/lib.rs
 +++ b/src/tools/rustfmt/src/lib.rs
-@@ -19,6 +19,8 @@
+@@ -19,6 +19,8 @@ extern crate thin_vec;
  // Necessary to pull in object code as the rest of the rustc crates are shipped only as rmeta
  // files.
  #[allow(unused_extern_crates)]

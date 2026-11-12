@@ -19,7 +19,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 library/std/src/sys/net/connection/plan9/pump.rs
 
 diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
-index 12507a44a6f..c3742fdbc81 100644
+index 12507a44a6f80d4f40c0bd5563099b56eaf5b04f..c3742fdbc81cdcf1c2df90c5bf91fe092da2b987 100644
 --- a/library/std/src/os/plan9/mod.rs
 +++ b/library/std/src/os/plan9/mod.rs
 @@ -6,6 +6,7 @@
@@ -32,7 +32,7 @@ index 12507a44a6f..c3742fdbc81 100644
  /// A prelude for conveniently writing platform-specific code.
 diff --git a/library/std/src/os/plan9/net.rs b/library/std/src/os/plan9/net.rs
 new file mode 100644
-index 00000000000..8c9607ac1e6
+index 0000000000000000000000000000000000000000..8c9607ac1e613af6280cfce67e4b6a9020194cc2
 --- /dev/null
 +++ b/library/std/src/os/plan9/net.rs
 @@ -0,0 +1,64 @@
@@ -101,7 +101,7 @@ index 00000000000..8c9607ac1e6
 +    crate::sys::net::connect_nonblocking(addr).map(TcpStream::from_inner)
 +}
 diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
-index 4da9af86813..31c51f444fe 100644
+index 4da9af86813f0bf2335e9c52b4dc169356168946..31c51f444fefb27d1c1396cc7f9a00f6fe03cbea 100644
 --- a/library/std/src/sys/fd/plan9.rs
 +++ b/library/std/src/sys/fd/plan9.rs
 @@ -46,6 +46,8 @@ pub fn forget_state(fd: RawFd) {
@@ -114,7 +114,7 @@ index 4da9af86813..31c51f444fe 100644
  
  /// A copy of `fd` that closes on exec (an open of dup(3)'s `#d/n` with OCEXEC; pipe(2) and
 diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
-index 0ea7669c75d..96839f3e946 100644
+index 0ea7669c75d6db3c07a01bdd2e80a12bad07f505..96839f3e9461700c568220170bda2a01739b2353 100644
 --- a/library/std/src/sys/net/connection/plan9.rs
 +++ b/library/std/src/sys/net/connection/plan9.rs
 @@ -7,8 +7,9 @@
@@ -129,7 +129,7 @@ index 0ea7669c75d..96839f3e946 100644
  
  use crate::ffi::CString;
  use crate::fmt;
-@@ -21,6 +22,10 @@
+@@ -21,6 +22,10 @@ use crate::sys::fd::{FdState, FileDesc, cloexec, set_state, state};
  use crate::sys::{AsInner, FromInner, IntoInner, cvt, last_error, unsupported};
  use crate::time::Duration;
  
@@ -140,7 +140,7 @@ index 0ea7669c75d..96839f3e946 100644
  fn err(kind: io::ErrorKind, msg: &'static str) -> io::Error {
      io::Error::new(kind, msg)
  }
-@@ -181,20 +186,53 @@ fn remote(&self) -> io::Result<SocketAddr> {
+@@ -181,20 +186,53 @@ impl Socket {
          parse_addr(&read_file(&format!("{}/remote", self.dir()?))?)
      }
  
@@ -244,7 +244,7 @@ index 0ea7669c75d..96839f3e946 100644
  pub struct TcpStream {
      inner: Socket,
  }
-@@ -314,8 +392,10 @@ pub fn write_timeout(&self) -> io::Result<Option<Duration>> {
+@@ -314,8 +392,10 @@ impl TcpStream {
          Ok(dur_of(self.inner.state().write_ms))
      }
  
@@ -257,7 +257,7 @@ index 0ea7669c75d..96839f3e946 100644
      }
  
      pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-@@ -358,7 +438,13 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+@@ -358,7 +438,13 @@ impl TcpStream {
      /// tcp's ctl "close" ends the sending side (FIN); reading goes on.
      pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
          match how {
@@ -272,7 +272,7 @@ index 0ea7669c75d..96839f3e946 100644
              Shutdown::Write | Shutdown::Both => write_ctl(&self.inner.dir()?, "close"),
          }
      }
-@@ -409,11 +495,11 @@ pub fn hop_limit_v6(&self) -> io::Result<u8> {
+@@ -409,11 +495,11 @@ impl TcpStream {
      }
  
      pub fn take_error(&self) -> io::Result<Option<io::Error>> {
@@ -287,7 +287,7 @@ index 0ea7669c75d..96839f3e946 100644
      }
  }
  
-@@ -436,6 +522,19 @@ fn from_inner(inner: Socket) -> TcpStream {
+@@ -436,6 +522,19 @@ impl FromInner<Socket> for TcpStream {
      }
  }
  
@@ -307,7 +307,7 @@ index 0ea7669c75d..96839f3e946 100644
  pub struct TcpListener {
      /// the announcement's ctl
      inner: Socket,
-@@ -465,23 +564,16 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+@@ -465,23 +564,16 @@ impl TcpListener {
      }
  
      pub fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
@@ -340,7 +340,7 @@ index 0ea7669c75d..96839f3e946 100644
      }
  
      pub fn duplicate(&self) -> io::Result<TcpListener> {
-@@ -513,11 +605,11 @@ pub fn only_v6(&self) -> io::Result<bool> {
+@@ -513,11 +605,11 @@ impl TcpListener {
      }
  
      pub fn take_error(&self) -> io::Result<Option<io::Error>> {
@@ -355,7 +355,7 @@ index 0ea7669c75d..96839f3e946 100644
      }
  }
  
-@@ -591,16 +683,33 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+@@ -591,16 +683,33 @@ impl UdpSocket {
      }
  
      pub fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
@@ -393,7 +393,7 @@ index 0ea7669c75d..96839f3e946 100644
                      continue;
                  }
              }
-@@ -610,10 +719,6 @@ pub fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+@@ -610,10 +719,6 @@ impl UdpSocket {
          }
      }
  
@@ -404,7 +404,7 @@ index 0ea7669c75d..96839f3e946 100644
      pub fn send_to(&self, buf: &[u8], dst: &SocketAddr) -> io::Result<usize> {
          let mut b = vec![0u8; UDP_HDR + buf.len()];
          put_addr(&mut b[0..16], dst);
-@@ -717,19 +822,19 @@ pub fn multicast_hop_limit_v6(&self) -> io::Result<u8> {
+@@ -717,19 +822,19 @@ impl UdpSocket {
      }
  
      pub fn take_error(&self) -> io::Result<Option<io::Error>> {
@@ -431,7 +431,7 @@ index 0ea7669c75d..96839f3e946 100644
      pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
 diff --git a/library/std/src/sys/net/connection/plan9/pump.rs b/library/std/src/sys/net/connection/plan9/pump.rs
 new file mode 100644
-index 00000000000..1e274f1925d
+index 0000000000000000000000000000000000000000..1e274f1925d8bf022dec0bcf34e37a1cfdc081cc
 --- /dev/null
 +++ b/library/std/src/sys/net/connection/plan9/pump.rs
 @@ -0,0 +1,508 @@
@@ -944,7 +944,7 @@ index 00000000000..1e274f1925d
 +    })
 +}
 diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
-index 55fe9c69a53..a68a5530693 100644
+index 55fe9c69a5352b4f1ebdec64d29b4cc704314e3d..a68a5530693a58ab3b645f09e89e10deca32f241 100644
 --- a/library/std/src/sys/pal/plan9/mod.rs
 +++ b/library/std/src/sys/pal/plan9/mod.rs
 @@ -33,13 +33,20 @@ pub fn unsupported_err() -> io::Error {

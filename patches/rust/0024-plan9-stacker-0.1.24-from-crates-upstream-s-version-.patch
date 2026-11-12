@@ -11,7 +11,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 1 insertion(+), 5 deletions(-)
 
 diff --git a/Cargo.lock b/Cargo.lock
-index f46ace9765a..bf899c0e022 100644
+index f46ace9765a8976597f38d9cf9d2b729c1592b73..bf899c0e022f86ccde1f86887177c9b19d4dfb19 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -1247,8 +1247,6 @@ dependencies = [
@@ -33,7 +33,7 @@ index f46ace9765a..bf899c0e022 100644
   "cc",
   "cfg-if",
 diff --git a/Cargo.toml b/Cargo.toml
-index 3d997d1de57..fb892846798 100644
+index 3d997d1de57779958661c945626ed93081f27e00..fb892846798464a78b9ad05e317b5015294ab2e1 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -93,5 +93,5 @@ getrandom = { path = "../crates/getrandom-0.3.3" }

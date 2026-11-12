@@ -10,7 +10,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/src/plan9.rs b/src/plan9.rs
-index 6db19f8ad..243962c0b 100644
+index 6db19f8ad1afe3357cf3778900e11451576c8ef6..243962c0ba6e1d4f931433d2c0340204eafc066b 100644
 --- a/src/plan9.rs
 +++ b/src/plan9.rs
 @@ -22,12 +22,16 @@ pub type uint = c_uint;

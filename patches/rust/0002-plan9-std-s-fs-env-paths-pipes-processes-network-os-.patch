@@ -54,7 +54,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 library/std/src/sys/process/plan9.rs
 
 diff --git a/library/std/src/os/fd/owned.rs b/library/std/src/os/fd/owned.rs
-index fa775a93734..1124be4d370 100644
+index fa775a937342718433a935275da4a016c7bbd1f7..1124be4d370a1e0b1b012393390f75f3911b7f4a 100644
 --- a/library/std/src/os/fd/owned.rs
 +++ b/library/std/src/os/fd/owned.rs
 @@ -129,6 +129,7 @@ impl BorrowedFd<'_> {
@@ -65,7 +65,7 @@ index fa775a93734..1124be4d370 100644
          target_os = "trusty",
          target_os = "motor"
      )))]
-@@ -167,6 +168,15 @@ pub fn try_clone_to_owned(&self) -> io::Result<OwnedFd> {
+@@ -167,6 +168,15 @@ impl BorrowedFd<'_> {
  
      /// Creates a new `OwnedFd` instance that shares the same underlying file
      /// description as the existing `BorrowedFd` instance.
@@ -81,7 +81,7 @@ index fa775a93734..1124be4d370 100644
      #[cfg(target_os = "motor")]
      #[stable(feature = "io_safety", since = "1.63.0")]
      pub fn try_clone_to_owned(&self) -> io::Result<OwnedFd> {
-@@ -241,6 +251,8 @@ fn drop(&mut self) {
+@@ -241,6 +251,8 @@ impl Drop for OwnedFd {
              {
                  #[cfg(unix)]
                  crate::sys::fs::debug_assert_fd_is_open(self.fd.as_inner());
@@ -91,10 +91,10 @@ index fa775a93734..1124be4d370 100644
                  let _ = libc::close(self.fd.as_inner());
              }
 diff --git a/library/std/src/os/fd/raw.rs b/library/std/src/os/fd/raw.rs
-index 41904018d09..0ddf94a6102 100644
+index 41904018d095a94ae9797a5348d6fa586b07abc7..0ddf94a61020c1d016e0071ed9f35fc73b7fb219 100644
 --- a/library/std/src/os/fd/raw.rs
 +++ b/library/std/src/os/fd/raw.rs
-@@ -7,7 +7,7 @@
+@@ -7,7 +7,7 @@ use hermit_abi as libc;
  #[cfg(target_os = "motor")]
  use moto_rt::libc;
  
@@ -104,10 +104,10 @@ index 41904018d09..0ddf94a6102 100644
  use crate::alloc::Allocator;
  #[cfg(not(target_os = "trusty"))]
 diff --git a/library/std/src/os/mod.rs b/library/std/src/os/mod.rs
-index 7d52b86cb58..05920b34512 100644
+index 7d52b86cb58ff17b83749d82dfadfe86c498c991..05920b345126546f2610cb44fb554f79271531d7 100644
 --- a/library/std/src/os/mod.rs
 +++ b/library/std/src/os/mod.rs
-@@ -70,6 +70,7 @@ pub mod windows {}
+@@ -70,6 +70,7 @@ cfg_select! {
  #[cfg(any(
      unix,
      target_os = "hermit",
@@ -117,7 +117,7 @@ index 7d52b86cb58..05920b34512 100644
      target_os = "motor",
 diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
 new file mode 100644
-index 00000000000..6503f4e0d86
+index 0000000000000000000000000000000000000000..6503f4e0d8627fe0e0de5d65a779d6541e68acb3
 --- /dev/null
 +++ b/library/std/src/os/plan9/fs.rs
 @@ -0,0 +1,181 @@
@@ -304,7 +304,7 @@ index 00000000000..6503f4e0d86
 +}
 diff --git a/library/std/src/os/plan9/io.rs b/library/std/src/os/plan9/io.rs
 new file mode 100644
-index 00000000000..5500cfded4f
+index 0000000000000000000000000000000000000000..5500cfded4fa9b9c88904e9637775f14563ec87e
 --- /dev/null
 +++ b/library/std/src/os/plan9/io.rs
 @@ -0,0 +1,6 @@
@@ -315,7 +315,7 @@ index 00000000000..5500cfded4f
 +#[stable(feature = "rust1", since = "1.0.0")]
 +pub use crate::os::fd::*;
 diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
-index 7a86de9b9be..12507a44a6f 100644
+index 7a86de9b9bebf277f17de769048980fdc7e61fa8..12507a44a6f80d4f40c0bd5563099b56eaf5b04f 100644
 --- a/library/std/src/os/plan9/mod.rs
 +++ b/library/std/src/os/plan9/mod.rs
 @@ -4,6 +4,9 @@
@@ -346,7 +346,7 @@ index 7a86de9b9be..12507a44a6f 100644
  }
 diff --git a/library/std/src/os/plan9/process.rs b/library/std/src/os/plan9/process.rs
 new file mode 100644
-index 00000000000..01c229acfdc
+index 0000000000000000000000000000000000000000..01c229acfdc29c28644c2d4adc604932c3a8c988
 --- /dev/null
 +++ b/library/std/src/os/plan9/process.rs
 @@ -0,0 +1,23 @@
@@ -374,7 +374,7 @@ index 00000000000..01c229acfdc
 +    }
 +}
 diff --git a/library/std/src/sys/env/mod.rs b/library/std/src/sys/env/mod.rs
-index 89856516b6d..9e5deb73f27 100644
+index 89856516b6dcea5b33f5d2a31ec9370791eff09d..9e5deb73f274e7ceadf1475d6e058c9b6946beab 100644
 --- a/library/std/src/sys/env/mod.rs
 +++ b/library/std/src/sys/env/mod.rs
 @@ -5,6 +5,7 @@
@@ -385,7 +385,7 @@ index 89856516b6d..9e5deb73f27 100644
      target_os = "motor",
      all(target_vendor = "fortanix", target_env = "sgx"),
      target_os = "solid_asp3",
-@@ -27,6 +28,10 @@
+@@ -27,6 +28,10 @@ cfg_select! {
          mod hermit;
          pub use hermit::*;
      }
@@ -398,7 +398,7 @@ index 89856516b6d..9e5deb73f27 100644
          pub use motor::*;
 diff --git a/library/std/src/sys/env/plan9.rs b/library/std/src/sys/env/plan9.rs
 new file mode 100644
-index 00000000000..6d2a5900e19
+index 0000000000000000000000000000000000000000..6d2a5900e190409bf2a08e476e20af18f69da471
 --- /dev/null
 +++ b/library/std/src/sys/env/plan9.rs
 @@ -0,0 +1,91 @@
@@ -494,10 +494,10 @@ index 00000000000..6d2a5900e19
 +    Ok(())
 +}
 diff --git a/library/std/src/sys/fd/mod.rs b/library/std/src/sys/fd/mod.rs
-index 02d61a62f4e..befb8d15d7a 100644
+index 02d61a62f4e6bcf843368d2987ffbfea0740c078..befb8d15d7a5e4be410baa49da207551f3b79c3b 100644
 --- a/library/std/src/sys/fd/mod.rs
 +++ b/library/std/src/sys/fd/mod.rs
-@@ -7,6 +7,10 @@
+@@ -7,6 +7,10 @@ cfg_select! {
          mod unix;
          pub use unix::*;
      }
@@ -510,7 +510,7 @@ index 02d61a62f4e..befb8d15d7a 100644
          pub use hermit::*;
 diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
 new file mode 100644
-index 00000000000..b48de364dcd
+index 0000000000000000000000000000000000000000..b48de364dcd794361098d4e1d9a3aecc2840c195
 --- /dev/null
 +++ b/library/std/src/sys/fd/plan9.rs
 @@ -0,0 +1,207 @@
@@ -722,10 +722,10 @@ index 00000000000..b48de364dcd
 +    }
 +}
 diff --git a/library/std/src/sys/fs/mod.rs b/library/std/src/sys/fs/mod.rs
-index e15841b363d..11cbd136027 100644
+index e15841b363d18c04f47852151142797d6ce9f3d7..11cbd136027daab9235466068aaddb7ca37de740 100644
 --- a/library/std/src/sys/fs/mod.rs
 +++ b/library/std/src/sys/fs/mod.rs
-@@ -31,6 +31,10 @@
+@@ -31,6 +31,10 @@ cfg_select! {
          mod hermit;
          use hermit as imp;
      }
@@ -738,7 +738,7 @@ index e15841b363d..11cbd136027 100644
          use motor as imp;
 diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
 new file mode 100644
-index 00000000000..d47c3947359
+index 0000000000000000000000000000000000000000..d47c3947359a0e8b737786f086a2d6fcd3e80bee
 --- /dev/null
 +++ b/library/std/src/sys/fs/plan9.rs
 @@ -0,0 +1,896 @@
@@ -1639,10 +1639,10 @@ index 00000000000..d47c3947359
 +    Ok(out)
 +}
 diff --git a/library/std/src/sys/net/connection/mod.rs b/library/std/src/sys/net/connection/mod.rs
-index 49a0f47c959..9f5016f1175 100644
+index 49a0f47c959d2a48e0fbfa6636841dfea8a3ad56..9f5016f117542d71450dc6e9e98bad4615d15041 100644
 --- a/library/std/src/sys/net/connection/mod.rs
 +++ b/library/std/src/sys/net/connection/mod.rs
-@@ -21,6 +21,10 @@
+@@ -21,6 +21,10 @@ cfg_select! {
          mod motor;
          pub use motor::*;
      }
@@ -1655,7 +1655,7 @@ index 49a0f47c959..9f5016f1175 100644
          pub use xous::*;
 diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
 new file mode 100644
-index 00000000000..7e4d05a8fb4
+index 0000000000000000000000000000000000000000..7e4d05a8fb421b9931d2e8f4539833f4b82d60a8
 --- /dev/null
 +++ b/library/std/src/sys/net/connection/plan9.rs
 @@ -0,0 +1,783 @@
@@ -2443,10 +2443,10 @@ index 00000000000..7e4d05a8fb4
 +    Ok(LookupHost { addrs: addrs.into_iter() })
 +}
 diff --git a/library/std/src/sys/net/hostname/mod.rs b/library/std/src/sys/net/hostname/mod.rs
-index 65fcd6bfb00..9ddb5200296 100644
+index 65fcd6bfb00d7afe3dc5fe33c74c1869fcf1775e..9ddb52002961b8ba2b2738417fb86874f0feffa5 100644
 --- a/library/std/src/sys/net/hostname/mod.rs
 +++ b/library/std/src/sys/net/hostname/mod.rs
-@@ -8,6 +8,10 @@
+@@ -8,6 +8,10 @@ cfg_select! {
          mod windows;
          pub use windows::hostname;
      }
@@ -2459,7 +2459,7 @@ index 65fcd6bfb00..9ddb5200296 100644
          pub use unsupported::hostname;
 diff --git a/library/std/src/sys/net/hostname/plan9.rs b/library/std/src/sys/net/hostname/plan9.rs
 new file mode 100644
-index 00000000000..1ec5ef11ca6
+index 0000000000000000000000000000000000000000..1ec5ef11ca6911bcbf2627aa600ee4151dd63221
 --- /dev/null
 +++ b/library/std/src/sys/net/hostname/plan9.rs
 @@ -0,0 +1,12 @@
@@ -2476,7 +2476,7 @@ index 00000000000..1ec5ef11ca6
 +    Ok(OsString::from_vec(unsafe { CStr::from_ptr(p) }.to_bytes().to_vec()))
 +}
 diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
-index 59ec9234e5b..5ba5cc96f41 100644
+index 59ec9234e5b913ce0e2d5a53a1820936a9399922..5ba5cc96f41cb63ae0a0e22da3ac698244321e71 100644
 --- a/library/std/src/sys/pal/plan9/mod.rs
 +++ b/library/std/src/sys/pal/plan9/mod.rs
 @@ -17,11 +17,15 @@ pub fn unsupported_err() -> io::Error {
@@ -2517,10 +2517,10 @@ index 59ec9234e5b..5ba5cc96f41 100644
          HostUnreachable
      } else if has("file system full") || has("disk full") || has("no space") {
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index f010d351e87..1a0956d272e 100644
+index f010d351e876bd417334e45268adebb9c64b15cd..1a0956d272ecd66cc8bd930641b3034185dc56f2 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
-@@ -211,6 +211,8 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+@@ -211,6 +211,8 @@ unsafe extern "C" {
      /// `rfork(flags)`; the child goes on at `__rust_plan9_threadstart(arg)` on the stack
      /// below `privtop`, without touching its parent's.
      fn __rust_plan9_rforkthread(flags: i32, privtop: usize, arg: *mut c_void) -> i32;
@@ -2529,7 +2529,7 @@ index f010d351e87..1a0956d272e 100644
  }
  
  // amd64: the system call number in BP, the argument at 8(SP) (libc's system call stubs);
-@@ -256,9 +258,53 @@ pub fn end_program(status: &crate::ffi::CStr) -> ! {
+@@ -256,9 +258,53 @@ crate::arch::global_asm!(
      "   movq %r15, %rdi",
      "   call __rust_plan9_threadstart",
      "2: jmp 2b",
@@ -2584,10 +2584,10 @@ index f010d351e87..1a0956d272e 100644
      p & !15
  }
 diff --git a/library/std/src/sys/paths/mod.rs b/library/std/src/sys/paths/mod.rs
-index 865d06ae864..bc3584fa4e7 100644
+index 865d06ae8644e067c4233c0b54451747ea3c9075..bc3584fa4e7e4dd4e14ec02f9d25fab7f5d43266 100644
 --- a/library/std/src/sys/paths/mod.rs
 +++ b/library/std/src/sys/paths/mod.rs
-@@ -38,6 +38,10 @@ mod imp {
+@@ -38,6 +38,10 @@ cfg_select! {
          mod uefi;
          use uefi as imp;
      }
@@ -2600,7 +2600,7 @@ index 865d06ae864..bc3584fa4e7 100644
          use unix as imp;
 diff --git a/library/std/src/sys/paths/plan9.rs b/library/std/src/sys/paths/plan9.rs
 new file mode 100644
-index 00000000000..496aa367d9f
+index 0000000000000000000000000000000000000000..496aa367d9fd62227b9f6b8c0e89ab14afb2f5c2
 --- /dev/null
 +++ b/library/std/src/sys/paths/plan9.rs
 @@ -0,0 +1,131 @@
@@ -2736,10 +2736,10 @@ index 00000000000..496aa367d9f
 +    crate::env::var_os("home").or_else(|| crate::env::var_os("HOME")).map(PathBuf::from)
 +}
 diff --git a/library/std/src/sys/pipe/mod.rs b/library/std/src/sys/pipe/mod.rs
-index 85228963b4a..a36655c5619 100644
+index 85228963b4adf84ff5f6efc57f7a4f24ee2b0830..a36655c561981e415318bfe65720054d233af963 100644
 --- a/library/std/src/sys/pipe/mod.rs
 +++ b/library/std/src/sys/pipe/mod.rs
-@@ -13,6 +13,10 @@
+@@ -13,6 +13,10 @@ cfg_select! {
          mod motor;
          pub use motor::{Pipe, pipe};
      }
@@ -2752,7 +2752,7 @@ index 85228963b4a..a36655c5619 100644
          pub use unsupported::{Pipe, pipe};
 diff --git a/library/std/src/sys/pipe/plan9.rs b/library/std/src/sys/pipe/plan9.rs
 new file mode 100644
-index 00000000000..eb28ea41f95
+index 0000000000000000000000000000000000000000..eb28ea41f950fe0e3cfc1246bb7b6d2d540db04c
 --- /dev/null
 +++ b/library/std/src/sys/pipe/plan9.rs
 @@ -0,0 +1,25 @@
@@ -2782,10 +2782,10 @@ index 00000000000..eb28ea41f95
 +    }
 +}
 diff --git a/library/std/src/sys/process/mod.rs b/library/std/src/sys/process/mod.rs
-index 3579a5ab593..703267cb920 100644
+index 3579a5ab59332c11eea90ba759449b7e479333b6..703267cb920d910ae4a1796f56262528bef821b5 100644
 --- a/library/std/src/sys/process/mod.rs
 +++ b/library/std/src/sys/process/mod.rs
-@@ -15,6 +15,10 @@
+@@ -15,6 +15,10 @@ cfg_select! {
          mod motor;
          use motor as imp;
      }
@@ -2798,7 +2798,7 @@ index 3579a5ab593..703267cb920 100644
          use unsupported as imp;
 diff --git a/library/std/src/sys/process/plan9.rs b/library/std/src/sys/process/plan9.rs
 new file mode 100644
-index 00000000000..ab1ea41cc81
+index 0000000000000000000000000000000000000000..ab1ea41cc81c2869303ba004e197a1525bd05b13
 --- /dev/null
 +++ b/library/std/src/sys/process/plan9.rs
 @@ -0,0 +1,715 @@
@@ -3518,10 +3518,10 @@ index 00000000000..ab1ea41cc81
 +    unsafe { libc::getpid() as u32 }
 +}
 diff --git a/library/std/src/sys/time/plan9.rs b/library/std/src/sys/time/plan9.rs
-index 73ce72617f0..d2ad575b14f 100644
+index 73ce72617f0bb233d20aa53b0d565bb5a3a63539..d2ad575b14faf3aa031170e20012d765f75763dc 100644
 --- a/library/std/src/sys/time/plan9.rs
 +++ b/library/std/src/sys/time/plan9.rs
-@@ -30,6 +30,16 @@ pub fn checked_sub_duration(&self, other: &Duration) -> Option<Instant> {
+@@ -30,6 +30,16 @@ impl Instant {
  }
  
  impl SystemTime {

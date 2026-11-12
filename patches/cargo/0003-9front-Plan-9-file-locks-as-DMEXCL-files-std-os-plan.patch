@@ -11,7 +11,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 140 insertions(+), 5 deletions(-)
 
 diff --git a/src/util/flock.rs b/src/util/flock.rs
-index 86896821b..3bd37c9b9 100644
+index 86896821baceaaa061bbbb3e3f64c6152ee04519..3bd37c9b9a8c3b4fb4b3645a0a62dd25fcbf1715 100644
 --- a/src/util/flock.rs
 +++ b/src/util/flock.rs
 @@ -43,11 +43,18 @@ pub(crate) use self::imp::unlock;

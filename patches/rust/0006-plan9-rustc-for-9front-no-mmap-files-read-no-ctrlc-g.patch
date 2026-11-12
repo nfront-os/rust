@@ -24,7 +24,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  7 files changed, 26 insertions(+), 14 deletions(-)
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 6a677f59577..993310b99c2 100644
+index 6a677f595779443d949865ba377558a047e82a2c..993310b99c2a3c4ad1992d35b2cb9527f4dc5ce1 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -1600,8 +1600,6 @@ dependencies = [
@@ -37,7 +37,7 @@ index 6a677f59577..993310b99c2 100644
   "cfg-if",
   "libc",
 diff --git a/Cargo.toml b/Cargo.toml
-index b785c566dc6..36a5d7dfbe1 100644
+index b785c566dc651857b62c1711d6e9c12430d49ebd..36a5d7dfbe14ac95473497d81bf032d664a6695e 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -87,3 +87,6 @@ codegen-units = 1
@@ -48,7 +48,7 @@ index b785c566dc6..36a5d7dfbe1 100644
 +[patch.crates-io]
 +getrandom = { path = "../crates/getrandom-0.3.3" }
 diff --git a/compiler/rustc_data_structures/Cargo.toml b/compiler/rustc_data_structures/Cargo.toml
-index bda62066a32..519b17e6a3b 100644
+index bda62066a3222ee8d6bcbf9c6c4cbf61ad4658a7..519b17e6a3bc8753990deac6dbbd018e69e8bc3e 100644
 --- a/compiler/rustc_data_structures/Cargo.toml
 +++ b/compiler/rustc_data_structures/Cargo.toml
 @@ -53,7 +53,8 @@ features = [
@@ -62,10 +62,10 @@ index bda62066a32..519b17e6a3b 100644
  memmap2 = "0.2.1"
  # tidy-alphabetical-end
 diff --git a/compiler/rustc_data_structures/src/memmap.rs b/compiler/rustc_data_structures/src/memmap.rs
-index d64a5862f4e..f7549b7ee44 100644
+index d64a5862f4e76bfbef597c3af08cce97ffbb2939..f7549b7ee448911671f6477fc8cdcb7ada2b001f 100644
 --- a/compiler/rustc_data_structures/src/memmap.rs
 +++ b/compiler/rustc_data_structures/src/memmap.rs
-@@ -2,14 +2,14 @@
+@@ -2,14 +2,14 @@ use std::fs::File;
  use std::io;
  use std::ops::{Deref, DerefMut};
  
@@ -84,7 +84,7 @@ index d64a5862f4e..f7549b7ee44 100644
  impl Mmap {
      /// # Safety
      ///
-@@ -29,7 +29,7 @@ pub unsafe fn map(file: File) -> io::Result<Self> {
+@@ -29,7 +29,7 @@ impl Mmap {
      }
  }
  
@@ -93,7 +93,7 @@ index d64a5862f4e..f7549b7ee44 100644
  impl Mmap {
      #[inline]
      pub unsafe fn map(mut file: File) -> io::Result<Self> {
-@@ -56,13 +56,13 @@ fn as_ref(&self) -> &[u8] {
+@@ -56,13 +56,13 @@ impl AsRef<[u8]> for Mmap {
      }
  }
  
@@ -110,7 +110,7 @@ index d64a5862f4e..f7549b7ee44 100644
  impl MmapMut {
      #[inline]
      pub fn map_anon(len: usize) -> io::Result<Self> {
-@@ -82,7 +82,7 @@ pub fn make_read_only(self) -> std::io::Result<Mmap> {
+@@ -82,7 +82,7 @@ impl MmapMut {
      }
  }
  
@@ -120,7 +120,7 @@ index d64a5862f4e..f7549b7ee44 100644
      #[inline]
      pub fn map_anon(len: usize) -> io::Result<Self> {
 diff --git a/compiler/rustc_driver_impl/Cargo.toml b/compiler/rustc_driver_impl/Cargo.toml
-index 6dba3dff473..4142ae9603f 100644
+index 6dba3dff473271f6d076fa905d2605d6bfd5ea64..4142ae9603f72988a7c446e96ad41aa8fabed845 100644
 --- a/compiler/rustc_driver_impl/Cargo.toml
 +++ b/compiler/rustc_driver_impl/Cargo.toml
 @@ -52,7 +52,8 @@ features = [
@@ -134,7 +134,7 @@ index 6dba3dff473..4142ae9603f 100644
  ctrlc = "3.4.4"
  # tidy-alphabetical-end
 diff --git a/compiler/rustc_driver_impl/src/lib.rs b/compiler/rustc_driver_impl/src/lib.rs
-index f1919cab395..8927db74ab3 100644
+index f1919cab3957e4806622de436b97e242ebd4b319..8927db74ab3a87ada1fbe23be59e788d1e0ad92b 100644
 --- a/compiler/rustc_driver_impl/src/lib.rs
 +++ b/compiler/rustc_driver_impl/src/lib.rs
 @@ -1664,7 +1664,7 @@ pub fn init_logger_with_additional_layer<F, T>(
@@ -147,10 +147,10 @@ index f1919cab395..8927db74ab3 100644
          // Indicate that we have been signaled to stop, then give the rest of the compiler a bit of
          // time to check CTRL_C_RECEIVED and run its own shutdown logic, but after a short amount
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index 931ccd53997..a93cff36f5e 100644
+index 931ccd539971b6d1b4873dfd4de611f732bbfb38..a93cff36f5e23dfb6c66f6d5b95fe2deea060707 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
-@@ -645,6 +645,14 @@ unsafe fn cthread_main(v: *mut c_void) {
+@@ -645,6 +645,14 @@ pub unsafe extern "C" fn __plan9_thread_detach(p: *mut c_void) {
      unsafe { detach(p.cast()) }
  }
  

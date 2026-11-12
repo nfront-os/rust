@@ -12,7 +12,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  4 files changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/compiler/rustc_target/src/spec/base/plan9.rs b/compiler/rustc_target/src/spec/base/plan9.rs
-index 5734885b59a..104e9f300c1 100644
+index 5734885b59abb08e9526e4d7e0101038b0b93670..104e9f300c1ff3e3e158b6f64fe0645e831bb7b7 100644
 --- a/compiler/rustc_target/src/spec/base/plan9.rs
 +++ b/compiler/rustc_target/src/spec/base/plan9.rs
 @@ -35,7 +35,8 @@ pub(crate) fn opts() -> TargetOptions {
@@ -26,10 +26,10 @@ index 5734885b59a..104e9f300c1 100644
          ..Default::default()
      }
 diff --git a/library/panic_unwind/src/lib.rs b/library/panic_unwind/src/lib.rs
-index d25d94258a1..a269ba636e1 100644
+index d25d94258a16ee94ad743da7b9d3e7dd6f3aaab2..a269ba636e15c7c80d73de5a896501b4344d5d1a 100644
 --- a/library/panic_unwind/src/lib.rs
 +++ b/library/panic_unwind/src/lib.rs
-@@ -37,6 +37,7 @@
+@@ -37,6 +37,7 @@ cfg_select! {
          target_os = "psp",
          target_os = "xous",
          target_os = "solid_asp3",
@@ -38,10 +38,10 @@ index d25d94258a1..a269ba636e1 100644
          all(target_vendor = "fortanix", target_env = "sgx"),
          target_family = "wasm",
 diff --git a/library/std/src/sys/personality/mod.rs b/library/std/src/sys/personality/mod.rs
-index be79643bdf8..76a88f898d8 100644
+index be79643bdf8467c5ecee08e5d2f43102064ce3ca..76a88f898d83aee1b7342b38fe98b0096d103688 100644
 --- a/library/std/src/sys/personality/mod.rs
 +++ b/library/std/src/sys/personality/mod.rs
-@@ -30,6 +30,7 @@ fn rust_eh_personality() {
+@@ -30,6 +30,7 @@ cfg_select! {
          target_os = "psp",
          target_os = "xous",
          target_os = "solid_asp3",
@@ -50,10 +50,10 @@ index be79643bdf8..76a88f898d8 100644
          all(target_vendor = "fortanix", target_env = "sgx"),
      ) => {
 diff --git a/library/unwind/src/lib.rs b/library/unwind/src/lib.rs
-index fb0acdab835..2774b0fa6d4 100644
+index fb0acdab835a904a177b20059f82fa2a6c65a53c..2774b0fa6d47618933f13db087a0ce6e6ce63e4a 100644
 --- a/library/unwind/src/lib.rs
 +++ b/library/unwind/src/lib.rs
-@@ -30,6 +30,7 @@
+@@ -30,6 +30,7 @@ cfg_select! {
          all(target_vendor = "fortanix", target_env = "sgx"),
          all(target_os = "wasi", panic = "unwind"),
          target_os = "xous",

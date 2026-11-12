@@ -10,10 +10,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 22 insertions(+), 2 deletions(-)
 
 diff --git a/compiler/rustc_session/src/filesearch.rs b/compiler/rustc_session/src/filesearch.rs
-index a57d99f3df6..d296785a867 100644
+index a57d99f3df61b91f355d4e6adff1bd2a80b5ae2b..d296785a86704f84581f1f9648a3299395e15377 100644
 --- a/compiler/rustc_session/src/filesearch.rs
 +++ b/compiler/rustc_session/src/filesearch.rs
-@@ -347,6 +347,26 @@ fn from_env_args_next() -> Option<PathBuf> {
+@@ -347,6 +347,26 @@ pub(crate) fn default_sysroot() -> PathBuf {
          rustlib_path.exists().then_some(p)
      }
  

@@ -19,7 +19,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  10 files changed, 204 insertions(+), 1 deletion(-)
 
 diff --git a/crates/cargo-util-terminal/src/shell.rs b/crates/cargo-util-terminal/src/shell.rs
-index ecea8547a..338217a84 100644
+index ecea8547a617eaed5b088567720c5d88f612e02c..338217a8431c5faae7c99fcf7927d45df1cef3b9 100644
 --- a/crates/cargo-util-terminal/src/shell.rs
 +++ b/crates/cargo-util-terminal/src/shell.rs
 @@ -631,6 +631,18 @@ fn supports_term_integration(stream: &dyn IsTerminal) -> bool {
@@ -42,7 +42,7 @@ index ecea8547a..338217a84 100644
  mod imp {
      use super::{Shell, TtyWidth};
 diff --git a/crates/cargo-util/src/paths.rs b/crates/cargo-util/src/paths.rs
-index 1e6f464fa..c93adf198 100644
+index 1e6f464fa3b6af9cd7b9d5bd6624c7c3255d3431..c93adf198242dd2d28d93dbfcbb3b82ea525b20b 100644
 --- a/crates/cargo-util/src/paths.rs
 +++ b/crates/cargo-util/src/paths.rs
 @@ -399,6 +399,11 @@ pub fn path2bytes(path: &Path) -> Result<&[u8]> {
@@ -82,7 +82,7 @@ index 1e6f464fa..c93adf198 100644
          use std::os::unix::fs::symlink;
          #[cfg(windows)]
 diff --git a/crates/cargo-util/src/process_builder.rs b/crates/cargo-util/src/process_builder.rs
-index 2e9caa103..19e8aa7e2 100644
+index 2e9caa1032c5ec4b6ab617c8d6b061c6e2b8baa5..19e8aa7e29f8a0af030b176f19a5c56d04ae8159 100644
 --- a/crates/cargo-util/src/process_builder.rs
 +++ b/crates/cargo-util/src/process_builder.rs
 @@ -750,6 +750,30 @@ mod imp {
@@ -117,7 +117,7 @@ index 2e9caa103..19e8aa7e2 100644
  mod imp {
      use super::{ProcessBuilder, ProcessError};
 diff --git a/crates/cargo-util/src/process_error.rs b/crates/cargo-util/src/process_error.rs
-index 9b4a38cb5..b62683480 100644
+index 9b4a38cb5e3e0384f09f9e87284cd6ec6fdbce0b..b6268348098a1a4a9f65f266c1a11f140814e1ad 100644
 --- a/crates/cargo-util/src/process_error.rs
 +++ b/crates/cargo-util/src/process_error.rs
 @@ -138,6 +138,12 @@ pub fn exit_status_to_string(status: ExitStatus) -> String {
@@ -134,7 +134,7 @@ index 9b4a38cb5..b62683480 100644
      fn status_to_string(status: ExitStatus) -> String {
          use windows_sys::Win32::Foundation::*;
 diff --git a/crates/cargo-util/src/read2.rs b/crates/cargo-util/src/read2.rs
-index 447c53482..8d3ef060d 100644
+index 447c53482fea7150f7303fac2dd89c032252800f..8d3ef060df10faa96ed53e0cc6d6cdf51305c963 100644
 --- a/crates/cargo-util/src/read2.rs
 +++ b/crates/cargo-util/src/read2.rs
 @@ -81,6 +81,73 @@ mod imp {
@@ -212,7 +212,7 @@ index 447c53482..8d3ef060d 100644
  mod imp {
      use std::io;
 diff --git a/credential/cargo-credential/src/stdio.rs b/credential/cargo-credential/src/stdio.rs
-index 8ca0e7d1f..9d4575855 100644
+index 8ca0e7d1f2a642cb0b68b72538e8896ecbd691b8..9d4575855a5830f0fd82a42fe39f4f801ec63d6f 100644
 --- a/credential/cargo-credential/src/stdio.rs
 +++ b/credential/cargo-credential/src/stdio.rs
 @@ -79,6 +79,53 @@ mod imp {
@@ -270,7 +270,7 @@ index 8ca0e7d1f..9d4575855 100644
  mod imp {
      use super::Stdio;
 diff --git a/src/bin/cargo/main.rs b/src/bin/cargo/main.rs
-index e9bee4e8e..90a9abd3b 100644
+index e9bee4e8e945dce71c3a5f8799fff3bfd99fbd85..90a9abd3bac03a3c4414f2785f99a5c6933744ed 100644
 --- a/src/bin/cargo/main.rs
 +++ b/src/bin/cargo/main.rs
 @@ -333,13 +333,23 @@ fn is_executable<P: AsRef<Path>>(path: P) -> bool {
@@ -299,7 +299,7 @@ index e9bee4e8e..90a9abd3b 100644
      } else {
          vec![]
 diff --git a/src/ops/cargo_clean.rs b/src/ops/cargo_clean.rs
-index 6647be50b..a0b779d7f 100644
+index 6647be50b25a34fa3f3ecb1fac9770fe15811f88..a0b779d7fdb818548634a1280194868c5970efdf 100644
 --- a/src/ops/cargo_clean.rs
 +++ b/src/ops/cargo_clean.rs
 @@ -769,6 +769,12 @@ impl FileId {
@@ -316,7 +316,7 @@ index 6647be50b..a0b779d7f 100644
      fn new_with_link_count(_meta: &fs::Metadata, path: &Path) -> Option<(Self, u64)> {
          use std::os::windows::ffi::OsStrExt;
 diff --git a/src/util/flock.rs b/src/util/flock.rs
-index 14a2fde58..86896821b 100644
+index 14a2fde58559aa62d00bbe34f9b32e5cd0ca072e..86896821baceaaa061bbbb3e3f64c6152ee04519 100644
 --- a/src/util/flock.rs
 +++ b/src/util/flock.rs
 @@ -477,6 +477,12 @@ fn error_unsupported(err: &std::io::Error) -> bool {
@@ -333,7 +333,7 @@ index 14a2fde58..86896821b 100644
  fn error_unsupported(err: &std::io::Error) -> bool {
      use windows_sys::Win32::Foundation::ERROR_INVALID_FUNCTION;
 diff --git a/src/util/job.rs b/src/util/job.rs
-index 835594118..951e21887 100644
+index 835594118b50a99daf59cffa49adde0bc52c6fd8..951e218872b5b6631023b796ce4fc65047633a3e 100644
 --- a/src/util/job.rs
 +++ b/src/util/job.rs
 @@ -22,6 +22,16 @@ pub fn setup() -> Option<Setup> {

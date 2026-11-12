@@ -23,7 +23,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 163 insertions(+), 5 deletions(-)
 
 diff --git a/compiler/rustc_target/src/spec/base/plan9.rs b/compiler/rustc_target/src/spec/base/plan9.rs
-index 104e9f300c1..8b8e16ded17 100644
+index 104e9f300c1ff3e3e158b6f64fe0645e831bb7b7..8b8e16ded17271c48e8c5d030e5d4d36aa270fa2 100644
 --- a/compiler/rustc_target/src/spec/base/plan9.rs
 +++ b/compiler/rustc_target/src/spec/base/plan9.rs
 @@ -1,6 +1,9 @@
@@ -57,10 +57,10 @@ index 104e9f300c1..8b8e16ded17 100644
          eh_frame_header: false,
          // libgcc's DWARF unwinder, the tables registered by crtbegin.o
 diff --git a/library/std/src/sys/alloc/mod.rs b/library/std/src/sys/alloc/mod.rs
-index 3148a19ff76..3c13c55214e 100644
+index 3148a19ff7620144add6831411218fff56eb98b0..3c13c55214e8d589b7f65559844c7892f377d5f4 100644
 --- a/library/std/src/sys/alloc/mod.rs
 +++ b/library/std/src/sys/alloc/mod.rs
-@@ -115,6 +115,8 @@ unsafe fn realloc_fallback(ptr: *mut u8, old_layout: Layout, new_size: usize) ->
+@@ -115,6 +115,8 @@ cfg_select! {
  }
  
  pub use imp::{alloc, dealloc, realloc};
@@ -70,7 +70,7 @@ index 3148a19ff76..3c13c55214e 100644
  cfg_select! {
      any(
 diff --git a/library/std/src/sys/alloc/plan9.rs b/library/std/src/sys/alloc/plan9.rs
-index c89dd325077..071aa6f8ed6 100644
+index c89dd325077231dc20778cc21e9a16ef8af72f13..071aa6f8ed602fe3b8cfd49e9d69dee7f517b1d0 100644
 --- a/library/std/src/sys/alloc/plan9.rs
 +++ b/library/std/src/sys/alloc/plan9.rs
 @@ -39,3 +39,89 @@ pub unsafe fn realloc(ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8
@@ -164,10 +164,10 @@ index c89dd325077..071aa6f8ed6 100644
 +    crate::hint::black_box((c_posix_memalign as *const ()).expose_provenance());
 +}
 diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
-index 5ba5cc96f41..07e67636747 100644
+index 5ba5cc96f41cb63ae0a0e22da3ac698244321e71..07e676367473a46af6c8321b4ec478d6a7e58168 100644
 --- a/library/std/src/sys/pal/plan9/mod.rs
 +++ b/library/std/src/sys/pal/plan9/mod.rs
-@@ -32,6 +32,7 @@ pub fn unsupported_err() -> io::Error {
+@@ -32,6 +32,7 @@ unsafe extern "C" fn alarmhandler(_ureg: *mut c_void, note: *mut c_char) -> i32
  // NOTE: this is not guaranteed to run, for example when Rust code is called externally.
  pub unsafe fn init(argc: isize, argv: *const *const u8, sigpipe: u8) {
      proc::keep_mainstack();
@@ -176,7 +176,7 @@ index 5ba5cc96f41..07e67636747 100644
          crate::sys::args::init(argc, argv);
          // sigpipe: DEFAULT (0) ignores it, as on unix; INHERIT (1) and SIG_DFL (3) keep
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index f8c062ff481..931ccd53997 100644
+index f8c062ff4813812a96d76a341141e476c095c88c..931ccd539971b6d1b4873dfd4de611f732bbfb38 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
 @@ -177,9 +177,17 @@ fn kill_proc(pid: i32) {
@@ -197,7 +197,7 @@ index f8c062ff481..931ccd53997 100644
      let me = unsafe { libc::getpid() };
      let main = MAIN_PID.load(Relaxed);
      ALL_LOCK.lock();
-@@ -587,11 +595,64 @@ struct MainArgs {
+@@ -587,11 +595,64 @@ pub unsafe extern "C" fn __plan9_mainstack(
  }
  
  /// Keeps `__plan9_mainstack` in the link: libgcc refers to it only weakly.

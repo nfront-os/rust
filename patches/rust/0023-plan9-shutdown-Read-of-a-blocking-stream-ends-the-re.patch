@@ -16,7 +16,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 87 insertions(+), 15 deletions(-)
 
 diff --git a/library/std/src/net/tcp/tests.rs b/library/std/src/net/tcp/tests.rs
-index d26d21c7f84..1b79f4f20ef 100644
+index d26d21c7f8443837bd86b230d874abe2120271c6..1b79f4f20ef056f3f35d29064316e0e23ebd9a45 100644
 --- a/library/std/src/net/tcp/tests.rs
 +++ b/library/std/src/net/tcp/tests.rs
 @@ -502,7 +502,6 @@ fn tcp_clone_two_write() {
@@ -40,10 +40,10 @@ index d26d21c7f84..1b79f4f20ef 100644
      each_ip(&mut |listener| {
          let addr = t!(listener.local_addr());
 diff --git a/library/std/src/sys/fd/plan9.rs b/library/std/src/sys/fd/plan9.rs
-index 31c51f444fe..c5f86ca7e9b 100644
+index 31c51f444fefb27d1c1396cc7f9a00f6fe03cbea..c5f86ca7e9b2791867a7e16042c63c65a40219e4 100644
 --- a/library/std/src/sys/fd/plan9.rs
 +++ b/library/std/src/sys/fd/plan9.rs
-@@ -11,14 +11,16 @@
+@@ -11,14 +11,16 @@ use crate::sys::{AsInner, FromInner, IntoInner, cvt};
  
  /// What a descriptor has beyond the kernel's, kept beside it (a `File` or `TcpStream` is
  /// only its descriptor, `os::fd` views them as such): the append mode of a file (Plan 9's
@@ -72,7 +72,7 @@ index 31c51f444fe..c5f86ca7e9b 100644
          ANY_STATE.store(true, Ordering::Relaxed);
      } else {
 diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
-index e62a96d0ab4..833f9c9fadf 100644
+index e62a96d0ab474d5775a2cdada9c0a1e1f8124c75..833f9c9fadfc8e3fcd3a7534844ede1713e1ff8a 100644
 --- a/library/std/src/sys/net/connection/plan9.rs
 +++ b/library/std/src/sys/net/connection/plan9.rs
 @@ -95,6 +95,27 @@ fn read_file(path: &str) -> io::Result<String> {
@@ -103,7 +103,7 @@ index e62a96d0ab4..833f9c9fadf 100644
  fn write_ctl(dir: &str, msg: &str) -> io::Result<()> {
      let c = CString::new(format!("{dir}/ctl")).unwrap();
      let fd = cvt(unsafe { libc::open(c.as_ptr(), libc::OWRITE | libc::OCEXEC) })?;
-@@ -191,6 +212,9 @@ fn pump(&self) -> Option<crate::sync::Arc<pump::Pump>> {
+@@ -191,6 +212,9 @@ impl Socket {
      }
  
      fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
@@ -113,7 +113,7 @@ index e62a96d0ab4..833f9c9fadf 100644
          match self.pump() {
              Some(p) => p.read(buf, false, dur_of(self.state().read_ms)),
              None => with_alarm(self.state().read_ms, || self.fd.read(buf)),
-@@ -198,6 +222,9 @@ fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+@@ -198,6 +222,9 @@ impl Socket {
      }
  
      fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
@@ -123,7 +123,7 @@ index e62a96d0ab4..833f9c9fadf 100644
          if self.pump().is_some() {
              return crate::io::default_read_buf(|b| self.read(b), cursor);
          }
-@@ -218,6 +245,35 @@ fn duplicate(&self) -> io::Result<Socket> {
+@@ -218,6 +245,35 @@ impl Socket {
          Ok(new)
      }
  
@@ -190,7 +190,7 @@ index e62a96d0ab4..833f9c9fadf 100644
      pump::connecting(&s, ctl, format!("connect {}!{}", addr.ip(), addr.port()))?;
      Ok(s)
  }
-@@ -402,6 +472,9 @@ pub fn write_timeout(&self) -> io::Result<Option<Duration>> {
+@@ -402,6 +472,9 @@ impl TcpStream {
      }
  
      pub fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
@@ -200,7 +200,7 @@ index e62a96d0ab4..833f9c9fadf 100644
          // into the pump's buffer (a blocking socket's pump reads as blocking)
          let p = pump::of(&self.inner, Kind::Stream, String::new(), false)?;
          p.read(buf, true, dur_of(self.inner.state().read_ms))
-@@ -447,13 +520,8 @@ pub fn socket_addr(&self) -> io::Result<SocketAddr> {
+@@ -447,13 +520,8 @@ impl TcpStream {
      /// tcp's ctl "close" ends the sending side (FIN); reading goes on.
      pub fn shutdown(&self, how: Shutdown) -> io::Result<()> {
          match how {
@@ -216,7 +216,7 @@ index e62a96d0ab4..833f9c9fadf 100644
              // ctl "shutdown": a FIN, the receive side stays open (9front's tcp in the gcc
              // port; a kernel without it knows only "close", both sides)
              // a pumped stream's after what its writer has yet to write
-@@ -739,6 +807,7 @@ fn recv_impl(&self, buf: &mut [u8], peek: bool) -> io::Result<(usize, SocketAddr
+@@ -739,6 +807,7 @@ impl UdpSocket {
      }
  
      pub fn send_to(&self, buf: &[u8], dst: &SocketAddr) -> io::Result<usize> {
@@ -224,7 +224,7 @@ index e62a96d0ab4..833f9c9fadf 100644
          let mut b = vec![0u8; UDP_HDR + buf.len()];
          put_addr(&mut b[0..16], dst);
          // the local address: the kernel picks the interface
-@@ -862,7 +931,8 @@ pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
+@@ -862,7 +931,8 @@ impl UdpSocket {
      }
  
      pub fn connect<A: ToSocketAddrs>(&self, addr: A) -> io::Result<()> {

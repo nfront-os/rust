@@ -35,10 +35,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 library/proc_macro/src/bridge/remote.rs
 
 diff --git a/compiler/rustc_builtin_macros/src/proc_macro_harness.rs b/compiler/rustc_builtin_macros/src/proc_macro_harness.rs
-index 5f40231c7f6..7fb858cb703 100644
+index 5f40231c7f67ceb6e9959d36ad61ae432fca42ac..7fb858cb703813703b933a59b79de26c95569328 100644
 --- a/compiler/rustc_builtin_macros/src/proc_macro_harness.rs
 +++ b/compiler/rustc_builtin_macros/src/proc_macro_harness.rs
-@@ -14,7 +14,7 @@
+@@ -14,7 +14,7 @@ use rustc_span::hygiene::AstPass;
  use rustc_span::source_map::SourceMap;
  use rustc_span::{DUMMY_SP, Ident, Span, sym};
  use smallvec::smallvec;
@@ -87,10 +87,10 @@ index 5f40231c7f6..7fb858cb703 100644
      let anon_constant = cx.item_const_underscore(span, block);
  
 diff --git a/compiler/rustc_codegen_ssa/src/back/link.rs b/compiler/rustc_codegen_ssa/src/back/link.rs
-index 1ce6421693d..6955253b374 100644
+index 1ce6421693dd1c422a0bf36efe98ca3ce30e7ed7..6955253b374d594885208a236485d5b67cae1863 100644
 --- a/compiler/rustc_codegen_ssa/src/back/link.rs
 +++ b/compiler/rustc_codegen_ssa/src/back/link.rs
-@@ -2291,7 +2291,16 @@ fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+@@ -2291,7 +2291,16 @@ fn exec_linker(
      }
  }
  
@@ -122,7 +122,7 @@ index 1ce6421693d..6955253b374 100644
      // Can be used for adding custom CRT objects or overriding order-dependent options above.
      // FIXME: In practice built-in target specs use this for arbitrary order-independent options,
 diff --git a/compiler/rustc_metadata/src/host_dylib.rs b/compiler/rustc_metadata/src/host_dylib.rs
-index ad76eb4eb82..4f6f900f691 100644
+index ad76eb4eb821091cdaa8370c72d9f83af249c734..4f6f900f691bd3c48f5fa9ce8ac15d87bee391ef 100644
 --- a/compiler/rustc_metadata/src/host_dylib.rs
 +++ b/compiler/rustc_metadata/src/host_dylib.rs
 @@ -127,6 +127,13 @@ pub(crate) fn dlsym_proc_macros(
@@ -140,7 +140,7 @@ index ad76eb4eb82..4f6f900f691 100644
      debug!("trying to dlsym proc_macros {} for symbol `{}`", path.display(), sym_name);
  
 diff --git a/compiler/rustc_passes/src/entry.rs b/compiler/rustc_passes/src/entry.rs
-index 8f933bb7a3b..38ecc45f1de 100644
+index 8f933bb7a3b6dd3119f1454475391318b4adf96d..38ecc45f1de2f5d1709d381022a9f1c4e5c30485 100644
 --- a/compiler/rustc_passes/src/entry.rs
 +++ b/compiler/rustc_passes/src/entry.rs
 @@ -23,7 +23,10 @@ struct EntryContext<'tcx> {
@@ -156,7 +156,7 @@ index 8f933bb7a3b..38ecc45f1de 100644
          // No need to find a main function.
          return None;
 diff --git a/compiler/rustc_session/src/output.rs b/compiler/rustc_session/src/output.rs
-index 4824abae622..d42ad5c06ff 100644
+index 4824abae622c2cd1b46046f4d31fde27f75e6a12..d42ad5c06ff68c71b4b64b1fa0ec73575598da2f 100644
 --- a/compiler/rustc_session/src/output.rs
 +++ b/compiler/rustc_session/src/output.rs
 @@ -130,6 +130,10 @@ pub fn filename_for_input(
@@ -171,10 +171,10 @@ index 4824abae622..d42ad5c06ff 100644
          if !sess.target.dynamic_linking {
              return true;
 diff --git a/compiler/rustc_span/src/symbol.rs b/compiler/rustc_span/src/symbol.rs
-index 34699098f0c..e621bf4de39 100644
+index 34699098f0c96d06cd63de2c6a47cd28a6c89287..e621bf4de3955d4b56aa0a141af2dddff53915a3 100644
 --- a/compiler/rustc_span/src/symbol.rs
 +++ b/compiler/rustc_span/src/symbol.rs
-@@ -1752,6 +1752,7 @@
+@@ -1752,6 +1752,7 @@ symbols! {
          relocation_model,
          rem,
          rem_assign,
@@ -182,7 +182,7 @@ index 34699098f0c..e621bf4de39 100644
          repr,
          repr128,
          repr_align,
-@@ -1946,6 +1947,7 @@
+@@ -1946,6 +1947,7 @@ symbols! {
          self_in_typedefs,
          self_struct_ctor,
          semiopaque,
@@ -191,7 +191,7 @@ index 34699098f0c..e621bf4de39 100644
          sgpr64,
          sgpr96,
 diff --git a/library/proc_macro/src/bridge/client.rs b/library/proc_macro/src/bridge/client.rs
-index 48e6245ecf9..7dcc06dd8d8 100644
+index 48e6245ecf98b9f424ec228fdf474e9f2ecb19d4..7dcc06dd8d8bd8a4a062bf052ffac141aa8db1b1 100644
 --- a/library/proc_macro/src/bridge/client.rs
 +++ b/library/proc_macro/src/bridge/client.rs
 @@ -220,6 +220,10 @@ pub(crate) fn is_available() -> bool {
@@ -205,7 +205,7 @@ index 48e6245ecf9..7dcc06dd8d8 100644
  }
  
  fn maybe_install_panic_hook(force_show_panics: bool) {
-@@ -284,6 +288,8 @@ pub const fn expand1(f: impl Fn(crate::TokenStream) -> crate::TokenStream + Copy
+@@ -284,6 +288,8 @@ impl Client {
              run: super::selfless_reify::reify_to_extern_c_fn_hrt_bridge(move |bridge| {
                  run_client(bridge, f)
              }),
@@ -214,7 +214,7 @@ index 48e6245ecf9..7dcc06dd8d8 100644
          }
      }
  
-@@ -294,6 +300,18 @@ pub const fn expand2(
+@@ -294,6 +300,18 @@ impl Client {
              run: super::selfless_reify::reify_to_extern_c_fn_hrt_bridge(move |bridge| {
                  run_client(bridge, |(input, input2)| f(input, input2))
              }),
@@ -234,10 +234,10 @@ index 48e6245ecf9..7dcc06dd8d8 100644
 +    }
  }
 diff --git a/library/proc_macro/src/bridge/mod.rs b/library/proc_macro/src/bridge/mod.rs
-index 4b12ed00588..86d5c762bea 100644
+index 4b12ed0058847b023485034f98ab45dfea8dc2f7..86d5c762bea318f821ce5d9ff7e22d17284ea8c7 100644
 --- a/library/proc_macro/src/bridge/mod.rs
 +++ b/library/proc_macro/src/bridge/mod.rs
-@@ -104,6 +104,8 @@ fn ts_into_trees(
+@@ -104,6 +104,8 @@ mod panic_message;
  mod selfless_reify;
  #[forbid(unsafe_code)]
  pub mod server;
@@ -248,7 +248,7 @@ index 4b12ed00588..86d5c762bea 100644
  
 diff --git a/library/proc_macro/src/bridge/remote.rs b/library/proc_macro/src/bridge/remote.rs
 new file mode 100644
-index 00000000000..b4d7b16a956
+index 0000000000000000000000000000000000000000..b4d7b16a956132266c4672d2e0b6d6aa65fdcd2f
 --- /dev/null
 +++ b/library/proc_macro/src/bridge/remote.rs
 @@ -0,0 +1,221 @@
@@ -474,7 +474,7 @@ index 00000000000..b4d7b16a956
 +    }
 +}
 diff --git a/library/proc_macro/src/bridge/server.rs b/library/proc_macro/src/bridge/server.rs
-index ff525c6cd77..3a2a9d1ffcc 100644
+index ff525c6cd7735cfb3e3c522a8d65af668a956003..3a2a9d1ffcc59b021ca5ce84f37aedf38f5af7e1 100644
 --- a/library/proc_macro/src/bridge/server.rs
 +++ b/library/proc_macro/src/bridge/server.rs
 @@ -97,7 +97,7 @@ macro_rules! define_dispatcher {
@@ -486,7 +486,7 @@ index ff525c6cd77..3a2a9d1ffcc 100644
                  let Dispatcher { handle_store, server } = self;
  
                  let mut reader = &buf[..];
-@@ -285,7 +285,13 @@ pub fn run1<S>(
+@@ -285,7 +285,13 @@ impl client::Client {
      where
          S: Server,
      {
@@ -501,7 +501,7 @@ index ff525c6cd77..3a2a9d1ffcc 100644
          run_server(strategy, server, <MarkedTokenStream<S>>::mark(input), run, force_show_panics)
              .map(|s| <Option<MarkedTokenStream<S>>>::unmark(s).unwrap_or_default())
      }
-@@ -301,7 +307,19 @@ pub fn run2<S>(
+@@ -301,7 +307,19 @@ impl client::Client {
      where
          S: Server,
      {

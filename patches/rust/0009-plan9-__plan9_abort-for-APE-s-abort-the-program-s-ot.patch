@@ -14,10 +14,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 24 insertions(+)
 
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index a93cff36f5e..1e09971c275 100644
+index a93cff36f5e23dfb6c66f6d5b95fe2deea060707..1e09971c275c82c16f1030017d56e204b050a39b 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
-@@ -653,6 +653,29 @@ unsafe fn cthread_main(v: *mut c_void) {
+@@ -653,6 +653,29 @@ pub unsafe extern "C" fn __plan9_exit(status: *const libc::c_char) -> ! {
      end_program(status)
  }
  

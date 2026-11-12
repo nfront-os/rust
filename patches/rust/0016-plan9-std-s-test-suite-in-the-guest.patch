@@ -41,10 +41,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  16 files changed, 483 insertions(+), 245 deletions(-)
 
 diff --git a/library/std/src/fs/tests.rs b/library/std/src/fs/tests.rs
-index c06154ecf0b..edddd1ad2b7 100644
+index c06154ecf0b6b84fd61bd5e10b484875f29d57a7..edddd1ad2b7dda2f82c430ba121976a8bfc5cafc 100644
 --- a/library/std/src/fs/tests.rs
 +++ b/library/std/src/fs/tests.rs
-@@ -14,6 +14,15 @@
+@@ -14,6 +14,15 @@ use crate::os::unix::fs::symlink as symlink_file;
  use crate::os::unix::fs::symlink as junction_point;
  #[cfg(windows)]
  use crate::os::windows::fs::{OpenOptionsExt, junction_point, symlink_dir, symlink_file};
@@ -294,7 +294,7 @@ index c06154ecf0b..edddd1ad2b7 100644
      let tmpdir = tmpdir();
      let dir = check!(Dir::open(tmpdir.path()));
 diff --git a/library/std/src/net/tcp/tests.rs b/library/std/src/net/tcp/tests.rs
-index 9aeddff8649..d26d21c7f84 100644
+index 9aeddff86491860896fcd9a5b2b66d8cb83eb24d..d26d21c7f8443837bd86b230d874abe2120271c6 100644
 --- a/library/std/src/net/tcp/tests.rs
 +++ b/library/std/src/net/tcp/tests.rs
 @@ -502,6 +502,7 @@ fn tcp_clone_two_write() {
@@ -314,7 +314,7 @@ index 9aeddff8649..d26d21c7f84 100644
  fn close_read_wakes_up() {
      each_ip(&mut |listener| {
          let addr = t!(listener.local_addr());
-@@ -694,7 +697,7 @@ fn render_socket_addr<'a>(addr: &'a SocketAddr) -> impl fmt::Debug + 'a {
+@@ -694,7 +697,7 @@ fn debug() {
          addr.to_string()
      }
  
@@ -372,7 +372,7 @@ index 9aeddff8649..d26d21c7f84 100644
      each_ip(&mut |srv| {
          let addr = t!(srv.local_addr());
 diff --git a/library/std/src/net/udp/tests.rs b/library/std/src/net/udp/tests.rs
-index 6296e07044c..dae39e50691 100644
+index 6296e07044c554d4453f2d3020c4f7cbcb134807..dae39e50691ae7934e03b1c36620afb108405418 100644
 --- a/library/std/src/net/udp/tests.rs
 +++ b/library/std/src/net/udp/tests.rs
 @@ -301,6 +301,7 @@ fn connect_send_recv() {
@@ -408,7 +408,7 @@ index 6296e07044c..dae39e50691 100644
      each_ip(&mut |socket, _| {
          let addr = t!(socket.local_addr());
 diff --git a/library/std/src/os/plan9/fs.rs b/library/std/src/os/plan9/fs.rs
-index 155122561f5..7cb22039133 100644
+index 155122561f54c97b30fbf19293a66cdf0df37f3a..7cb22039133c43fdb47693a7601ccac54f0f4a01 100644
 --- a/library/std/src/os/plan9/fs.rs
 +++ b/library/std/src/os/plan9/fs.rs
 @@ -1,6 +1,11 @@
@@ -424,7 +424,7 @@ index 155122561f5..7cb22039133 100644
  
  #![stable(feature = "rust1", since = "1.0.0")]
 diff --git a/library/std/src/process/tests.rs b/library/std/src/process/tests.rs
-index e31cb002c02..70f19d1559d 100644
+index e31cb002c026562cfa5f25b60dba516f1999b234..70f19d1559d6aec821785ca1ea5fa53463d52174 100644
 --- a/library/std/src/process/tests.rs
 +++ b/library/std/src/process/tests.rs
 @@ -19,6 +19,9 @@ fn known_command() -> Command {
@@ -470,7 +470,7 @@ index e31cb002c02..70f19d1559d 100644
  fn debug_print() {
      const PIDFD: &'static str =
 diff --git a/library/std/src/sys/alloc/plan9.rs b/library/std/src/sys/alloc/plan9.rs
-index 071aa6f8ed6..5070822085e 100644
+index 071aa6f8ed602fe3b8cfd49e9d69dee7f517b1d0..5070822085e5cea835afdc8e99edeef4b4f95d98 100644
 --- a/library/std/src/sys/alloc/plan9.rs
 +++ b/library/std/src/sys/alloc/plan9.rs
 @@ -55,17 +55,20 @@ unsafe fn c_aligned(align: usize, size: usize) -> *mut libc::c_void {
@@ -497,7 +497,7 @@ index 071aa6f8ed6..5070822085e 100644
  pub unsafe extern "C" fn c_realloc(p: *mut libc::c_void, size: usize) -> *mut libc::c_void {
      unsafe {
          if p.is_null() {
-@@ -86,7 +89,8 @@ unsafe fn c_aligned(align: usize, size: usize) -> *mut libc::c_void {
+@@ -86,7 +89,8 @@ pub unsafe extern "C" fn c_realloc(p: *mut libc::c_void, size: usize) -> *mut li
      }
  }
  
@@ -507,7 +507,7 @@ index 071aa6f8ed6..5070822085e 100644
  pub unsafe extern "C" fn c_aligned_alloc(align: usize, size: usize) -> *mut libc::c_void {
      if !align.is_power_of_two() {
          return ptr::null_mut();
-@@ -94,12 +98,14 @@ unsafe fn c_aligned(align: usize, size: usize) -> *mut libc::c_void {
+@@ -94,12 +98,14 @@ pub unsafe extern "C" fn c_aligned_alloc(align: usize, size: usize) -> *mut libc
      unsafe { c_aligned(align, size) }
  }
  
@@ -525,10 +525,10 @@ index 071aa6f8ed6..5070822085e 100644
      p: *mut *mut libc::c_void,
      align: usize,
 diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
-index 054f73bde2f..e6a17b4b27d 100644
+index 054f73bde2f0e055f0c46eb23b4ca830d1c21f68..e6a17b4b27ddc134be3ad9bc1255de31f756fd21 100644
 --- a/library/std/src/sys/fs/plan9.rs
 +++ b/library/std/src/sys/fs/plan9.rs
-@@ -395,18 +395,32 @@ pub fn mode(&mut self, mode: u32) {
+@@ -395,18 +395,32 @@ impl OpenOptions {
      }
  
      fn omode(&self) -> io::Result<i32> {
@@ -586,7 +586,7 @@ index 054f73bde2f..e6a17b4b27d 100644
      }
  }
  
-@@ -647,7 +661,7 @@ pub fn set_permissions(&self, perm: FilePermissions) -> io::Result<()> {
+@@ -647,7 +661,7 @@ impl File {
  
      pub fn set_times(&self, t: FileTimes) -> io::Result<()> {
          let fd = self.0.as_raw_fd();
@@ -655,7 +655,7 @@ index 054f73bde2f..e6a17b4b27d 100644
  
  pub fn set_times_nofollow(p: &Path, t: FileTimes) -> io::Result<()> {
 diff --git a/library/std/src/sys/net/connection/plan9.rs b/library/std/src/sys/net/connection/plan9.rs
-index 7e4d05a8fb4..0ea7669c75d 100644
+index 7e4d05a8fb421b9931d2e8f4539833f4b82d60a8..0ea7669c75d6db3c07a01bdd2e80a12bad07f505 100644
 --- a/library/std/src/sys/net/connection/plan9.rs
 +++ b/library/std/src/sys/net/connection/plan9.rs
 @@ -25,14 +25,40 @@ fn err(kind: io::ErrorKind, msg: &'static str) -> io::Error {
@@ -719,7 +719,7 @@ index 7e4d05a8fb4..0ea7669c75d 100644
      fn new(fd: FileDesc) -> Socket {
          Socket { fd }
      }
-@@ -153,6 +185,10 @@ fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+@@ -153,6 +185,10 @@ impl Socket {
          with_alarm(self.state().read_ms, || self.fd.read(buf))
      }
  
@@ -750,7 +750,7 @@ index 7e4d05a8fb4..0ea7669c75d 100644
  }
  
  /* TCP */
-@@ -288,7 +323,8 @@ pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+@@ -288,7 +323,8 @@ impl TcpStream {
      }
  
      pub fn read_buf(&self, cursor: BorrowedCursor<'_, u8>) -> io::Result<()> {
@@ -807,7 +807,7 @@ index 7e4d05a8fb4..0ea7669c75d 100644
      }
  
 diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
-index cfa0993199d..55fe9c69a53 100644
+index cfa0993199d7c3ecb14bdd6ffc29404575d0b610..55fe9c69a5352b4f1ebdec64d29b4cc704314e3d 100644
 --- a/library/std/src/sys/pal/plan9/mod.rs
 +++ b/library/std/src/sys/pal/plan9/mod.rs
 @@ -120,7 +120,13 @@ pub fn error_kind(s: &[u8]) -> io::ErrorKind {
@@ -826,7 +826,7 @@ index cfa0993199d..55fe9c69a53 100644
      } else if has("not implemented") || has("not supported") {
          Unsupported
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index 6ecdae9863a..25ce8b9a41a 100644
+index 6ecdae9863a254c05859f9e0b1d39d99a0829d68..25ce8b9a41a6e44eb5486a90daa61c48b6ea6b94 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
 @@ -50,6 +50,10 @@ pub struct ThreadData {
@@ -1211,7 +1211,7 @@ index 6ecdae9863a..25ce8b9a41a 100644
  
  /// What a child of [`rfork_run`] runs: `f(self)`, which must not return.
  #[repr(C)]
-@@ -412,7 +452,8 @@ struct CProc {
+@@ -412,7 +452,8 @@ unsafe extern "C" fn cproc_child(run: *const Run<*mut CProc>) -> ! {
  /// For C in the program (9front-rust's ape9: APE's read buffering): `rfork(flags|RFPROC)` of
  /// a proc that runs `f(arg)` on its own stack segment, then ends; the program's end ends it,
  /// as a thread. -1 and the error string if it cannot.
@@ -1221,7 +1221,7 @@ index 6ecdae9863a..25ce8b9a41a 100644
  pub unsafe extern "C" fn __plan9_rforkproc(
      flags: i32,
      f: unsafe extern "C" fn(*mut c_void),
-@@ -586,8 +627,7 @@ pub fn spawn(stack_size: usize, main: unsafe fn(*mut c_void), arg: *mut c_void)
+@@ -586,8 +627,7 @@ unsafe extern "C" fn run_packet(v: *mut c_void) {
      }
  }
  
@@ -1231,7 +1231,7 @@ index 6ecdae9863a..25ce8b9a41a 100644
  unsafe extern "C" fn __rust_plan9_threadstart(v: *mut c_void) -> ! {
      unsafe {
          let p = v as *mut Packet;
-@@ -646,7 +686,8 @@ struct MainArgs {
+@@ -646,7 +686,8 @@ unsafe extern "C" fn run_main(v: *mut c_void) {
  
  /// libgcc's `__wrap_main` (9front's gcc port): `main` on a stack from malloc, as the other
  /// threads; the program ends with its result.
@@ -1251,7 +1251,7 @@ index 6ecdae9863a..25ce8b9a41a 100644
  pub unsafe extern "C" fn __plan9_thread_spawn(
      stack_size: usize,
      f: unsafe extern "C" fn(*mut c_void),
-@@ -700,7 +742,8 @@ unsafe fn cthread_main(v: *mut c_void) {
+@@ -700,7 +742,8 @@ pub unsafe extern "C" fn __plan9_thread_spawn(
              return ptr::null_mut();
          }
          ptr::write(c, CThread { f, arg });
@@ -1261,7 +1261,7 @@ index 6ecdae9863a..25ce8b9a41a 100644
          let p = spawn(size, cthread_main, c.cast());
          if p.is_null() {
              libc::free(c.cast());
-@@ -710,20 +753,23 @@ unsafe fn cthread_main(v: *mut c_void) {
+@@ -710,20 +753,23 @@ pub unsafe extern "C" fn __plan9_thread_spawn(
  }
  
  /// Waits for a thread of `__plan9_thread_spawn`.
@@ -1288,7 +1288,7 @@ index 6ecdae9863a..25ce8b9a41a 100644
  pub unsafe extern "C" fn __plan9_exit(status: *const libc::c_char) -> ! {
      let status = if status.is_null() { c"" } else { unsafe { crate::ffi::CStr::from_ptr(status) } };
      end_program(status)
-@@ -731,7 +777,8 @@ unsafe fn cthread_main(v: *mut c_void) {
+@@ -731,7 +777,8 @@ pub unsafe extern "C" fn __plan9_exit(status: *const libc::c_char) -> ! {
  
  /// For APE's abort (9front's gen/abort.c): the program's other procs go, main's too, and
  /// this one ends with a trap (ud2, as Rust's own abort): it stays Broken, its stack for acid.
@@ -1299,10 +1299,10 @@ index 6ecdae9863a..25ce8b9a41a 100644
      let me = unsafe { libc::getpid() };
      let main = MAIN_PID.load(Relaxed);
 diff --git a/library/std/src/sys/process/plan9.rs b/library/std/src/sys/process/plan9.rs
-index 1198197e4ae..d2a8a82fe70 100644
+index 1198197e4ae64b54594f4abbe81a75680b08bcff..d2a8a82fe702091b53bf15393b12f967ba87743c 100644
 --- a/library/std/src/sys/process/plan9.rs
 +++ b/library/std/src/sys/process/plan9.rs
-@@ -154,6 +154,8 @@ pub fn spawn(
+@@ -154,6 +154,8 @@ impl Command {
              CString::new(s.as_bytes())
                  .map_err(|_| io::const_error!(io::ErrorKind::InvalidInput, "NUL byte in argument"))
          };
@@ -1311,7 +1311,7 @@ index 1198197e4ae..d2a8a82fe70 100644
          let prog = cstr(self.resolve()?.as_os_str())?;
          let args: Vec<CString> = self.args.iter().map(|a| cstr(a)).collect::<io::Result<_>>()?;
          let mut argv: Vec<*const c_char> = args.iter().map(|a| a.as_ptr()).collect();
-@@ -459,13 +461,23 @@ pub fn exit_ok(&self) -> Result<(), ExitStatusError> {
+@@ -459,13 +461,23 @@ impl ExitStatus {
          if self.len == 0 { Ok(()) } else { Err(ExitStatusError(*self)) }
      }
  
@@ -1339,7 +1339,7 @@ index 1198197e4ae..d2a8a82fe70 100644
  }
  
 diff --git a/library/std/src/sys/time/plan9.rs b/library/std/src/sys/time/plan9.rs
-index d2ad575b14f..e9c2380aba7 100644
+index d2ad575b14faf3aa031170e20012d765f75763dc..e9c2380aba7dceeea6ab0a2f5155faa16413b848 100644
 --- a/library/std/src/sys/time/plan9.rs
 +++ b/library/std/src/sys/time/plan9.rs
 @@ -2,8 +2,18 @@
@@ -1362,7 +1362,7 @@ index d2ad575b14f..e9c2380aba7 100644
  
  #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
  pub struct SystemTime(Duration);
-@@ -13,19 +23,24 @@
+@@ -13,19 +23,24 @@ pub const UNIX_EPOCH: SystemTime = SystemTime(Duration::from_secs(0));
  impl Instant {
      pub fn now() -> Instant {
          // nanoseconds since boot (/dev/bintime): never go back
@@ -1392,10 +1392,10 @@ index d2ad575b14f..e9c2380aba7 100644
  }
  
 diff --git a/library/std/tests/path.rs b/library/std/tests/path.rs
-index 10bfe9eb2bd..08e39a1daff 100644
+index 10bfe9eb2bd6cf36fdc0b53b95ec6e5c18a8949c..08e39a1daffb406aa926394e8ec62bf3bf090c66 100644
 --- a/library/std/tests/path.rs
 +++ b/library/std/tests/path.rs
-@@ -1677,6 +1677,7 @@ macro_rules! tp (
+@@ -1677,6 +1677,7 @@ pub fn test_push() {
  
      if cfg!(unix)
          || cfg!(target_os = "wasi")
@@ -1403,7 +1403,7 @@ index 10bfe9eb2bd..08e39a1daff 100644
          || cfg!(all(target_env = "sgx", target_vendor = "fortanix"))
      {
          tp!("", "foo", "foo");
-@@ -1842,6 +1843,7 @@ macro_rules! tfn (
+@@ -1842,6 +1843,7 @@ pub fn test_set_file_name() {
      tfn!("", "foo", "foo");
      if cfg!(unix)
          || cfg!(target_os = "wasi")
@@ -1412,7 +1412,7 @@ index 10bfe9eb2bd..08e39a1daff 100644
      {
          tfn!(".", "foo", "./foo");
 diff --git a/library/std/tests/process_spawning.rs b/library/std/tests/process_spawning.rs
-index b7a9a107769..16b2c160be7 100644
+index b7a9a1077696b7dd6b868b1575492e6a6da35fe4..16b2c160be7b5281ca6fce7a2b47400f3bbdce8b 100644
 --- a/library/std/tests/process_spawning.rs
 +++ b/library/std/tests/process_spawning.rs
 @@ -22,9 +22,10 @@ fn issue_15149() {
@@ -1438,7 +1438,7 @@ index b7a9a107769..16b2c160be7 100644
          .output()
          .unwrap();
 diff --git a/library/std/tests/sync/rwlock.rs b/library/std/tests/sync/rwlock.rs
-index 9715411a9a6..73d71ce5fc7 100644
+index 9715411a9a69218dd1e06c113cd26fd7e8e8ce9e..73d71ce5fc739c2de84a987c14c96bde1698f12b 100644
 --- a/library/std/tests/sync/rwlock.rs
 +++ b/library/std/tests/sync/rwlock.rs
 @@ -918,6 +918,7 @@ fn test_rwlock_max_readers() {
@@ -1450,7 +1450,7 @@ index 9715411a9a6..73d71ce5fc7 100644
          any(
              target_family = "unix",
 diff --git a/src/tools/remote-test-server/src/main.rs b/src/tools/remote-test-server/src/main.rs
-index 4c093025bfb..2f189b241e9 100644
+index 4c093025bfb6a248b51743360f1d11d97ad55db8..2f189b241e9b1210de35aadc1dfe1f914d3146bd 100644
 --- a/src/tools/remote-test-server/src/main.rs
 +++ b/src/tools/remote-test-server/src/main.rs
 @@ -12,11 +12,14 @@

@@ -26,7 +26,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  7 files changed, 29 insertions(+), 8 deletions(-)
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 993310b99c2..181e3991d4c 100644
+index 993310b99c2a3c4ad1992d35b2cb9527f4dc5ce1..181e3991d4c666bff8826d1238547e877231db06 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
 @@ -2286,8 +2286,6 @@ checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
@@ -48,7 +48,7 @@ index 993310b99c2..181e3991d4c 100644
   "cfg-if",
   "windows-link 0.2.1",
 diff --git a/Cargo.toml b/Cargo.toml
-index 36a5d7dfbe1..b2ae1332e83 100644
+index 36a5d7dfbe14ac95473497d81bf032d664a6695e..b2ae1332e830cbd56e88edb8a954d00230a4c346 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -90,3 +90,5 @@ codegen-units = 1
@@ -58,7 +58,7 @@ index 36a5d7dfbe1..b2ae1332e83 100644
 +libc = { path = "../libc" }
 +libloading = { path = "../crates/libloading-0.9.0" }
 diff --git a/compiler/rustc/Cargo.toml b/compiler/rustc/Cargo.toml
-index 19a9a7913c9..0e44e7ab517 100644
+index 19a9a7913c9eec8ece24952fa0403e156c94d0a3..0e44e7ab517292dc99ccd3e56a975bd4daf0c7e6 100644
 --- a/compiler/rustc/Cargo.toml
 +++ b/compiler/rustc/Cargo.toml
 @@ -10,7 +10,6 @@ edition = "2024"
@@ -81,7 +81,7 @@ index 19a9a7913c9..0e44e7ab517 100644
  getrandom = "=0.3.3"
  wasi = "=0.14.2"
 diff --git a/compiler/rustc/src/main.rs b/compiler/rustc/src/main.rs
-index 6609a19fa9e..902ef48630c 100644
+index 6609a19fa9e343e007cc581f499e99e4f9aa4982..902ef48630c9bbde6d8c83b23a64cac2201f5e69 100644
 --- a/compiler/rustc/src/main.rs
 +++ b/compiler/rustc/src/main.rs
 @@ -3,6 +3,10 @@
@@ -96,7 +96,7 @@ index 6609a19fa9e..902ef48630c 100644
  // distribution. The obvious way to do this is with the `#[global_allocator]`
  // mechanism. However, that would not affect LLVM's C / C++ allocations and we also want
 diff --git a/compiler/rustc_fs_util/src/lib.rs b/compiler/rustc_fs_util/src/lib.rs
-index e21da4cdddf..5c6559ab888 100644
+index e21da4cdddf7d008d5d1de1e79142030ac322df1..5c6559ab888fedb9e12c162027fb5aba16d262d1 100644
 --- a/compiler/rustc_fs_util/src/lib.rs
 +++ b/compiler/rustc_fs_util/src/lib.rs
 @@ -84,11 +84,13 @@ pub fn link_or_copy<P: AsRef<Path>, Q: AsRef<Path>>(p: P, q: Q) -> io::Result<Li
@@ -115,7 +115,7 @@ index e21da4cdddf..5c6559ab888 100644
      use std::os::wasi::ffi::OsStrExt;
  
 diff --git a/compiler/rustc_session/src/filesearch.rs b/compiler/rustc_session/src/filesearch.rs
-index 10c62d932ba..a57d99f3df6 100644
+index 10c62d932ba260a11e558ac8fd6db059fd239816..a57d99f3df61b91f355d4e6adff1bd2a80b5ae2b 100644
 --- a/compiler/rustc_session/src/filesearch.rs
 +++ b/compiler/rustc_session/src/filesearch.rs
 @@ -262,6 +262,12 @@ pub unsafe fn dll_path(_function: *mut std::ffi::c_void) -> Result<PathBuf, Stri
@@ -132,7 +132,7 @@ index 10c62d932ba..a57d99f3df6 100644
      use std::sync::OnceLock;
  
 diff --git a/src/bootstrap/src/core/build_steps/compile.rs b/src/bootstrap/src/core/build_steps/compile.rs
-index 3021f52d159..96fff685ee5 100644
+index 3021f52d1596234cef2d9c6af674405c3adfe91f..96fff685ee55fc6c7524ee31e1fa704e22522136 100644
 --- a/src/bootstrap/src/core/build_steps/compile.rs
 +++ b/src/bootstrap/src/core/build_steps/compile.rs
 @@ -1447,8 +1447,16 @@ fn rustc_llvm_env(builder: &Builder<'_>, cargo: &mut Cargo, target: TargetSelect

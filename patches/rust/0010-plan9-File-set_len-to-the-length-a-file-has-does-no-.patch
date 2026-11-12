@@ -10,10 +10,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 5 insertions(+)
 
 diff --git a/library/std/src/sys/fs/plan9.rs b/library/std/src/sys/fs/plan9.rs
-index d47c3947359..fbd3dc09b63 100644
+index d47c3947359a0e8b737786f086a2d6fcd3e80bee..fbd3dc09b63b64d2f56fce15303c6d6b0de9b54c 100644
 --- a/library/std/src/sys/fs/plan9.rs
 +++ b/library/std/src/sys/fs/plan9.rs
-@@ -517,6 +517,11 @@ pub fn unlock(&self) -> io::Result<()> {
+@@ -517,6 +517,11 @@ impl File {
      }
  
      pub fn truncate(&self, size: u64) -> io::Result<()> {

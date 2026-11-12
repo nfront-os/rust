@@ -11,7 +11,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 14 insertions(+)
 
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
-index 13bcf31c316..165d0c07175 100644
+index 13bcf31c316d76c2324a80c402240025ccc70060..165d0c07175139306c5e740365e34173424e6eaf 100644
 --- a/library/std/src/sys/pal/plan9/proc.rs
 +++ b/library/std/src/sys/pal/plan9/proc.rs
 @@ -666,9 +666,17 @@ fn set_privtop_here() {

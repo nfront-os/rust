@@ -11,7 +11,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 10 insertions(+), 2 deletions(-)
 
 diff --git a/src/util/important_paths.rs b/src/util/important_paths.rs
-index 1a2771b86..0518e3732 100644
+index 1a2771b86040e295303691e41d095ed3c355ce43..0518e3732c1b3777ec860cbd82c25b98d03370a0 100644
 --- a/src/util/important_paths.rs
 +++ b/src/util/important_paths.rs
 @@ -10,7 +10,8 @@ pub fn find_root_manifest_for_wd(cwd: &Path) -> CargoResult<PathBuf> {
@@ -25,7 +25,7 @@ index 1a2771b86..0518e3732 100644
          }
          if current.join(invalid_cargo_toml_file_name).exists() {
 diff --git a/src/workspace/workspace.rs b/src/workspace/workspace.rs
-index ca56dafaf..b30b47837 100644
+index ca56dafaf9dc50a0ed6a2f97a77a2441e8aaa457..b30b47837c9523445406dd9a1b84ffd3af91bd2c 100644
 --- a/src/workspace/workspace.rs
 +++ b/src/workspace/workspace.rs
 @@ -2258,7 +2258,14 @@ fn find_root_iter<'a>(

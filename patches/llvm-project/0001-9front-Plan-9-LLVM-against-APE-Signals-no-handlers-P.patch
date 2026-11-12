@@ -15,7 +15,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 32 insertions(+), 10 deletions(-)
 
 diff --git a/llvm/lib/CAS/MappedFileRegionArena.cpp b/llvm/lib/CAS/MappedFileRegionArena.cpp
-index 697461f5d5c4..2e8892a43c56 100644
+index 697461f5d5c48e18e931c86719cc5017ba80818f..2e8892a43c561c93a6c23af97136d4665b54922e 100644
 --- a/llvm/lib/CAS/MappedFileRegionArena.cpp
 +++ b/llvm/lib/CAS/MappedFileRegionArena.cpp
 @@ -71,6 +71,13 @@
@@ -60,7 +60,7 @@ index 697461f5d5c4..2e8892a43c56 100644
                utohexstr(ExistingValue, /*LowerCase=*/true));
    if (Logger)
 diff --git a/llvm/lib/Support/Unix/Path.inc b/llvm/lib/Support/Unix/Path.inc
-index d01967330e12..f69022f91cc7 100644
+index d01967330e12f0ac4d81754ab555bd3370f75550..f69022f91cc78ce01154c573a9191c573483b5dc 100644
 --- a/llvm/lib/Support/Unix/Path.inc
 +++ b/llvm/lib/Support/Unix/Path.inc
 @@ -111,7 +111,7 @@ typedef uint_t uint;
@@ -98,7 +98,7 @@ index d01967330e12..f69022f91cc7 100644
  #else
    return !!(STATVFS_F_FLAG(Vfs) & MNT_LOCAL);
 diff --git a/llvm/lib/Support/Unix/Signals.inc b/llvm/lib/Support/Unix/Signals.inc
-index 772fa37b004a..156f101cf9c8 100644
+index 772fa37b004acf9f4be7ecd6a9ddb603b90f3f7e..156f101cf9c82c85e70db785e0ddf0b4950e6947 100644
 --- a/llvm/lib/Support/Unix/Signals.inc
 +++ b/llvm/lib/Support/Unix/Signals.inc
 @@ -320,6 +320,13 @@ static void CreateSigAltStack() {
@@ -124,7 +124,7 @@ index 772fa37b004a..156f101cf9c8 100644
  void sys::unregisterHandlers() {
    // Restore all of the signal handlers to how they were before we showed up.
 diff --git a/llvm/lib/Support/raw_ostream.cpp b/llvm/lib/Support/raw_ostream.cpp
-index 341dd561092d..d3b86ffdaac7 100644
+index 341dd561092dabd39f3d066c5e599e6767b46c24..d3b86ffdaac793a95268e9cf4e9e2026fc68e402 100644
 --- a/llvm/lib/Support/raw_ostream.cpp
 +++ b/llvm/lib/Support/raw_ostream.cpp
 @@ -822,9 +822,10 @@ size_t raw_fd_ostream::preferred_buffer_size() const {
@@ -140,7 +140,7 @@ index 341dd561092d..d3b86ffdaac7 100644
  #else
    assert(FD >= 0 && "File not yet open!");
 diff --git a/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp b/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp
-index 7a02f2f63e18..97e9fdd15112 100644
+index 7a02f2f63e18dbed8cf7b5f44e3950985b442444..97e9fdd151120c9c7cce0be427356c665e4c71c0 100644
 --- a/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp
 +++ b/llvm/lib/Transforms/Scalar/LoopStrengthReduce.cpp
 @@ -417,7 +417,7 @@ RegUseTracker::countRegister(const SCEV *Reg, size_t LUIdx) {

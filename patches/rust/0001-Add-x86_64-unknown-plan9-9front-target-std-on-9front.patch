@@ -67,10 +67,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 library/std/src/sys/time/plan9.rs
 
 diff --git a/compiler/rustc_target/src/spec/base/mod.rs b/compiler/rustc_target/src/spec/base/mod.rs
-index 726ec2c2285..a5ad3f52474 100644
+index 726ec2c22859626b8fe55f16abb31a417cc716ab..a5ad3f52474922c3612a21c9e3591336948d3d6b 100644
 --- a/compiler/rustc_target/src/spec/base/mod.rs
 +++ b/compiler/rustc_target/src/spec/base/mod.rs
-@@ -28,6 +28,7 @@
+@@ -28,6 +28,7 @@ pub(crate) mod motor;
  pub(crate) mod msvc;
  pub(crate) mod netbsd;
  pub(crate) mod openbsd;
@@ -80,7 +80,7 @@ index 726ec2c2285..a5ad3f52474 100644
  pub(crate) mod redox;
 diff --git a/compiler/rustc_target/src/spec/base/plan9.rs b/compiler/rustc_target/src/spec/base/plan9.rs
 new file mode 100644
-index 00000000000..5734885b59a
+index 0000000000000000000000000000000000000000..5734885b59abb08e9526e4d7e0101038b0b93670
 --- /dev/null
 +++ b/compiler/rustc_target/src/spec/base/plan9.rs
 @@ -0,0 +1,42 @@
@@ -127,10 +127,10 @@ index 00000000000..5734885b59a
 +    }
 +}
 diff --git a/compiler/rustc_target/src/spec/mod.rs b/compiler/rustc_target/src/spec/mod.rs
-index b3839b23d9a..1c7aa8fd64d 100644
+index b3839b23d9a101bad18acada62c1748698c700c9..1c7aa8fd64d12b79d0be3c7a1f43683a60272ab9 100644
 --- a/compiler/rustc_target/src/spec/mod.rs
 +++ b/compiler/rustc_target/src/spec/mod.rs
-@@ -1544,6 +1544,8 @@ fn $module() {
+@@ -1544,6 +1544,8 @@ supported_targets! {
      ("aarch64-unknown-hermit", aarch64_unknown_hermit),
      ("riscv64gc-unknown-hermit", riscv64gc_unknown_hermit),
      ("x86_64-unknown-hermit", x86_64_unknown_hermit),
@@ -139,7 +139,7 @@ index b3839b23d9a..1c7aa8fd64d 100644
      ("x86_64-unknown-motor", x86_64_unknown_motor),
  
      ("x86_64-unikraft-linux-musl", x86_64_unikraft_linux_musl),
-@@ -1877,6 +1879,7 @@ pub enum Os {
+@@ -1877,6 +1879,7 @@ crate::target_spec_enum! {
          Nto = "nto",
          NuttX = "nuttx",
          OpenBsd = "openbsd",
@@ -149,7 +149,7 @@ index b3839b23d9a..1c7aa8fd64d 100644
          Psx = "psx",
 diff --git a/compiler/rustc_target/src/spec/targets/x86_64_unknown_plan9.rs b/compiler/rustc_target/src/spec/targets/x86_64_unknown_plan9.rs
 new file mode 100644
-index 00000000000..40fcfdb7f26
+index 0000000000000000000000000000000000000000..40fcfdb7f266a7e70fd357075c5410063aa5fa58
 --- /dev/null
 +++ b/compiler/rustc_target/src/spec/targets/x86_64_unknown_plan9.rs
 @@ -0,0 +1,26 @@
@@ -180,7 +180,7 @@ index 00000000000..40fcfdb7f26
 +    }
 +}
 diff --git a/library/Cargo.lock b/library/Cargo.lock
-index bd63144008d..4d5718c3e0b 100644
+index bd63144008d6cc93567f6b9ef4ff5d9194d77978..4d5718c3e0b66461a40c8fef6eb55d3a4605c9a7 100644
 --- a/library/Cargo.lock
 +++ b/library/Cargo.lock
 @@ -154,8 +154,6 @@ dependencies = [
@@ -193,7 +193,7 @@ index bd63144008d..4d5718c3e0b 100644
   "rustc-std-workspace-core",
  ]
 diff --git a/library/Cargo.toml b/library/Cargo.toml
-index 788c990c163..228bacfbf45 100644
+index 788c990c163440c389f4891cc0b3fa521ba79ad4..228bacfbf45b9f6fffdaadc828b5be4844df1ffc 100644
 --- a/library/Cargo.toml
 +++ b/library/Cargo.toml
 @@ -88,3 +88,6 @@ rustc-std-workspace-std = { path = 'rustc-std-workspace-std' }
@@ -204,7 +204,7 @@ index 788c990c163..228bacfbf45 100644
 +# 9front port: the libc crate with Plan 9's own libc (../9front-rust/libc, branch plan9)
 +libc = { path = '../../libc' }
 diff --git a/library/std/build.rs b/library/std/build.rs
-index 98856b58d89..9cad8db9e3b 100644
+index 98856b58d890fb3d7a2cd64faebd5ac1dae27bcd..9cad8db9e3b9ebadd811d73a487d617f69440c9e 100644
 --- a/library/std/build.rs
 +++ b/library/std/build.rs
 @@ -35,6 +35,7 @@ fn main() {
@@ -216,7 +216,7 @@ index 98856b58d89..9cad8db9e3b 100644
          || target_os == "l4re"
          || target_os == "redox"
 diff --git a/library/std/src/io/error.rs b/library/std/src/io/error.rs
-index f1208e090f0..46211eb4c87 100644
+index f1208e090f04084688a78694e501afebeb4cd4b0..46211eb4c87541ed293bb93b188108c8d90ac4d5 100644
 --- a/library/std/src/io/error.rs
 +++ b/library/std/src/io/error.rs
 @@ -41,6 +41,13 @@ impl Error {
@@ -234,10 +234,10 @@ index f1208e090f0..46211eb4c87 100644
      }
  
 diff --git a/library/std/src/os/mod.rs b/library/std/src/os/mod.rs
-index f95c6ac8dd7..7d52b86cb58 100644
+index f95c6ac8dd76db3f214229a5286f93c235dc0d8f..7d52b86cb58ff17b83749d82dfadfe86c498c991 100644
 --- a/library/std/src/os/mod.rs
 +++ b/library/std/src/os/mod.rs
-@@ -127,6 +127,8 @@ pub mod windows {}
+@@ -127,6 +127,8 @@ pub mod nto;
  pub mod nuttx;
  #[cfg(target_os = "openbsd")]
  pub mod openbsd;
@@ -248,7 +248,7 @@ index f95c6ac8dd7..7d52b86cb58 100644
  #[cfg(target_os = "rtems")]
 diff --git a/library/std/src/os/plan9/ffi.rs b/library/std/src/os/plan9/ffi.rs
 new file mode 100644
-index 00000000000..18125e3dbac
+index 0000000000000000000000000000000000000000..18125e3dbac4eaf629f52d4abc3047fc13a0a867
 --- /dev/null
 +++ b/library/std/src/os/plan9/ffi.rs
 @@ -0,0 +1,12 @@
@@ -266,7 +266,7 @@ index 00000000000..18125e3dbac
 +pub use self::os_str::{OsStrExt, OsStringExt};
 diff --git a/library/std/src/os/plan9/mod.rs b/library/std/src/os/plan9/mod.rs
 new file mode 100644
-index 00000000000..7a86de9b9be
+index 0000000000000000000000000000000000000000..7a86de9b9bebf277f17de769048980fdc7e61fa8
 --- /dev/null
 +++ b/library/std/src/os/plan9/mod.rs
 @@ -0,0 +1,16 @@
@@ -287,10 +287,10 @@ index 00000000000..7a86de9b9be
 +    pub use super::ffi::{OsStrExt, OsStringExt};
 +}
 diff --git a/library/std/src/sys/alloc/mod.rs b/library/std/src/sys/alloc/mod.rs
-index 66a2c3be33c..3148a19ff76 100644
+index 66a2c3be33cbaf476ab7ddc58fa15a18ca6a984a..3148a19ff7620144add6831411218fff56eb98b0 100644
 --- a/library/std/src/sys/alloc/mod.rs
 +++ b/library/std/src/sys/alloc/mod.rs
-@@ -76,6 +76,10 @@ unsafe fn realloc_fallback(ptr: *mut u8, old_layout: Layout, new_size: usize) ->
+@@ -76,6 +76,10 @@ cfg_select! {
          mod hermit;
          use hermit as imp;
      }
@@ -301,7 +301,7 @@ index 66a2c3be33c..3148a19ff76 100644
      target_os = "motor" => {
          mod motor;
          use motor as imp;
-@@ -113,7 +117,13 @@ unsafe fn realloc_fallback(ptr: *mut u8, old_layout: Layout, new_size: usize) ->
+@@ -113,7 +117,13 @@ cfg_select! {
  pub use imp::{alloc, dealloc, realloc};
  
  cfg_select! {
@@ -318,7 +318,7 @@ index 66a2c3be33c..3148a19ff76 100644
              let ptr = unsafe { alloc(layout) };
 diff --git a/library/std/src/sys/alloc/plan9.rs b/library/std/src/sys/alloc/plan9.rs
 new file mode 100644
-index 00000000000..c89dd325077
+index 0000000000000000000000000000000000000000..c89dd325077231dc20778cc21e9a16ef8af72f13
 --- /dev/null
 +++ b/library/std/src/sys/alloc/plan9.rs
 @@ -0,0 +1,41 @@
@@ -364,7 +364,7 @@ index 00000000000..c89dd325077
 +    }
 +}
 diff --git a/library/std/src/sys/args/mod.rs b/library/std/src/sys/args/mod.rs
-index c8011a6fed3..70f322f92d3 100644
+index c8011a6fed37426a5381186b7c2db467e975f4d4..70f322f92d342c9ff870b06ce7f9f24950c6314e 100644
 --- a/library/std/src/sys/args/mod.rs
 +++ b/library/std/src/sys/args/mod.rs
 @@ -6,6 +6,7 @@
@@ -375,7 +375,7 @@ index c8011a6fed3..70f322f92d3 100644
      target_os = "motor",
      target_os = "uefi",
      target_os = "wasi",
-@@ -24,6 +25,7 @@
+@@ -24,6 +25,7 @@ cfg_select! {
              ))
          ),
          target_os = "hermit",
@@ -384,10 +384,10 @@ index c8011a6fed3..70f322f92d3 100644
          mod unix;
          pub use unix::*;
 diff --git a/library/std/src/sys/args/unix.rs b/library/std/src/sys/args/unix.rs
-index 197931d8cc8..aace5a4b2ce 100644
+index 197931d8cc8d214c482cc23e1bd0123ac34d983e..aace5a4b2ce8d6026f25db2e3a4a653bc9409f85 100644
 --- a/library/std/src/sys/args/unix.rs
 +++ b/library/std/src/sys/args/unix.rs
-@@ -9,7 +9,9 @@
+@@ -9,7 +9,9 @@ pub use super::common::Args;
  use crate::ffi::CStr;
  #[cfg(target_os = "hermit")]
  use crate::os::hermit::ffi::OsStringExt;
@@ -407,7 +407,7 @@ index 197931d8cc8..aace5a4b2ce 100644
      target_os = "fuchsia",
      target_os = "redox",
 diff --git a/library/std/src/sys/env_consts.rs b/library/std/src/sys/env_consts.rs
-index b14160cf4ad..fc82ba55a84 100644
+index b14160cf4ad321fc2754513667b55a8d8f81032a..fc82ba55a84507f64d68014e012f86451fe2e606 100644
 --- a/library/std/src/sys/env_consts.rs
 +++ b/library/std/src/sys/env_consts.rs
 @@ -125,6 +125,17 @@ pub mod os {
@@ -429,10 +429,10 @@ index b14160cf4ad..fc82ba55a84 100644
  pub mod os {
      pub const FAMILY: &str = "unix";
 diff --git a/library/std/src/sys/exit.rs b/library/std/src/sys/exit.rs
-index 51f8f2219c5..d7ca5cf5363 100644
+index 51f8f2219c59c5e187f2ce3240d6309256b78d3c..d7ca5cf536340ea8c9748654b21f9fc4f67a1046 100644
 --- a/library/std/src/sys/exit.rs
 +++ b/library/std/src/sys/exit.rs
-@@ -94,6 +94,7 @@ mod runtime_symbols {
+@@ -94,6 +94,7 @@ cfg_select! {
  pub fn exit(code: i32) -> ! {
      cfg_select! {
          target_os = "hermit" => unsafe { hermit_abi::exit(code) },
@@ -441,7 +441,7 @@ index 51f8f2219c5..d7ca5cf5363 100644
              unique_thread_exit();
              libc::exit(code)
 diff --git a/library/std/src/sys/io/error/mod.rs b/library/std/src/sys/io/error/mod.rs
-index a56030f1770..d1502954f06 100644
+index a56030f17709f9221e704260a3089af5acc53bc6..d1502954f0629ca1578c7d0a5e6f86fd263616fd 100644
 --- a/library/std/src/sys/io/error/mod.rs
 +++ b/library/std/src/sys/io/error/mod.rs
 @@ -1,4 +1,8 @@
@@ -455,7 +455,7 @@ index a56030f1770..d1502954f06 100644
          pub use hermit::*;
 diff --git a/library/std/src/sys/io/error/plan9.rs b/library/std/src/sys/io/error/plan9.rs
 new file mode 100644
-index 00000000000..f067bab9a2a
+index 0000000000000000000000000000000000000000..f067bab9a2a9995ddff9de4b9c673044ee40b44a
 --- /dev/null
 +++ b/library/std/src/sys/io/error/plan9.rs
 @@ -0,0 +1,20 @@
@@ -480,10 +480,10 @@ index 00000000000..f067bab9a2a
 +    write!(f, "os error {code}")
 +}
 diff --git a/library/std/src/sys/pal/mod.rs b/library/std/src/sys/pal/mod.rs
-index 88d9d420599..1a16d4fb2f6 100644
+index 88d9d42059900cfee4ca08d7e80639a3d4ac0a42..1a16d4fb2f6aa0ad4892dedad1f76db8734ecf58 100644
 --- a/library/std/src/sys/pal/mod.rs
 +++ b/library/std/src/sys/pal/mod.rs
-@@ -16,6 +16,10 @@
+@@ -16,6 +16,10 @@ cfg_select! {
          mod solid;
          pub use self::solid::*;
      }
@@ -496,7 +496,7 @@ index 88d9d420599..1a16d4fb2f6 100644
          pub use self::hermit::*;
 diff --git a/library/std/src/sys/pal/plan9/mod.rs b/library/std/src/sys/pal/plan9/mod.rs
 new file mode 100644
-index 00000000000..59ec9234e5b
+index 0000000000000000000000000000000000000000..59ec9234e5b913ce0e2d5a53a1820936a9399922
 --- /dev/null
 +++ b/library/std/src/sys/pal/plan9/mod.rs
 @@ -0,0 +1,140 @@
@@ -642,7 +642,7 @@ index 00000000000..59ec9234e5b
 +}
 diff --git a/library/std/src/sys/pal/plan9/proc.rs b/library/std/src/sys/pal/plan9/proc.rs
 new file mode 100644
-index 00000000000..f010d351e87
+index 0000000000000000000000000000000000000000..f010d351e876bd417334e45268adebb9c64b15cd
 --- /dev/null
 +++ b/library/std/src/sys/pal/plan9/proc.rs
 @@ -0,0 +1,629 @@
@@ -1276,10 +1276,10 @@ index 00000000000..f010d351e87
 +    wake(futex, usize::MAX);
 +}
 diff --git a/library/std/src/sys/random/mod.rs b/library/std/src/sys/random/mod.rs
-index 23f6ce8d25e..42de2e973f9 100644
+index 23f6ce8d25eb4108787b659f6de89ec8a406b84d..42de2e973f9829e5c5fe6b473fb195dddb79dc8c 100644
 --- a/library/std/src/sys/random/mod.rs
 +++ b/library/std/src/sys/random/mod.rs
-@@ -40,6 +40,10 @@
+@@ -40,6 +40,10 @@ cfg_select! {
          mod fuchsia;
          pub use fuchsia::fill_bytes;
      }
@@ -1292,7 +1292,7 @@ index 23f6ce8d25e..42de2e973f9 100644
          pub use hermit::fill_bytes;
 diff --git a/library/std/src/sys/random/plan9.rs b/library/std/src/sys/random/plan9.rs
 new file mode 100644
-index 00000000000..bd52b29ca48
+index 0000000000000000000000000000000000000000..bd52b29ca4863b5fff75d6d156bba525d941af99
 --- /dev/null
 +++ b/library/std/src/sys/random/plan9.rs
 @@ -0,0 +1,17 @@
@@ -1314,10 +1314,10 @@ index 00000000000..bd52b29ca48
 +    unsafe { libc::close(fd) };
 +}
 diff --git a/library/std/src/sys/stdio/mod.rs b/library/std/src/sys/stdio/mod.rs
-index 86d0f3fe49c..1b9562ebefc 100644
+index 86d0f3fe49cb327368ed7039c877808c130772a8..1b9562ebefc297ddd1e03c701ead6ad0f41fb58b 100644
 --- a/library/std/src/sys/stdio/mod.rs
 +++ b/library/std/src/sys/stdio/mod.rs
-@@ -13,6 +13,10 @@
+@@ -13,6 +13,10 @@ cfg_select! {
          mod sgx;
          pub use sgx::*;
      }
@@ -1330,7 +1330,7 @@ index 86d0f3fe49c..1b9562ebefc 100644
          pub use motor::*;
 diff --git a/library/std/src/sys/stdio/plan9.rs b/library/std/src/sys/stdio/plan9.rs
 new file mode 100644
-index 00000000000..1c9076a13f1
+index 0000000000000000000000000000000000000000..1c9076a13f1ffc65bca1ba5434bbed3212649f6b
 --- /dev/null
 +++ b/library/std/src/sys/stdio/plan9.rs
 @@ -0,0 +1,75 @@
@@ -1410,10 +1410,10 @@ index 00000000000..1c9076a13f1
 +    Some(Stderr::new())
 +}
 diff --git a/library/std/src/sys/sync/condvar/mod.rs b/library/std/src/sys/sync/condvar/mod.rs
-index 615781ea9b7..90a86d0d679 100644
+index 615781ea9b7dcf90bf49ece6321e8108b316dcb6..90a86d0d679b97e21072cb572e4872c56e1a575c 100644
 --- a/library/std/src/sys/sync/condvar/mod.rs
 +++ b/library/std/src/sys/sync/condvar/mod.rs
-@@ -10,6 +10,7 @@
+@@ -10,6 +10,7 @@ cfg_select! {
          target_os = "fuchsia",
          all(target_family = "wasm", target_feature = "atomics"),
          target_os = "hermit",
@@ -1422,10 +1422,10 @@ index 615781ea9b7..90a86d0d679 100644
      ) => {
          mod futex;
 diff --git a/library/std/src/sys/sync/futex/mod.rs b/library/std/src/sys/sync/futex/mod.rs
-index 0edb46cc10f..143d468eeb9 100644
+index 0edb46cc10f867ba1479b45381877b3a58b95339..143d468eeb95fa0223387de0bbe3837d77a5640e 100644
 --- a/library/std/src/sys/sync/futex/mod.rs
 +++ b/library/std/src/sys/sync/futex/mod.rs
-@@ -15,6 +15,13 @@
+@@ -15,6 +15,13 @@ cfg_select! {
          mod windows;
          pub use windows::*;
      }
@@ -1440,10 +1440,10 @@ index 0edb46cc10f..143d468eeb9 100644
          mod hermit;
          pub use hermit::*;
 diff --git a/library/std/src/sys/sync/mutex/mod.rs b/library/std/src/sys/sync/mutex/mod.rs
-index 895ab9c8956..0622ec5bd31 100644
+index 895ab9c895697fc6128ad37aaa6bbb0591a361aa..0622ec5bd319f98d7970e06e0849134bef528748 100644
 --- a/library/std/src/sys/sync/mutex/mod.rs
 +++ b/library/std/src/sys/sync/mutex/mod.rs
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,7 @@ cfg_select! {
          target_os = "dragonfly",
          all(target_family = "wasm", target_feature = "atomics"),
          target_os = "hermit",
@@ -1452,10 +1452,10 @@ index 895ab9c8956..0622ec5bd31 100644
      ) => {
          mod futex;
 diff --git a/library/std/src/sys/sync/once/mod.rs b/library/std/src/sys/sync/once/mod.rs
-index eee7edf8575..3442952b842 100644
+index eee7edf8575fc92035bdd940382e2fb3bd0623cb..3442952b8428236c413b057a108bc3602b26aa4c 100644
 --- a/library/std/src/sys/sync/once/mod.rs
 +++ b/library/std/src/sys/sync/once/mod.rs
-@@ -19,6 +19,7 @@
+@@ -19,6 +19,7 @@ cfg_select! {
          target_os = "dragonfly",
          target_os = "fuchsia",
          target_os = "hermit",
@@ -1464,10 +1464,10 @@ index eee7edf8575..3442952b842 100644
      ) => {
          mod futex;
 diff --git a/library/std/src/sys/sync/rwlock/mod.rs b/library/std/src/sys/sync/rwlock/mod.rs
-index 9991f290e46..7ce76ab8516 100644
+index 9991f290e46d1ce805b30810c61af17e7512c3f9..7ce76ab8516c4005b6e4dd7542936b36f34176b1 100644
 --- a/library/std/src/sys/sync/rwlock/mod.rs
 +++ b/library/std/src/sys/sync/rwlock/mod.rs
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,7 @@ cfg_select! {
          target_os = "fuchsia",
          all(target_family = "wasm", target_feature = "atomics"),
          target_os = "hermit",
@@ -1476,10 +1476,10 @@ index 9991f290e46..7ce76ab8516 100644
          all(target_os = "wasi", target_env = "p3"),
      ) => {
 diff --git a/library/std/src/sys/sync/thread_parking/mod.rs b/library/std/src/sys/sync/thread_parking/mod.rs
-index dffa0ade947..3e06d538e98 100644
+index dffa0ade947ee12b5f694c4ec20ee9f05d52b8f9..3e06d538e9832caa2190da6e62ebc37abcf911b6 100644
 --- a/library/std/src/sys/sync/thread_parking/mod.rs
 +++ b/library/std/src/sys/sync/thread_parking/mod.rs
-@@ -10,6 +10,7 @@
+@@ -10,6 +10,7 @@ cfg_select! {
          target_os = "fuchsia",
          target_os = "motor",
          target_os = "hermit",
@@ -1488,10 +1488,10 @@ index dffa0ade947..3e06d538e98 100644
      ) => {
          mod futex;
 diff --git a/library/std/src/sys/thread/mod.rs b/library/std/src/sys/thread/mod.rs
-index dfbfc2bc8e0..943643ff6da 100644
+index dfbfc2bc8e0c2372f255f9d4fc94fc016403422f..943643ff6da44c6efc4b3f4f401f54c25658db42 100644
 --- a/library/std/src/sys/thread/mod.rs
 +++ b/library/std/src/sys/thread/mod.rs
-@@ -10,6 +10,15 @@
+@@ -10,6 +10,15 @@ cfg_select! {
          mod motor;
          pub use motor::*;
      }
@@ -1509,7 +1509,7 @@ index dfbfc2bc8e0..943643ff6da 100644
          pub use sgx::{DEFAULT_MIN_STACK_SIZE, Thread, current_os_id, sleep, yield_now};
 diff --git a/library/std/src/sys/thread/plan9.rs b/library/std/src/sys/thread/plan9.rs
 new file mode 100644
-index 00000000000..b6d5306501c
+index 0000000000000000000000000000000000000000..b6d5306501c216193b0ac8278987bb40647139f4
 --- /dev/null
 +++ b/library/std/src/sys/thread/plan9.rs
 @@ -0,0 +1,88 @@
@@ -1603,7 +1603,7 @@ index 00000000000..b6d5306501c
 +}
 diff --git a/library/std/src/sys/thread_local/key/plan9.rs b/library/std/src/sys/thread_local/key/plan9.rs
 new file mode 100644
-index 00000000000..55f74996047
+index 0000000000000000000000000000000000000000..55f749960475840b7ae229e5cc9bdc43a29089d3
 --- /dev/null
 +++ b/library/std/src/sys/thread_local/key/plan9.rs
 @@ -0,0 +1,90 @@
@@ -1698,10 +1698,10 @@ index 00000000000..55f74996047
 +    }
 +}
 diff --git a/library/std/src/sys/thread_local/mod.rs b/library/std/src/sys/thread_local/mod.rs
-index 1c137e52d93..5cfcfc4fce7 100644
+index 1c137e52d931972b717c5e7c121b5dcb6940abc8..5cfcfc4fce7455fda381632008ae0d051745cfe9 100644
 --- a/library/std/src/sys/thread_local/mod.rs
 +++ b/library/std/src/sys/thread_local/mod.rs
-@@ -134,7 +134,7 @@ pub(crate) fn enable() {
+@@ -134,7 +134,7 @@ pub(crate) mod guard {
                  use crate::rt::thread_cleanup;
              }
          }
@@ -1728,10 +1728,10 @@ index 1c137e52d93..5cfcfc4fce7 100644
              mod racy;
              #[cfg(test)]
 diff --git a/library/std/src/sys/time/mod.rs b/library/std/src/sys/time/mod.rs
-index 179c968ee26..8d5481e59ff 100644
+index 179c968ee26819d1cd31c5526ab0d5cf48052f98..8d5481e59ff3d0127c17819efe245860c09fd76e 100644
 --- a/library/std/src/sys/time/mod.rs
 +++ b/library/std/src/sys/time/mod.rs
-@@ -6,6 +6,10 @@
+@@ -6,6 +6,10 @@ cfg_select! {
          mod sgx;
          use sgx as imp;
      }
@@ -1744,7 +1744,7 @@ index 179c968ee26..8d5481e59ff 100644
          use solid as imp;
 diff --git a/library/std/src/sys/time/plan9.rs b/library/std/src/sys/time/plan9.rs
 new file mode 100644
-index 00000000000..73ce72617f0
+index 0000000000000000000000000000000000000000..73ce72617f0bb233d20aa53b0d565bb5a3a63539
 --- /dev/null
 +++ b/library/std/src/sys/time/plan9.rs
 @@ -0,0 +1,53 @@
@@ -1802,7 +1802,7 @@ index 00000000000..73ce72617f0
 +    }
 +}
 diff --git a/src/bootstrap/src/core/sanity.rs b/src/bootstrap/src/core/sanity.rs
-index ac44a4dfca9..829f21e2779 100644
+index ac44a4dfca9b1e6345268b4439cafa6a837d3b83..829f21e2779ab6e345ba2dc0111f753eece1280d 100644
 --- a/src/bootstrap/src/core/sanity.rs
 +++ b/src/bootstrap/src/core/sanity.rs
 @@ -37,6 +37,7 @@ pub struct Finder {

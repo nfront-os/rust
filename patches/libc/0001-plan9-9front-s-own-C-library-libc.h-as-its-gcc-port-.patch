@@ -12,7 +12,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/plan9.rs
 
 diff --git a/src/lib.rs b/src/lib.rs
-index 7afa57ac4..92b483d58 100644
+index 7afa57ac49b6159677e7930421999328a91ebd6d..92b483d58edf15ba876cf1d17d725e34720dee31 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
 @@ -346,6 +346,14 @@ cfg_if! {
@@ -32,7 +32,7 @@ index 7afa57ac4..92b483d58 100644
          mod primitives;
 diff --git a/src/plan9.rs b/src/plan9.rs
 new file mode 100644
-index 000000000..044614ec2
+index 0000000000000000000000000000000000000000..044614ec262bc6bc3937e9d0edb454e7d92873f4
 --- /dev/null
 +++ b/src/plan9.rs
 @@ -0,0 +1,304 @@
