@@ -1,648 +1,648 @@
 # 9front-rust — Log
 
-Ziel: Rust für 9front, zuerst als Cross-Compiler (Linux → 9front amd64, core/alloc/std),
-std **nativ auf Plan 9s libc** (`libc.h`, `/amd64/lib.gcc/libc.a`), nicht auf APE.
-Später: rustc/cargo nativ auf 9front, 386.
+Goal: Rust for 9front, first as a cross compiler (Linux → 9front amd64, core/alloc/std),
+std **natively on Plan 9's libc** (`libc.h`, `/amd64/lib.gcc/libc.a`), not on APE.
+Later: rustc/cargo natively on 9front, 386.
 
-## Bäume (je eigenes git-Repo, Branch `plan9`)
+## Trees (each its own git repo, branch `plan9`)
 
-- `rust/`: rust-lang/rust main (1.101-dev). `bootstrap.toml` (Vorlage: `bootstrap.toml.example`,
-  `$GCC9` = `../9front-gcc`): LLVM aus Rusts CI (`download-ci-llvm`, keine LLVM-Änderung nötig),
-  `deny-warnings = false` (std hat unabhängig vom Port eine unerfüllte Lint-Erwartung,
-  `ineffective_unstable_reexports` in `lib.rs`; eigene Warnungen im Log prüfen).
-- `libc/`: rust-lang/libc, Branch `plan9` von `libc-0.2` (= 0.2.191, Version von std).
-  `library/Cargo.toml` patcht `libc` auf `../../libc`.
-- `llvm-project/`: noch unbenutzt (für die native Phase).
+- `rust/`: rust-lang/rust main (1.101-dev). `bootstrap.toml` (template: `bootstrap.toml.example`,
+  `$GCC9` = `../9front-gcc`): LLVM from Rust's CI (`download-ci-llvm`, no LLVM change needed),
+  `deny-warnings = false` (std has an unfulfilled lint expectation independent of the port,
+  `ineffective_unstable_reexports` in `lib.rs`; check own warnings in the log).
+- `libc/`: rust-lang/libc, branch `plan9` of `libc-0.2` (= 0.2.191, the version std uses).
+  `library/Cargo.toml` patches `libc` to `../../libc`.
+- `llvm-project/`: still unused (for the native phase).
 
-Bauen: `cd rust && ./x build --stage 1 library --target x86_64-unknown-plan9`
-(Stage-1-Compiler ~4 min, std ~1 min). Programm:
+Build: `cd rust && ./x build --stage 1 library --target x86_64-unknown-plan9`
+(stage-1 compiler ~4 min, std ~1 min). Program:
 `PATH=../9front-gcc/build/amd64/cross/bin:$PATH rust/build/host/stage1/bin/rustc --edition 2024 --target x86_64-unknown-plan9 x.rs`.
-Im Gast: `tests/guest.sh -f prog... -- 'rc-Zeile' ...` (über `../9front`s `boot-cli.sh`).
+In the guest: `tests/guest.sh -f prog... -- 'rc line' ...` (via `../9front`'s `boot-cli.sh`).
 
-## Target x86_64-unknown-plan9 (Teil 1)
+## Target x86_64-unknown-plan9 (Part 1)
 
-- `Os::Plan9`, keine Familie (`cfg(unix)` aus). LLVM-Triple `x86_64-unknown-plan9`: unbekanntes
-  OS = ELF + System-V-ABI, wie 9front-gcc. Statisch, `RelocModel::Static`, kein PIE,
-  `has_thread_local: false`, Stack-Probes inline, vorerst `panic=abort`.
-- Linker = 9front-gccs `x86_64-pc-plan9-gcc` (Linker-Skript `/amd64/plan9.ld` vom Treiber):
-  `-nodefaultlibs` (sonst APE: `-lap`), dafür selbst `-Wl,--wrap=main` und spät `-lgcc -lc`.
-  Mit `-nodefaultlibs` bleiben `crtbegin.o/crtend.o` (Unwind-Tabellen über `.init_array`).
-  libgccs `__wrap_main` (9front-gcc) stellt die FPU wie POSIX (9fronts Kernel trappt sonst bei
-  1.0/0.0) und ruft `.init_array`, dann `main`.
-- `bootstrap`: Target in `STAGE0_MISSING_TARGETS`; `std/build.rs` kennt `plan9` (sonst
+- `Os::Plan9`, no family (`cfg(unix)` off). LLVM triple `x86_64-unknown-plan9`: unknown
+  OS = ELF + System V ABI, like 9front-gcc. Static, `RelocModel::Static`, no PIE,
+  `has_thread_local: false`, inline stack probes, `panic=abort` for now.
+- Linker = 9front-gcc's `x86_64-pc-plan9-gcc` (linker script `/amd64/plan9.ld` from the driver):
+  `-nodefaultlibs` (otherwise APE: `-lap`), instead we pass `-Wl,--wrap=main` ourselves and `-lgcc -lc` late.
+  With `-nodefaultlibs`, `crtbegin.o/crtend.o` stay (unwind tables via `.init_array`).
+  libgcc's `__wrap_main` (9front-gcc) sets up the FPU like POSIX (9front's kernel otherwise traps on
+  1.0/0.0) and calls `.init_array`, then `main`.
+- `bootstrap`: target in `STAGE0_MISSING_TARGETS`; `std/build.rs` knows `plan9` (otherwise
   `restricted_std`).
 
-## libc-Crate (`src/plan9.rs`)
+## libc crate (`src/plan9.rs`)
 
-- Typen wie gcc sie sieht: `long` = 64 Bit, `ulong` = 32 Bit (u.h unter `__GNUC__`),
-  `malloc(ulong)` → Allokationen ≥ 4 GiB schlagen fehl. Kernel-Semaphoren sind `s32int`
-  (Port-Fix im Kernel), `<libc.h>` sagt noch `long*` → Rust `*mut c_int`.
-- `await` ist in Rust ein Schlüsselwort → `await_` mit `link_name`.
-- mem*/strlen mit `size_t` (rustc prüft die Laufzeit-Symbole gegen ihre kanonische Signatur).
+- Types as gcc sees them: `long` = 64 bit, `ulong` = 32 bit (u.h under `__GNUC__`),
+  `malloc(ulong)` → allocations ≥ 4 GiB fail. Kernel semaphores are `s32int`
+  (port fix in the kernel), `<libc.h>` still says `long*` → Rust `*mut c_int`.
+- `await` is a keyword in Rust → `await_` with `link_name`.
+- mem*/strlen with `size_t` (rustc checks the runtime symbols against their canonical signature).
 
 ## std (`library/std/src/sys/*/plan9.rs`, `pal/plan9/`)
 
-- **Threads = Procs** `rfork(RFPROC|RFMEM|RFNOWAIT)`. RFMEM teilt alles außer dem
-  Stack-Segment; Rust gibt Verweise auf Stack-Daten an andere Threads (scoped threads, mpmc
-  mit Paketen auf dem Stack) → jeder Thread, auch `main`, läuft auf geteiltem Speicher.
-  `main`: libgccs `__wrap_main` ruft das schwache `__plan9_mainstack` (Haken aus 9front-gccs
-  pthreads), std definiert es (`pal::init` referenziert es, sonst zöge der Linker das Objekt
-  nicht aus dem rlib) und endet mit dem Ergebnis über `exits`. Vorlage für den ganzen Mechanismus:
-  9front-gcc `compat/lib/pthread.c` (rfork im Asm, Kind erbt nur R14/R15, läuft unter
-  `PRIVTOP` auf seiner Kopie des Stack-Segments, beendet sich dort → Stack frei für `join`).
-- **Stacks mit Lücke** (Stacküberlauf blieb mit malloc-Stacks unbemerkt): jeder Stack ein
-  eigenes Segment (`segattach(SG_CEXEC, "memory", va, 64 MiB)`, Seiten erst bei Zugriff), mit
-  1 MiB ungemappt dazwischen. Ein Segment, das ein Proc später anhängt, sehen die anderen nicht
-  → `main`s Proc hängt 64 Slots an, bevor es Threads gibt (1 GiB unter dem Stack-Segment, nach
-  unten). Freigabe: `segfree`. Mehr Threads oder > 64 MiB: malloc-Stack ohne Lücke. Überlauf:
-  Kernel `suicide: sys: trap: fault write addr=…`, Proc Broken (Notes laufen auf dem Stack, der
-  ist hin → keine Rust-Meldung möglich). 9front erlaubt 250 Benutzersegmente (NSEG = SEG1+250).
-- **Achtung fork**: Slot-Segmente sind SG_SHARED, auch ohne RFMEM geteilt → ein `rfork` ohne
-  RFMEM (Command) muss das Kind sofort vom Stack nehmen (wie bei Threads).
-- **Futex** aus Semaphoren: Warteschlange pro Hash-Bucket (Spinlock), jeder Thread wartet auf
-  seiner eigenen Semaphore (`ThreadData`, libc-malloc, geteilt). Timeout `tsemacquire` (ms,
-  aufgerundet), Note unterbricht → spurious wakeup. Darauf std's futex-Mutex/Condvar/RwLock/
+- **Threads = procs** `rfork(RFPROC|RFMEM|RFNOWAIT)`. RFMEM shares everything except the
+  stack segment; Rust hands references to stack data to other threads (scoped threads, mpmc
+  with packets on the stack) → every thread, `main` too, runs on shared memory.
+  `main`: libgcc's `__wrap_main` calls the weak `__plan9_mainstack` (hook from 9front-gcc's
+  pthreads), std defines it (`pal::init` references it, otherwise the linker would not pull the object
+  from the rlib) and ends with the result via `exits`. Model for the whole mechanism:
+  9front-gcc `compat/lib/pthread.c` (rfork in asm, child inherits only R14/R15, runs under
+  `PRIVTOP` on its copy of the stack segment, ends there → stack free for `join`).
+- **Stacks with a gap** (stack overflow went unnoticed with malloc stacks): each stack its
+  own segment (`segattach(SG_CEXEC, "memory", va, 64 MiB)`, pages only on access), with
+  1 MiB unmapped in between. A segment that a proc attaches later is not seen by the others
+  → `main`'s proc attaches 64 slots before there are any threads (1 GiB below the stack segment, going
+  down). Release: `segfree`. More threads or > 64 MiB: malloc stack without gap. Overflow:
+  kernel `suicide: sys: trap: fault write addr=…`, proc Broken (notes run on the stack, which
+  is gone → no Rust message possible). 9front allows 250 user segments (NSEG = SEG1+250).
+- **Beware fork**: slot segments are SG_SHARED, shared even without RFMEM → an `rfork` without
+  RFMEM (Command) must take the child off the stack immediately (as with threads).
+- **Futex** from semaphores: queue per hash bucket (spinlock), each thread waits on
+  its own semaphore (`ThreadData`, libc malloc, shared). Timeout `tsemacquire` (ms,
+  rounded up), a note interrupts → spurious wakeup. On top of that std's futex Mutex/Condvar/RwLock/
   Once/Parker.
-- **TLS**: ein `privalloc`-Slot (liegt auf dem privaten Stack-Segment) → `ThreadData` → Tabelle
-  mit 1024 Keys. Kind erbt die Kopie des Slots → als Erstes nullen. Destruktoren am Thread-Ende
-  selbst (Guard „retained“ wie Xous/Hermit).
-- **Fehler** sind Zeichenketten: `io::Error::last_os_error()` → `Error::new(kind, errstr)`,
-  `kind` aus den Kernel-/Dateiserver-Meldungen (`port/error.h`). `raw_os_error()` = None.
-- **Ende**: `exit(0)` → `exits(nil)`, sonst `exits("<code>")`. Andere Threads per
-  `/proc/n/ctl kill`; endet ein Thread das Programm, bekommt `main`s Proc den Status als Note
-  (unbehandelt → endet mit dem Text als Status), damit der Elternprozess ihn sieht.
-  `abort` = Status `abort`. Note „sys: write on closed pipe“ wird ignoriert (wie SIGPIPE).
-- Zeit: `Instant` = `uptime()` (ns seit Boot), `SystemTime` = `nsec()`. Zufall `/dev/random`.
-  Parallelität: Zeilen von `/dev/sysstat`. `sleep` in ms, aufgerundet.
-- malloc liefert 8-Byte-Ausrichtung (Bhdr 8 + Tag 8?) → größer über `mallocalign`.
+- **TLS**: one `privalloc` slot (lives on the private stack segment) → `ThreadData` → table
+  with 1024 keys. The child inherits the copy of the slot → zero it first. Destructors at thread end
+  by itself (guard "retained" like Xous/Hermit).
+- **Errors** are strings: `io::Error::last_os_error()` → `Error::new(kind, errstr)`,
+  `kind` from the kernel/file server messages (`port/error.h`). `raw_os_error()` = None.
+- **Exit**: `exit(0)` → `exits(nil)`, otherwise `exits("<code>")`. Other threads via
+  `/proc/n/ctl kill`; if a thread ends the program, `main`'s proc gets the status as a note
+  (unhandled → ends with the text as status), so that the parent process sees it.
+  `abort` = status `abort`. Note "sys: write on closed pipe" is ignored (like SIGPIPE).
+- Time: `Instant` = `uptime()` (ns since boot), `SystemTime` = `nsec()`. Randomness `/dev/random`.
+  Parallelism: lines of `/dev/sysstat`. `sleep` in ms, rounded up.
+- malloc returns 8-byte alignment (Bhdr 8 + Tag 8?) → larger via `mallocalign`.
 
-## std Teil 2: fs, env, Prozesse, Netz, Unwinding (2026-10-29)
+## std Part 2: fs, env, processes, network, unwinding (2026-10-29)
 
-- **fs**: `open`/`create` (create auf vorhandene Datei kürzt → `create` ohne truncate = open, sonst
-  `create|OEXCL`, Wettlauf → wieder open), stat(5)-`Dir` als FileAttr (uid/gid/muid, qid über
-  `os::plan9::fs::MetadataExt`), `dirread` stückweise. Kein Append-Modus in open → seek ans Ende
-  vor jedem write. rename = wstat des Namens nur im selben Verzeichnis (Vergleich der qids der
-  Eltern), ersetzt nichts → Ziel vorher entfernen; über Verzeichnisse: Datei kopieren (Rechte,
-  Zeiten) + entfernen, Verzeichnisse: CrossesDevices. Keine Links, Locks, fsync (Ok).
-- **`fd_view`**: std nimmt an, dass `File`, `TcpStream`, … genau ein `RawFd` groß sind → Zusatzzustand
-  (Append, Timeouts, UDP-Peer) in einer Tabelle pro Deskriptor (`sys::fd::FdState`), gelöscht in
-  `OwnedFd::drop`, gesetzt von jedem, der einen Deskriptor macht.
-- **close-on-exec**: pipe(2)/dial geben keins; `open("#d/N", mode|OCEXEC)` liefert eine Kopie mit
-  OCEXEC (devdup gibt den Kanal selbst zurück, fd2path bleibt der alte Name). `dup(a, b)` löscht
-  OCEXEC an b (`f->flag[fd] = 0`).
-- **env**: `/env`-Dateien; inneres `\0` (rc-Listen) bleibt, `split_paths`/`join_paths` trennen an `\0`
-  (`$path`). `current_exe`: argv[0], ohne `/` über `$path` (Plan 9 kennt den Programmnamen nicht).
-- **Prozesse**: `rfork(RFPROC|RFFDG|RFREND[|RFENVG|RFCENVG])` per Asm (`rfork_run`), Kind sofort auf
-  seinem Stack-Segment (die Slots sind auch ohne RFMEM geteilt!), keine Allokation/Locks im Kind
-  (Speicherkopie, malloc-Lock evtl. gehalten). Exec-Fehler über OCEXEC-Pipe. Programmsuche in
-  `$path` wie rc. Warten: jeder Thread liest `/proc/<erzeuger>/wait` (einer pro Erzeuger, Ergebnisse
-  für andere in einer Tabelle) → `wait` aus jedem Thread. Grenze: Kind eines beendeten Threads ist
-  verwaist (Plan 9 gibt Kinder nicht weiter). `try_wait`: Plan 9 hat keine Zombies → `/proc/pid` weg
-  = beendet. ExitStatus = Waitmsg-Text (Copy → `[u8; ERRMAX]`), `code()` = Zahl nach „: “.
-- **Netz**: dial/announce/listen/accept. fd2path eines announce-ctl ist `/net/tcp/clone` → ctl
-  beim Namen neu öffnen. UDP mit `headers` (52 Byte). Timeouts per `alarm` (Note „alarm“ wird im
-  Handler geschluckt). `shutdown(Write)` = ctl `close`. Namen über `/net/cs`. Im Test-Gast fehlt
-  Loopback: `ip/ipconfig loopback /dev/null 127.1`.
-- **Unwinding**: `panic=unwind` Standard; libgccs Unwinder (unwind-dw2-fde in libgcc.a, crtbegin.o
-  registriert `.eh_frame`), `unwind`/`panic_unwind`/personality wie unix. Backtraces: Submodul
-  `library/backtrace` (Branch `plan9`): libunwind-Trace, gimli liest `/proc/<pid>/text`.
+- **fs**: `open`/`create` (create on an existing file truncates → `create` without truncate = open, otherwise
+  `create|OEXCL`, race → open again), stat(5) `Dir` as FileAttr (uid/gid/muid, qid via
+  `os::plan9::fs::MetadataExt`), `dirread` piecewise. No append mode in open → seek to the end
+  before every write. rename = wstat of the name only within the same directory (comparing the qids of
+  the parents), replaces nothing → remove the target first; across directories: copy the file (permissions,
+  times) + remove, directories: CrossesDevices. No links, locks, fsync (Ok).
+- **`fd_view`**: std assumes `File`, `TcpStream`, … are exactly one `RawFd` in size → extra state
+  (append, timeouts, UDP peer) in a table per descriptor (`sys::fd::FdState`), deleted in
+  `OwnedFd::drop`, set by everyone who makes a descriptor.
+- **close-on-exec**: pipe(2)/dial give none; `open("#d/N", mode|OCEXEC)` returns a copy with
+  OCEXEC (devdup returns the channel itself, fd2path stays the old name). `dup(a, b)` clears
+  OCEXEC on b (`f->flag[fd] = 0`).
+- **env**: `/env` files; an inner `\0` (rc lists) stays, `split_paths`/`join_paths` split on `\0`
+  (`$path`). `current_exe`: argv[0], without `/` via `$path` (Plan 9 does not know the program name).
+- **Processes**: `rfork(RFPROC|RFFDG|RFREND[|RFENVG|RFCENVG])` via asm (`rfork_run`), child immediately on
+  its stack segment (the slots are shared even without RFMEM!), no allocation/locks in the child
+  (memory copy, malloc lock possibly held). Exec errors via OCEXEC pipe. Program lookup in
+  `$path` like rc. Waiting: every thread reads `/proc/<spawner>/wait` (one per spawner, results
+  for others in a table) → `wait` from any thread. Limit: child of a finished thread is
+  orphaned (Plan 9 does not pass children on). `try_wait`: Plan 9 has no zombies → `/proc/pid` gone
+  = finished. ExitStatus = Waitmsg text (Copy → `[u8; ERRMAX]`), `code()` = number after ": ".
+- **Network**: dial/announce/listen/accept. fd2path of an announce ctl is `/net/tcp/clone` → reopen the ctl
+  by name. UDP with `headers` (52 bytes). Timeouts via `alarm` (note "alarm" is swallowed in the
+  handler). `shutdown(Write)` = ctl `close`. Names via `/net/cs`. The test guest lacks
+  loopback: `ip/ipconfig loopback /dev/null 127.1`.
+- **Unwinding**: `panic=unwind` default; libgcc's unwinder (unwind-dw2-fde in libgcc.a, crtbegin.o
+  registers `.eh_frame`), `unwind`/`panic_unwind`/personality like unix. Backtraces: submodule
+  `library/backtrace` (branch `plan9`): libunwind trace, gimli reads `/proc/<pid>/text`.
 
-## cargo für 9front (Teil 3, 2026-10-29)
+## cargo for 9front (Part 3, 2026-10-29)
 
-`scripts/build-cargo.sh` baut cargo (`rust/src/tools/cargo`, Branch `plan9`) für
-x86_64-unknown-plan9; `tests/cargo.sh` testet im Gast: `--version`, `new` (libgit2), `search`
-(crates.io-API: curl + rustls), `fetch` (Index, Downloads, Entpacken, sqlite), alle ok.
-Ohne rustc auf 9front gibt ein rc-Skript die Antworten des Stage-1-rustc (`-vV`, `--print`).
+`scripts/build-cargo.sh` builds cargo (`rust/src/tools/cargo`, branch `plan9`) for
+x86_64-unknown-plan9; `tests/cargo.sh` tests in the guest: `--version`, `new` (libgit2), `search`
+(crates.io API: curl + rustls), `fetch` (index, downloads, unpacking, sqlite), all ok.
+Without rustc on 9front, an rc script gives the answers of the stage-1 rustc (`-vV`, `--print`).
 
-- **C-Bibliotheken über APE: ape9** (`scripts/ape9.sh`, `ape9/`): libap, libbsd, 9front-gccs
-  libapecompat (ohne `pthread.o`, das wie std `__plan9_mainstack` definiert) mit **jedem
-  definierten Symbol umbenannt** `__ape_<name>` (objcopy `--redefine-syms`, 1000+ Symbole);
-  die C-Bibliotheken der Crates genauso: `scripts/ape9-ar` ist das `ar` des cc-Crates und
-  benennt das Archiv nach. So treffen APEs `open`, `read`, `malloc`… nicht auf libcs. APEs
-  `malloc.o` fliegt raus (malloc/free/realloc = libcs, ein Heap; aligned_alloc &c. in
-  `ape9init.c` über `mallocalign`). `ape9init.c` (aus `.init_array`) tut, was APEs `_main`
-  täte: `_tos`, errno pro Proc (ein `privalloc`-Slot), `_envsetup` (aber ohne `_NOTIFY`: std hat
-  den Note-Handler; per objcopy auf `__ape9_nonotify`), APEs stdio beim Ende leeren (libcs
-  `atexit`: Rust endet über `exits`). Link: `-u __ape9_init`, Gruppe der libape9-*, dann `-lc`
-  nochmals (ape9 steht hinter `-lc`).
-- **APEs `select` ist unbrauchbar** in einem Rust-Programm: es forkt Kopier-Procs (ohne
-  RFMEM) auf dem laufenden Stack, der hier geteilt ist (Stack-Slots sind SG_SHARED), hängt
-  seinen Puffer-Segment erst beim ersten Aufruf an (andere Procs sehen es nicht → Fault),
-  nur ein Wartender. Ersetzt durch `ape9/ext/buf.c` (`_startbuf`, `_readbuf`, `_closebuf`,
-  `select`, `poll`): Kopier-Procs RFMEM|RFFDG über std (`__plan9_rforkproc`: eigenes
-  Stack-Segment, als Thread registriert → endet mit dem Programm), Puffer aus malloc,
-  beliebig viele Wartende auf eigenen Semaphoren. Der Kopier-Proc schließt alle fremden
-  fds (RFFDG kopiert die geteilte fd-Tabelle aller Threads → hielt z. B. den Server-Socket
-  eines anderen Threads offen, kein EOF), mit rohen Aufrufen (`_fdinfo` ist geteilt).
+- **C libraries via APE: ape9** (`scripts/ape9.sh`, `ape9/`): libap, libbsd, 9front-gcc's
+  libapecompat (without `pthread.o`, which defines `__plan9_mainstack` like std) with **every
+  defined symbol renamed** `__ape_<name>` (objcopy `--redefine-syms`, 1000+ symbols);
+  the crates' C libraries likewise: `scripts/ape9-ar` is the cc crate's `ar` and
+  renames the archive afterwards. So APE's `open`, `read`, `malloc`… do not collide with libc's. APE's
+  `malloc.o` is dropped (malloc/free/realloc = libc's, one heap; aligned_alloc &c. in
+  `ape9init.c` via `mallocalign`). `ape9init.c` (from `.init_array`) does what APE's `_main`
+  would do: `_tos`, errno per proc (one `privalloc` slot), `_envsetup` (but without `_NOTIFY`: std has
+  the note handler; via objcopy to `__ape9_nonotify`), flush APE's stdio at exit (libc's
+  `atexit`: Rust ends via `exits`). Link: `-u __ape9_init`, group of the libape9-*, then `-lc`
+  again (ape9 sits behind `-lc`).
+- **APE's `select` is unusable** in a Rust program: it forks copy procs (without
+  RFMEM) on the running stack, which is shared here (stack slots are SG_SHARED), attaches
+  its buffer segment only on the first call (other procs do not see it → fault),
+  only one waiter. Replaced by `ape9/ext/buf.c` (`_startbuf`, `_readbuf`, `_closebuf`,
+  `select`, `poll`): copy procs RFMEM|RFFDG via std (`__plan9_rforkproc`: own
+  stack segment, registered as a thread → ends with the program), buffer from malloc,
+  any number of waiters on their own semaphores. The copy proc closes all foreign
+  fds (RFFDG copies the shared fd table of all threads → kept e.g. the server socket
+  of another thread open, no EOF), with raw calls (`_fdinfo` is shared).
 - ape9/ext/posix.c: fsync, getsid/getpgid, utimes, getpwuid_r/getpwnam_r, fchown (no-op),
-  posix_fallocate (ftruncate), **getsockopt** (APEs gibt -1 ohne errno → curl las altes
-  `errno` = EAGAIN als Verbindungsfehler; SO_ERROR=0). ape9/ext/pthread.c: nur Mutexe
-  (Drepper + Semaphore, rekursiv pro Proc) für sqlite. ape9/include: Ergänzungs-Header
+  posix_fallocate (ftruncate), **getsockopt** (APE's returns -1 without errno → curl read a stale
+  `errno` = EAGAIN as a connection error; SO_ERROR=0). ape9/ext/pthread.c: mutexes only
+  (Drepper + semaphore, recursive per proc) for sqlite. ape9/include: supplementary headers
   (`#include_next`): poll.h, unistd.h, sys/socket.h (HAVE_SOCK_OPTS, fd_set), netinet/in.h …
-- libc-Crate: APEs POSIX-Typen (off_t, fd_set, sockaddr, …) und errno-Werte (APE: EINVAL=12,
-  ENOMEM=23!) für die Bindings der C-Bibliotheken.
+- libc crate: APE's POSIX types (off_t, fd_set, sockaddr, …) and errno values (APE: EINVAL=12,
+  ENOMEM=23!) for the bindings of the C libraries.
 - **Crates** (`patches/crates/*.patch`, `scripts/crates-patch.sh apply` → `crates/`,
-  `cargo-plan9.toml` = `[patch.crates-io]`; `cargo update -p libc` nach Patch-Änderungen):
-  getrandom 0.2/0.3/0.4 (`/dev/random`), ring (Linux-ABI-Liste: SysV + ELF → Asm), rustls-
-  native-certs (`/sys/lib/tls/ca.pem`), rustls-platform-verifier, curl (socket über
-  `__ape_socket`, kein socket2; curl-sys mit **rustls** statt OpenSSL, ring statt aws-lc),
-  curl-sys (kein Threaded-Resolver, keine Unix-Sockets/socketpair, `CURL_CA_BUNDLE`),
-  libgit2-sys (ohne TLS/SSH — git über curl via git2-curl —, ohne Threads, poll, NO_MMAP),
-  libssh2-sys leer, libsqlite3-sys (ohne mmap/WAL/Extensions/Worker; Locks mit
-  „unix-dotfile“ per SQLITE_EXTRA_INIT, APEs fcntl hat keine Record-Locks), git2, tar
-  (wie wasm32, aber Rechte setzen), url (file paths), filetime, home, is_executable,
-  gix-sec (`/dev/user`), gix-config-value (`/usr/<name>`). Umgebung: `LIBZ_SYS_STATIC=1`
-  (APEs zlib.h ist alt).
-- cargo selbst: cargo-util (exec_replace = spawn+wait, read2 mit zwei Threads, Pfade),
-  cargo-credential (`/dev/cons`), Terminal ohne Escapes, job (Note-Gruppe), flock (Plan 9 hat
-  keine Locks → wie ein Dateisystem ohne), FileId, `$path` statt `PATH`.
-- std-Fix: `Path::is_absolute` (Plan 9 war nicht in der unix-artigen Liste).
-- **CA-Wurzeln**: 9front prüft TLS mit Thumbprints, hat kein CA-Bündel: cargo erwartet
-  `/sys/lib/tls/ca.pem` (oder `http.cainfo`). Für die Tests das des Hosts.
-- Nach jedem std-Neubau: `rm -rf tests/out/cargo-port` (sonst „possibly newer version of
-  crate std“), und std immer für beide Targets bauen (sonst fehlt eins im Sysroot).
+  `cargo-plan9.toml` = `[patch.crates-io]`; `cargo update -p libc` after patch changes):
+  getrandom 0.2/0.3/0.4 (`/dev/random`), ring (Linux ABI list: SysV + ELF → asm), rustls-
+  native-certs (`/sys/lib/tls/ca.pem`), rustls-platform-verifier, curl (socket via
+  `__ape_socket`, no socket2; curl-sys with **rustls** instead of OpenSSL, ring instead of aws-lc),
+  curl-sys (no threaded resolver, no Unix sockets/socketpair, `CURL_CA_BUNDLE`),
+  libgit2-sys (without TLS/SSH — git via curl through git2-curl —, without threads, poll, NO_MMAP),
+  libssh2-sys empty, libsqlite3-sys (without mmap/WAL/extensions/worker; locks with
+  "unix-dotfile" via SQLITE_EXTRA_INIT, APE's fcntl has no record locks), git2, tar
+  (like wasm32, but set permissions), url (file paths), filetime, home, is_executable,
+  gix-sec (`/dev/user`), gix-config-value (`/usr/<name>`). Environment: `LIBZ_SYS_STATIC=1`
+  (APE's zlib.h is old).
+- cargo itself: cargo-util (exec_replace = spawn+wait, read2 with two threads, paths),
+  cargo-credential (`/dev/cons`), terminal without escapes, job (note group), flock (Plan 9 has
+  no locks → like a file system without), FileId, `$path` instead of `PATH`.
+- std fix: `Path::is_absolute` (Plan 9 was not in the unix-like list).
+- **CA roots**: 9front checks TLS with thumbprints, has no CA bundle: cargo expects
+  `/sys/lib/tls/ca.pem` (or `http.cainfo`). For the tests, the host's.
+- After every std rebuild: `rm -rf tests/out/cargo-port` (otherwise "possibly newer version of
+  crate std"), and always build std for both targets (otherwise one is missing from the sysroot).
 
-## APE neben der nativen libc, ohne ape9 (Teil 4, 2026-10-29)
+## APE alongside the native libc, without ape9 (Part 4, 2026-10-29)
 
-Der Nutzer wollte, dass C aus Crates ohne ape9-Umbenennung linkt. Umgekehrt gelöst: die
-**native libc** wird umbenannt, APE bleibt, wie es ist.
-- 9front (Branch `gcc`): compat von 9front-gcc ist in APE (`sys/src/ape/lib/ap/gnu`,
-  `sys/src/ape/lib/musl`, Header unter `__GNUC__`); `libp9.a` (`scripts/build/libp9.sh`, Post-
-  Schritt von libc): libc.a mit allen Namen als `__p9_*`; `ap/gnu/native.c`: `__ape_attach`
-  (Konstruktor 101: `_tos`, errno/`_privates` in privalloc-Slots, `_envsetup` ohne Notes),
-  `__ape_exit`; leere `libm/libpthread/librt/libdl.a`. 9front-gcc linkt nur noch `-lbsd -lap`
-  (kein libapecompat), Bau in `../9front-gcc/build-gcc` gegen `../9front-gccwt` (`GCC9BUILD`),
-  bis `gpu` den Branch `gcc` mergt.
-- libc-Crate: jede native Funktion `#[link_name = "__p9_…"]`. Target: Einstieg `__p9__main`,
+The user wanted C from crates to link without ape9 renaming. Solved the other way round: the
+**native libc** is renamed, APE stays as it is.
+- 9front (branch `gcc`): 9front-gcc's compat is in APE (`sys/src/ape/lib/ap/gnu`,
+  `sys/src/ape/lib/musl`, headers under `__GNUC__`); `libp9.a` (`scripts/build/libp9.sh`, post
+  step of libc): libc.a with all names as `__p9_*`; `ap/gnu/native.c`: `__ape_attach`
+  (constructor 101: `_tos`, errno/`_privates` in privalloc slots, `_envsetup` without notes),
+  `__ape_exit`; empty `libm/libpthread/librt/libdl.a`. 9front-gcc now links only `-lbsd -lap`
+  (no libapecompat), build in `../9front-gcc/build-gcc` against `../9front-gccwt` (`GCC9BUILD`),
+  until `gpu` merges the branch `gcc`.
+- libc crate: every native function `#[link_name = "__p9_…"]`. Target: entry `__p9__main`,
   `--start-group -lp9 -lbsd -lap -lgcc --end-group`. std: `malloc`, `free`, `realloc`,
-  `aligned_alloc`, `memalign`, `posix_memalign` (16 Byte, auf libcs mallocalign; APEs malloc.o
-  kommt nicht in den Link: ein Heap), `__ape_exit` in `end_program`.
-- C/C++ der Crates: normale APE-Übersetzung mit `x86_64-pc-plan9-gcc`/`ar`; APEs pthreads
-  laufen auf std-Threads (`__plan9_thread_spawn`), select/poll über APEs neue Pufferung.
-- Gefunden: APEs `uintptr_t` war `unsigned long long`, `size_t` `unsigned long` (curl ↔
-  rustls-ffi; ape9s `-Wno-error=incompatible-pointer-types` hatte das verdeckt): für gcc jetzt
-  die Typen des Compilers. Nach einem rustc-Neubau std für **beide** Targets in einem Lauf
-  bauen (`--target x86_64-unknown-linux-gnu,x86_64-unknown-plan9`), sonst fehlt eins.
-- **Regel für Crate-Ports und eigenen Code:** native Plan-9-Aufrufe nur über das libc-Crate
-  oder mit `#[link_name = "__p9_…"]`. Ein eigenes `extern "C" { fn open(…) }` landet still bei
-  APEs `open` (andere Flags: OCEXEC 32 ist dort etwas anderes); so war es in den getrandom-Ports,
-  die Tests liefen trotzdem. `scripts/crates-patch.sh diff` meldet solche Deklarationen.
-- Tests: `tests/run.sh` 7/7 (neu `cmain`, `cxxmain`: C und C++ aus `tests/c`), `tests/cargo.sh`
+  `aligned_alloc`, `memalign`, `posix_memalign` (16 bytes, on libc's mallocalign; APE's malloc.o
+  does not get into the link: one heap), `__ape_exit` in `end_program`.
+- C/C++ of the crates: normal APE translation with `x86_64-pc-plan9-gcc`/`ar`; APE's pthreads
+  run on std threads (`__plan9_thread_spawn`), select/poll via APE's new buffering.
+- Found: APE's `uintptr_t` was `unsigned long long`, `size_t` `unsigned long` (curl ↔
+  rustls-ffi; ape9's `-Wno-error=incompatible-pointer-types` had hidden it): for gcc now
+  the compiler's types. After a rustc rebuild, build std for **both** targets in one run
+  (`--target x86_64-unknown-linux-gnu,x86_64-unknown-plan9`), otherwise one is missing.
+- **Rule for crate ports and own code:** native Plan 9 calls only via the libc crate
+  or with `#[link_name = "__p9_…"]`. An own `extern "C" { fn open(…) }` silently ends up at
+  APE's `open` (different flags: OCEXEC 32 means something else there); that is how it was in the getrandom ports,
+  the tests ran anyway. `scripts/crates-patch.sh diff` reports such declarations.
+- Tests: `tests/run.sh` 7/7 (new `cmain`, `cxxmain`: C and C++ from `tests/c`), `tests/cargo.sh`
   5/5 (version, new, search, fetch, refetch).
 
-## rustc auf 9front (Teil 5, 2026-10-30)
+## rustc on 9front (Part 5, 2026-10-30)
 
 `./x build --stage 2 --host x86_64-unknown-plan9 --target x86_64-unknown-plan9 compiler/rustc`
-baut rustc für 9front: statisch, LLVM (build/llvm-plan9) eingebaut, 575 MB mit Debug-Infos.
-- LLVM gegen das neue APE: `SIGTRAP` fehlte in APE; CMakes FindThreads riet `-lpthreads`
-  (seine Proben können nicht linken): Threads in libap gesagt. bootstrap hatte das Submodul
-  llvm-project auf Rusts Commit zurückgesetzt (`submodules = false`, Gitlink auf plan9).
-- bootstrap: ein Target mit eigenem `llvm-config`, das auf dem Bauhost läuft
-  (`scripts/llvm-config-plan9.sh`), gibt `rustc_llvm` dieses statt des Hosts.
-- Compiler: `rustc-main` nimmt `rustc_driver_impl` direkt (keine dylib); `dll_path` ist das
-  Programm selbst (`current_exe`); memmap liest die Datei (wie wasm); kein ctrlc;
-  `path_to_c_string` über `os::plan9`; libc, libloading (keine dylibs: Öffnen scheitert),
-  getrandom 0.3.3 aus `crates/` per `[patch.crates-io]`.
-- **Keine Proc-Macros** in einem rustc auf 9front (dylibs). Plan: Proc-Macro-Crates als kleine
-  Programme, die Brücke (`Buffer`-Nachrichten wie bei `cross-thread`) über eine Pipe.
-- Linker auf 9front: der native gcc von 9front-gcc (`out-gcc`, `x86_64-pc-plan9-gcc`), dazu
-  `/amd64/include`, `/amd64/lib.gcc` (mit `libp9.a`), `/amd64/plan9.ld`, `/sys/include` des
-  Baums mit dem neuen APE. Beim nativen gcc fehlte `getpagesize` (libbacktrace nimmt jetzt
-  mmap), in eigener Objektdatei (libiberty hat ein eigenes).
-- `tests/rustc.sh`: rustc --version, übersetzt `tests/std1.rs` im Gast und führt es aus:
-  alle ok (MEM=3072). `tests/guest.sh -d /gast/dir=hostdir` kopiert Verzeichnisse.
+builds rustc for 9front: static, LLVM (build/llvm-plan9) built in, 575 MB with debug info.
+- LLVM against the new APE: `SIGTRAP` was missing in APE; CMake's FindThreads guessed `-lpthreads`
+  (its probes cannot link): told libap about threads. bootstrap had reset the submodule
+  llvm-project to Rust's commit (`submodules = false`, gitlink to plan9).
+- bootstrap: a target with its own `llvm-config` that runs on the build host
+  (`scripts/llvm-config-plan9.sh`) gives `rustc_llvm` this one instead of the host's.
+- Compiler: `rustc-main` takes `rustc_driver_impl` directly (no dylib); `dll_path` is the
+  program itself (`current_exe`); memmap reads the file (like wasm); no ctrlc;
+  `path_to_c_string` via `os::plan9`; libc, libloading (no dylibs: opening fails),
+  getrandom 0.3.3 from `crates/` via `[patch.crates-io]`.
+- **No proc macros** in a rustc on 9front (dylibs). Plan: proc-macro crates as small
+  programs, the bridge (`Buffer` messages as with `cross-thread`) over a pipe.
+- Linker on 9front: the native gcc of 9front-gcc (`out-gcc`, `x86_64-pc-plan9-gcc`), plus
+  `/amd64/include`, `/amd64/lib.gcc` (with `libp9.a`), `/amd64/plan9.ld`, `/sys/include` of the
+  tree with the new APE. The native gcc lacked `getpagesize` (libbacktrace now uses
+  mmap), in its own object file (libiberty has its own).
+- `tests/rustc.sh`: rustc --version, compiles `tests/std1.rs` in the guest and runs it:
+  all ok (MEM=3072). `tests/guest.sh -d /guest/dir=hostdir` copies directories.
 
-## cargo build auf 9front (Teil 6, 2026-10-30)
+## cargo build on 9front (Part 6, 2026-10-30)
 
-`tests/cargo-build.sh` (rustc, cargo, nativer gcc, Header/Bibliotheken des gcc-Baums im Gast;
-`CMDWAIT` hoch: boot-cli wartet sonst 60 s pro Zeile): `cargo new` + `cargo build` + Lauf ok,
-`itoa` von crates.io ok. Gefunden: jobserver 0.1.34 fiel auf seinen wasm-Stub (`configure`
-→ Panik) → Jobserver nur im Prozess; 9fronts Kernel prüft die Pufferadresse auch bei 0 Bytes
-(leerer Slice: 0x1) → std `buf_ptr`; rustc inkrementell braucht Locks → plan9: ohne Sperre
-(wie cargo); rustc findet seine Sysroot über den eigenen Pfad: als `/bin/rustc` (bind) wäre
-das `/` → auf plan9 Rückfall auf `/$cputype/rust` (rustc_session::filesearch).
-- serde (Build-Skript), Release-Bau: grün (`tests/cargo-build.sh` 6/6, 4 CPUs, ext4-Image,
-  ~2 min). Gefunden auf dem Weg: libstdc++ ohne TLS → `call_once` verklemmt mit mehreren CPUs
-  (LLVMs Pass-Initialisierung; 9front-gcc: HAVE_TLS über emutls); ext4srv `truncate` auf gleiche
-  Länge und `qid.vers` ohne Änderung bei Schreibzugriffen (der Kernel startete neu gebaute
-  Programme mit altem Text: invalid opcode) — beides im 9front-Branch gcc behoben; Gäste mit
-  4 CPUs (`SMP`), Bäume auf einem ext4-Image (`guest.sh -D`). Früher: im zweiten Diagnoselauf war rustc `Ready` (rechnet), cargos `PREAD`-
-  Procs sind APEs Kopier-Procs der curl-Verbindungen. Eher sehr langsam als Deadlock: messen
-  (Zeit für serde im Gast, `-Z time-passes`), Allokator (alles über mallocalign 16?) prüfen.
+`tests/cargo-build.sh` (rustc, cargo, native gcc, headers/libraries of the gcc tree in the guest;
+`CMDWAIT` high: boot-cli otherwise waits 60 s per line): `cargo new` + `cargo build` + run ok,
+`itoa` from crates.io ok. Found: jobserver 0.1.34 fell back to its wasm stub (`configure`
+→ panic) → jobserver only in-process; 9front's kernel checks the buffer address even for 0 bytes
+(empty slice: 0x1) → std `buf_ptr`; incremental rustc needs locks → plan9: without locking
+(like cargo); rustc finds its sysroot via its own path: as `/bin/rustc` (bind) that would
+be `/` → on plan9 fall back to `/$cputype/rust` (rustc_session::filesearch).
+- serde (build script), release build: green (`tests/cargo-build.sh` 6/6, 4 CPUs, ext4 image,
+  ~2 min). Found along the way: libstdc++ without TLS → `call_once` deadlocks with several CPUs
+  (LLVM's pass initialization; 9front-gcc: HAVE_TLS via emutls); ext4srv `truncate` to the same
+  length and `qid.vers` unchanged on writes (the kernel started freshly built
+  programs with old text: invalid opcode) — both fixed in the 9front branch gcc; guests with
+  4 CPUs (`SMP`), trees on an ext4 image (`guest.sh -D`). Earlier: in the second diagnostic run rustc was `Ready` (computing), cargo's `PREAD`
+  procs are APE's copy procs of the curl connections. Rather very slow than a deadlock: measure
+  (time for serde in the guest, `-Z time-passes`), check the allocator (everything via mallocalign 16?).
   Log: `logs/cargo-dbg-serde-hang.log`.
-- **Datei-Locks mit DMEXCL** (2026-10-30): `std::os::plan9::fs::lock_file(path, wait)` gibt
-  einen `FileLock`: die Datei allein offen als exklusiv benutzbare (DMEXCL) Datei; ein zweites
-  Öffnen scheitert („file is locked“ gefs/cwfs/ramfs, „file locked“ hjfs → `WouldBlock`),
-  `wait` wiederholt alle 100 ms. Neue Sperrdateien entstehen mit DMEXCL (create), alte bekommen
-  es per dirfwstat und werden neu geöffnet. Keine geteilten Locks (geteilt = exklusiv).
-  - open(5): der Server darf die Sperre einer unbenutzten Datei brechen (cwfs `TLOCK` 5 min,
-    hjfs `EXCLDUR` 300 s, danach scheitern dort sogar Lesen/Schreiben des Halters; gefs zählt
-    nur Referenzen). Wie upas' `trylock` liest ein Thread des Locks jede Minute ein Byte;
-    Drop beendet ihn (Condvar) und schließt dann die Datei (Hinweis eines Nebenagenten).
-  - ext4srv von 9front kennt DMEXCL nicht (Bit bleibt nicht): nach einem wstat-Versuch gibt
-    `lock_file` die Datei ohne Sperre zurück (wie upas: „live without the lock“), kein Hänger.
-    Im gcc-Branch (9front-gccwt) hält ext4srv DMEXCL jetzt (Inode-Flag UNRM, ein Öffnen zur
-    Zeit, „file is locked“): die cargo-Gäste (`PLAN9=../9front-gccwt`) sperren wirklich.
-  - std's `File::lock*` bleiben `Unsupported` (ein Lock braucht hier das Öffnen selbst).
-  - cargo (`util/flock.rs`, `mod plan9`): nur cargos eigene Sperrdateien (`.cargo-lock`,
+- **File locks with DMEXCL** (2026-10-30): `std::os::plan9::fs::lock_file(path, wait)` returns
+  a `FileLock`: the file opened alone as an exclusive-use (DMEXCL) file; a second
+  open fails ("file is locked" gefs/cwfs/ramfs, "file locked" hjfs → `WouldBlock`),
+  `wait` retries every 100 ms. New lock files are created with DMEXCL (create), old ones get
+  it via dirfwstat and are reopened. No shared locks (shared = exclusive).
+  - open(5): the server may break the lock of an unused file (cwfs `TLOCK` 5 min,
+    hjfs `EXCLDUR` 300 s, after that even reading/writing by the holder fails there; gefs counts
+    only references). Like upas' `trylock`, a thread of the lock reads one byte every minute;
+    drop ends it (Condvar) and then closes the file (hint from a side agent).
+  - 9front's ext4srv does not know DMEXCL (the bit does not stick): after a wstat attempt
+    `lock_file` returns the file without a lock (like upas: "live without the lock"), no hang.
+    In the gcc branch (9front-gccwt) ext4srv now holds DMEXCL (inode flag UNRM, one open at a
+    time, "file is locked"): the cargo guests (`PLAN9=../9front-gccwt`) really lock.
+  - std's `File::lock*` stay `Unsupported` (a lock here needs the open itself).
+  - cargo (`util/flock.rs`, `mod plan9`): only cargo's own lock files (`.cargo-lock`,
     `.cargo-build-lock`, `.cargo-artifact-lock`, `.package-cache`, `.package-cache-mutate`,
-    `.lock` der Bau-Einheiten) bekommen DMEXCL; Datendateien (`Cargo.lock`,
-    `credentials.toml`, `.crates.toml`, Pakete) nicht: DMEXCL bliebe an ihnen, und cargo öffnet
-    `Cargo.lock` im selben Prozess zweimal. Ein Prozess teilt seine Locks einer Datei (eine
-    Tabelle `HELD`), sonst sperrte er sich selbst; warten außerhalb der Tabelle, „Blocking“ wie
-    sonst. Nicht beschreibbar → ohne Sperre.
-  - rustc (`flock/plan9.rs`): die vorher geöffnete Datei zu, dann `lock_file(p, false)`.
-  - Test: `tests/lock.rs` in `tests/run.sh` (ramfs: exklusiv, Warten bis Drop, alte Datei wird
-    DMEXCL, Drop sofort; `/tmp`: wie der Server es hat); von Hand auf ext4srv (gcc-Branch): exklusiv wie ramfs, e2fsck ok.
-- `abort` aus C: `__plan9_abort` in std beendet die anderen Procs, der abbrechende endet mit
-  `ud2` und bleibt Broken (APE `gen/abort.c`). Getestet (`cexit-abort`). acid liest die
-  ELF-Symbole des gcc-Ports nicht ("no symbol information"): PC aus `/proc/N/status`/acid,
-  auf dem Host `addr2line -e binary PC`.
+    `.lock` of the build units) get DMEXCL; data files (`Cargo.lock`,
+    `credentials.toml`, `.crates.toml`, packages) do not: DMEXCL would stay on them, and cargo opens
+    `Cargo.lock` twice in the same process. A process shares its locks of a file (one
+    table `HELD`), otherwise it would lock itself out; waiting outside the table, "Blocking" as
+    usual. Not writable → without lock.
+  - rustc (`flock/plan9.rs`): close the previously opened file, then `lock_file(p, false)`.
+  - Test: `tests/lock.rs` in `tests/run.sh` (ramfs: exclusive, wait until drop, old file becomes
+    DMEXCL, drop immediately; `/tmp`: as the server has it); by hand on ext4srv (gcc branch): exclusive like ramfs, e2fsck ok.
+- `abort` from C: `__plan9_abort` in std ends the other procs, the aborting one ends with
+  `ud2` and stays Broken (APE `gen/abort.c`). Tested (`cexit-abort`). acid does not read the
+  ELF symbols of the gcc port ("no symbol information"): PC from `/proc/N/status`/acid,
+  on the host `addr2line -e binary PC`.
 
-## Proc-Macros als Programme (Teil 7, 2026-10-30)
+## Proc macros as programs (Part 7, 2026-10-30)
 
-Plan 9 hat keine dylibs; ein proc-macro-Crate für einen plan9-Host wird ein statisches
-Programm, rustc spricht mit ihm über stdin/stdout (`library/proc_macro/src/bridge/remote.rs`).
-- Die Brücke tauscht ohnehin nur `Buffer` (Handles als Zahlen, Symbole als Strings), wie die
-  cross-thread-Strategie; `RemoteStrategy` schickt sie durch eine Pipe: `R` (Index, Eingabe),
-  das Programm fragt mit `D` zurück (rustc: `Dispatcher::dispatch`, Antwort `r`), Ergebnis `O`.
-  Namen und Arten der Makros stehen in den Metadaten; das Programm meldet nur die Anzahl (`L`).
-  Verschachtelte Läufe (expand_expr) bekommen eine zweite Instanz. stdout des Makros → stderr.
-- Compiler: Harness erzeugt `#[rustc_main] fn main() { serve(_DECLS) }`; `entry_fn` für plan9-
-  proc-macro; Link als `StaticNoPicExe`, keine Exportliste, `--undefined` des Metadaten-Symbols
-  (sonst wirft `--gc-sections` `.rustc` weg); `invalid_output_for_target` erlaubt es;
-  `rustc_metadata` lädt mit `remote::load`. `Client` hat auf plan9 ein Feld `remote`.
-- Beim Cross-Bau von rustc baut bootstrap Proc-Macros auch fürs Ziel (dual proc macros): die
-  sind jetzt diese Programme (nur ihre Metadaten werden gebraucht).
-- `tests/cargo-build.sh` 9/9: eigenes derive/attribute/bang-Makro, verschachtelte Makros
-  (`expandexpr`: `TokenStream::expand_expr` auf einen Makro desselben Crates, drei Ebenen tief,
-  also vier Instanzen des Programms gleichzeitig; ein eingebauter Makro `concat!` darüber),
-  serde-derive + serde_json (~5 min, 4 CPUs). Auf Linux dieselben Makros: gleiche Ausgabe.
-  `macrocrash` (10/10): ein innerer Makro, der panict (wie auf Linux: ein Fehler „proc macro
-  panicked“, „message: boom inside“, die Instanz läuft weiter) und einer, der mit `exit`
-  endet (Fehler „proc-macro program failed“; die tote Instanz kommt nicht in den Vorrat, der
-  nächste Lauf bekommt eine neue); die Makros danach expandieren richtig (`assert!`s halten).
+Plan 9 has no dylibs; a proc-macro crate for a plan9 host becomes a static
+program, rustc talks to it over stdin/stdout (`library/proc_macro/src/bridge/remote.rs`).
+- The bridge exchanges only `Buffer`s anyway (handles as numbers, symbols as strings), like the
+  cross-thread strategy; `RemoteStrategy` sends them through a pipe: `R` (index, input),
+  the program asks back with `D` (rustc: `Dispatcher::dispatch`, reply `r`), result `O`.
+  Names and kinds of the macros are in the metadata; the program reports only the count (`L`).
+  Nested runs (expand_expr) get a second instance. stdout of the macro → stderr.
+- Compiler: harness generates `#[rustc_main] fn main() { serve(_DECLS) }`; `entry_fn` for plan9
+  proc-macro; link as `StaticNoPicExe`, no export list, `--undefined` of the metadata symbol
+  (otherwise `--gc-sections` throws `.rustc` away); `invalid_output_for_target` allows it;
+  `rustc_metadata` loads with `remote::load`. `Client` has a field `remote` on plan9.
+- When cross-building rustc, bootstrap builds proc macros for the target too (dual proc macros): these
+  are now these programs (only their metadata is needed).
+- `tests/cargo-build.sh` 9/9: own derive/attribute/bang macro, nested macros
+  (`expandexpr`: `TokenStream::expand_expr` on a macro of the same crate, three levels deep,
+  so four instances of the program at once; a built-in macro `concat!` above it),
+  serde-derive + serde_json (~5 min, 4 CPUs). On Linux the same macros: same output.
+  `macrocrash` (10/10): an inner macro that panics (as on Linux: an error "proc macro
+  panicked", "message: boom inside", the instance keeps running) and one that ends with `exit`
+  (error "proc-macro program failed"; the dead instance does not go back into the pool, the
+  next run gets a new one); the macros after that expand correctly (`assert!`s hold).
 
-## 386: i686-unknown-plan9 (Teil 8, 2026-10-30)
+## 386: i686-unknown-plan9 (Part 8, 2026-10-30)
 
-Cross (Linux → 9front 386), Entscheidung: SSE2 wie Rusts i686-Targets (`cpu = pentium4`); der
-Baum selbst ist `-march=pentium` (x87), die C-ABI ist dieselbe. 9pc lädt MXCSR mit 0x1f80
-(SSE-Ausnahmen maskiert), libgccs `__wrap_main` setzt das x87-Steuerwort wie auf amd64.
+Cross (Linux → 9front 386), decision: SSE2 like Rust's i686 targets (`cpu = pentium4`); the
+tree itself is `-march=pentium` (x87), the C ABI is the same. 9pc loads MXCSR with 0x1f80
+(SSE exceptions masked), libgcc's `__wrap_main` sets the x87 control word as on amd64.
 - Toolchain: `objtype=386 BUILD=$PWD/build-gcc OUTDIR=$PWD/out-gcc PLAN9=../9front-gccwt
-  ./build.sh cross` in 9front-gcc (gegen den 386-Baum, `CC=gcc ARCH=386 build.exe -D` in
-  9front-gccwt; danach baut dort der nächste amd64-Lauf alles neu: gemeinsame Objekte).
-- Target `rustc_target/.../i686_unknown_plan9.rs`: Datenlayout von i686-unknown-linux-gnu
-  (System V i386: double und long long in Structs 4-Byte-ausgerichtet, wie gccs), sonst
-  `base::plan9`. `bootstrap.toml`: `[target.i686-unknown-plan9]` (Vorlage), nicht in
-  `build.target`: `./x build --stage 1 library --target i686-unknown-plan9` ausdrücklich.
-  Nach jedem Compiler-Neubau std für alle Targets bauen (sonst fehlt eine im Sysroot,
+  ./build.sh cross` in 9front-gcc (against the 386 tree, `CC=gcc ARCH=386 build.exe -D` in
+  9front-gccwt; after that the next amd64 run there rebuilds everything: shared objects).
+- Target `rustc_target/.../i686_unknown_plan9.rs`: data layout of i686-unknown-linux-gnu
+  (System V i386: double and long long in structs 4-byte aligned, as gcc's), otherwise
+  `base::plan9`. `bootstrap.toml`: `[target.i686-unknown-plan9]` (template), not in
+  `build.target`: `./x build --stage 1 library --target i686-unknown-plan9` explicitly.
+  After every compiler rebuild, build std for all targets (otherwise one is missing from the sysroot,
   E0463): `--target x86_64-unknown-linux-gnu,x86_64-unknown-plan9,i686-unknown-plan9`.
-- std: der Assembler in `pal/plan9/proc.rs` für x86 (`runon`, `rforkthread`, `rforkrun`):
-  Systemaufruf `INT $64`, Nummer in AX, Argumente ab 4(SP); das Kind bekommt auf 386 alle
-  Register des Elternprozesses (forkret: POPAL der kopierten Ureg), AX = 0, also ESI/EDI
-  statt R14/R15. Die Stack-Slots bleiben (nur SEG1–SEG4 frei pro Proc: ≤ 4 Slots à 64 MiB,
-  ab 0x80000000 abwärts). libc-Crate: `usize_` = `c_ulong`, `jmp_buf` 6 Wörter auf 32 Bit.
-- `objtype=386 tests/run.sh`: alle 12 ok im 9pc-Gast (qemu-system-i386, 4 CPUs), auf Anhieb;
-  Ausgaben in `tests/out/$objtype`, Log `logs/guest-tests.386.log`.
-- Stack: 9front-Programme auf 386 starten mit nur 4 Byte Ausrichtung (Kernel, Notes; der
-  Baum `-mincoming-stack-boundary=2`). LLVM nimmt für i686 mit unbekanntem OS ohnehin 4 an
-  (16 nur für Linux, Darwin, kFreeBSD, 64 Bit) und richtet Rahmen mit 16-Byte-Daten selbst
-  aus (`andl $-16, %esp`, geprüft); das `S128` im Datenlayout ist nur ein Hinweis (ein
-  anderes als LLVMs wäre für rustc ein Fehler).
-- **cargo für 386** (`objtype=386 scripts/build-cargo.sh`, `objtype=386 tests/cargo.sh`: 5/5
-  im 9pc-Gast: version, new/libgit2, search/curl+rustls, fetch/sqlite, refetch). Zwei
-  C-Fehler, beide `-Wincompatible-pointer-types` (gcc 14+ ein Fehler) aus einer Ursache: gcc
-  für i686-pc-plan9 hatte `size_t` = `unsigned long` (gccs Standard, wie Plan 9s `usize`),
-  aber `uintptr_t` = `unsigned int` (glibc-stdint.h für 32 Bit). curls `rustls.c` nimmt
-  `uintptr_t *` für rustls-ffis `size_t *` (wie bei amd64 vor APEs stdint-Fix). Behoben an
-  der Wurzel: 9front-gcc `i386/plan9-386.h` INTPTR/UINTPTR_TYPE `long` (wie size_t und u.h's
-  `uintptr`; gleiche Größe, keine ABI-Änderung), APEs `inttypes.h` PRI*PTR `l` dafür (nur
-  unter `__plan9__`: der Baum selbst baut mit gcc -m32, dort bleibt int). libgit2 nahm bei
-  `SIZE_MAX == UINT_MAX` `__builtin_uadd_overflow` (`unsigned int *`): jetzt die
-  typgenerischen `__builtin_add/mul_overflow` (crate-Patch).
-- **rustc nativ auf 386**: nativer gcc für 386 (`objtype=386 BUILD=… OUTDIR=$PWD/out-gcc
-  PLAN9=../9front-gccwt ./build.sh hostlibs native plan9` in 9front-gcc, der Linker im Gast);
-  LLVM `objtype=386 scripts/build-llvm.sh` (`build/llvm-plan9.386`, `cmake/plan9.cmake` nach
-  `$objtype`), `objtype=386 scripts/llvm-config-plan9.sh`, `llvm-config` im
-  `[target.i686-unknown-plan9]`; dann `./x build --stage 2 --host i686-unknown-plan9 --target
-  i686-unknown-plan9 compiler/rustc` und `library` ebenso: statisch, 32 Bit, 522 MB mit
-  Debug-Infos. Ohne Änderung am Compiler. `objtype=386 tests/rustc.sh` 3/3,
-  `objtype=386 tests/cargo-build.sh` 10/10 (alle Stufen wie amd64, auch Proc-Macros als
-  Programme, verschachtelt und abstürzend; serde-derive 2 min 18 s, 4 CPUs, 3 GB).
-- Nach dem Neubau des stage-1-Compilers (neues Target) fehlte die stage-2-std für amd64: die
-  ganze amd64-Kette (stage 2 rustc für plan9, library) neu bauen.
-- `./x build --stage 2 library --host T --target T` entfernt die stage-2-std (und den stage-1-
-  Sysroot) der anderen plan9-Targets: vor `tests/rustc.sh`/`cargo-build.sh` einer Architektur
-  ihre stage-2-library bauen, danach `./x build --stage 1 library --target …` für alle (sonst
-  E0463 bei `run.sh` und cargo).
+- std: the assembler in `pal/plan9/proc.rs` for x86 (`runon`, `rforkthread`, `rforkrun`):
+  system call `INT $64`, number in AX, arguments from 4(SP); on 386 the child gets all
+  registers of the parent (forkret: POPAL of the copied Ureg), AX = 0, so ESI/EDI
+  instead of R14/R15. The stack slots stay (only SEG1–SEG4 free per proc: ≤ 4 slots of 64 MiB,
+  from 0x80000000 downwards). libc crate: `usize_` = `c_ulong`, `jmp_buf` 6 words on 32 bit.
+- `objtype=386 tests/run.sh`: all 12 ok in the 9pc guest (qemu-system-i386, 4 CPUs), first try;
+  outputs in `tests/out/$objtype`, log `logs/guest-tests.386.log`.
+- Stack: 9front programs on 386 start with only 4-byte alignment (kernel, notes; the
+  tree `-mincoming-stack-boundary=2`). LLVM assumes 4 for i686 with unknown OS anyway
+  (16 only for Linux, Darwin, kFreeBSD, 64 bit) and aligns frames with 16-byte data itself
+  (`andl $-16, %esp`, checked); the `S128` in the data layout is only a hint (one
+  different from LLVM's would be an error for rustc).
+- **cargo for 386** (`objtype=386 scripts/build-cargo.sh`, `objtype=386 tests/cargo.sh`: 5/5
+  in the 9pc guest: version, new/libgit2, search/curl+rustls, fetch/sqlite, refetch). Two
+  C errors, both `-Wincompatible-pointer-types` (an error since gcc 14) from one cause: gcc
+  for i686-pc-plan9 had `size_t` = `unsigned long` (gcc's default, like Plan 9's `usize`),
+  but `uintptr_t` = `unsigned int` (glibc stdint.h for 32 bit). curl's `rustls.c` takes
+  `uintptr_t *` for rustls-ffi's `size_t *` (as on amd64 before APE's stdint fix). Fixed at
+  the root: 9front-gcc `i386/plan9-386.h` INTPTR/UINTPTR_TYPE `long` (like size_t and u.h's
+  `uintptr`; same size, no ABI change), APE's `inttypes.h` PRI*PTR `l` for it (only
+  under `__plan9__`: the tree itself builds with gcc -m32, where it stays int). libgit2 took
+  `__builtin_uadd_overflow` (`unsigned int *`) when `SIZE_MAX == UINT_MAX`: now
+  the type-generic `__builtin_add/mul_overflow` (crate patch).
+- **rustc native on 386**: native gcc for 386 (`objtype=386 BUILD=… OUTDIR=$PWD/out-gcc
+  PLAN9=../9front-gccwt ./build.sh hostlibs native plan9` in 9front-gcc, the linker in the guest);
+  LLVM `objtype=386 scripts/build-llvm.sh` (`build/llvm-plan9.386`, `cmake/plan9.cmake` by
+  `$objtype`), `objtype=386 scripts/llvm-config-plan9.sh`, `llvm-config` in
+  `[target.i686-unknown-plan9]`; then `./x build --stage 2 --host i686-unknown-plan9 --target
+  i686-unknown-plan9 compiler/rustc` and `library` likewise: static, 32 bit, 522 MB with
+  debug info. Without a change to the compiler. `objtype=386 tests/rustc.sh` 3/3,
+  `objtype=386 tests/cargo-build.sh` 10/10 (all stages as on amd64, also proc macros as
+  programs, nested and crashing; serde-derive 2 min 18 s, 4 CPUs, 3 GB).
+- After rebuilding the stage-1 compiler (new target), the stage-2 std for amd64 was missing: rebuild the
+  whole amd64 chain (stage 2 rustc for plan9, library).
+- `./x build --stage 2 library --host T --target T` removes the stage-2 std (and the stage-1
+  sysroot) of the other plan9 targets: before `tests/rustc.sh`/`cargo-build.sh` of an architecture
+  build its stage-2 library, afterwards `./x build --stage 1 library --target …` for all (otherwise
+  E0463 in `run.sh` and cargo).
 
-## std-Testsuite im Gast (Teil 9, 2026-10-30)
+## std test suite in the guest (Part 9, 2026-10-30)
 
-`./x test library/std --target x86_64-unknown-plan9 --no-doc --no-fail-fast` mit
-`runner = tests/std-runner.sh` im `[target.*-plan9]` von `bootstrap.toml`: cargo ruft ihn mit
-jedem Testprogramm; er bootet je Programm einen Gast seiner Architektur (`file`: 386 oder
-amd64), `/tmp` auf ext4, Loopback `127.1` und `::1`, 900 s Grenze, und gibt Ausgabe und Status
-zurück (`STDTEST_LOG`: alle Gastprotokolle).
-- Zwei Kopien von std im Unit-Testprogramm (die geprüfte und die des Sysroots über libtest):
-  der Assembler sind jetzt naked functions (gemangelt, je Kopie eigen; `threadstart` über
-  `sym`), die C-Exporte (`malloc` &c., `__plan9_*`) haben `no_mangle`/`export_name` nur außer
-  `cfg(test)`, `PRIVTOP`/`MAIN_PID` eine Instanz (sgx' Muster: `export_name` +
-  `linkage = "available_externally"` im Test). `current()` nimmt ThreadData nur mit der
-  eigenen pid: die privaten Slots eines Procs sind eine Kopie der des Elternprocs (rfork).
-- std-Korrekturen: `Instant` vorzeichenbehaftet (Nanosekunden, i64-Sekunden-Bereich wie
-  timespec: `Instant - 10 Jahre` ging nicht); `OpenOptions` prüft wie unix (Meldungen,
-  append+truncate); `set_times` setzt die mtime, atime still übergangen (stat(5): ein wstat
-  ändert sie nicht; Variante „verträglich“, in `os::plan9::fs` beschrieben); `remove_dir_all`
-  wie `rm -r` (ganz lesen, dann löschen: sonst rutschen Einträge nach, 32768 Dateien);
-  `ExitStatus::code` wie APEs wait (Zahl, sonst 1, Note → keiner); NUL im Programmnamen
-  `InvalidInput`; „malformed address“ `InvalidInput`; `read_buf` von Sockets ohne Vorab-
-  Initialisierung; `Socket::as_raw`.
-- ext4srv (gcc-Branch): atime beim Anlegen; wstat-Länge verlängert mit Nullen, kürzt mit
-  genulltem Blockrest; `rwrite` liest die Länge frisch aus dem Inode (ein anderer fid änderte
-  sie: das Auffüllen schrieb sonst über dessen Daten).
-- Tests auf plan9 `ignore` mit Grund: Symlinks/Junctions (14 + 5), Hardlinks, Verzeichnis-
-  Umbenennung über Verzeichnisse, atime setzen (3), TCP: halbes Schließen (`shutdown_smoke`,
-  `close_read_wakes_up`), keepalive/ttl/hop_limit zurücklesen, linger, nonblocking, peek,
-  Nagle; NUL in Umgebungswerten (rc-Listen). Testseitig: Pfadtrenner `/`, rwlock-Grenze wie
-  futex, `$path` statt `PATH`, `env` = `rc -c 'cd /env; for(v in *) whatis $v'`, Shell
+`./x test library/std --target x86_64-unknown-plan9 --no-doc --no-fail-fast` with
+`runner = tests/std-runner.sh` in the `[target.*-plan9]` of `bootstrap.toml`: cargo calls it with
+each test program; it boots a guest of its architecture per program (`file`: 386 or
+amd64), `/tmp` on ext4, loopback `127.1` and `::1`, 900 s limit, and returns output and status
+(`STDTEST_LOG`: all guest logs).
+- Two copies of std in the unit test program (the one under test and the sysroot's via libtest):
+  the assembler is now naked functions (mangled, each copy its own; `threadstart` via
+  `sym`), the C exports (`malloc` &c., `__plan9_*`) have `no_mangle`/`export_name` only except
+  `cfg(test)`, `PRIVTOP`/`MAIN_PID` one instance (sgx' pattern: `export_name` +
+  `linkage = "available_externally"` in the test). `current()` takes ThreadData only with the
+  own pid: the private slots of a proc are a copy of the parent proc's (rfork).
+- std corrections: `Instant` signed (nanoseconds, i64 seconds range like
+  timespec: `Instant - 10 years` did not work); `OpenOptions` checks like unix (messages,
+  append+truncate); `set_times` sets the mtime, atime silently skipped (stat(5): a wstat does not
+  change it; variant "compatible", described in `os::plan9::fs`); `remove_dir_all`
+  like `rm -r` (read completely, then delete: otherwise entries shift, 32768 files);
+  `ExitStatus::code` like APE's wait (number, otherwise 1, note → none); NUL in the program name
+  `InvalidInput`; "malformed address" `InvalidInput`; `read_buf` of sockets without prior
+  initialization; `Socket::as_raw`.
+- ext4srv (gcc branch): atime on creation; wstat length extends with zeros, truncates with
+  zeroed block remainder; `rwrite` reads the length fresh from the inode (another fid changed
+  it: the padding otherwise wrote over its data).
+- Tests on plan9 `ignore`d with reason: symlinks/junctions (14 + 5), hard links, directory
+  rename across directories, setting atime (3), TCP: half close (`shutdown_smoke`,
+  `close_read_wakes_up`), reading back keepalive/ttl/hop_limit, linger, nonblocking, peek,
+  Nagle; NUL in environment values (rc lists). On the test side: path separator `/`, rwlock limit like
+  futex, `$path` instead of `PATH`, `env` = `rc -c 'cd /env; for(v in *) whatis $v'`, shell
   `/bin/ape/sh`.
-- **Ergebnisse** (2026-10-31): std amd64: Unit 343 ok, 39 ignoriert, 2 fehlgeschlagen
-  (`multiple_connect_interleaved_*`, TCP unter Last), alle 29 Integrationsprogramme ok;
-  std 386: Unit 345 ok, 38 ignoriert, 0 fehlgeschlagen (die beiden ext4srv-Tests erst mit
-  dem neu gebauten 386-ext4srv), 29 ok. `./x test library/coretests library/alloctests`:
-  amd64 und 386 ohne Fehler, ohne Anpassung (core 2970 bzw. 2969, 2 ignoriert wie upstream;
-  alloc 339/1494/643 bzw. 338/1495/643, die beiden alloc_error-Programme).
-- **Hänger der Tests unter Last: libgccs Unwinder ohne Sperren.** pstack zeigte einen Broken
-  Proc in `__plan9_abort` ← `_Unwind_RaiseException_Phase2` (Panic in einem Test-Thread):
-  gthr-posix prüft per schwachem Verweis auf `pthread_cancel`, ob Threads da sind; der zieht
-  APEs pthread.o nicht ins Rust-Programm, die FDE-Listen blieben ungesperrt. Behoben in
-  9front-gcc (`GTHREAD_USE_WEAK 0` in `gcc/config/plan9.h`). Das `abort` der Testkopie von std
-  beendete nur deren Threads: main (Sysroot-std) wartete ewig.
-- **Gelöst 2026-11-11: TCP unter Last** (früher zwei offene Punkte: mit 12 Test-Threads
-  scheiterten `multiple_connect_interleaved_*` mit „connection refused“, „i/o on hungup
-  channel“, einmal „listen hungup“; und `connect` über Loopback hing, nachgestellt mit C in
-  `tools/csstress.c`, `tools/csstress.rc`, auch mit dem kencc-Kernel). Ursache in 9front, in
-  `devip.c:closeconv`: es setzte `inuse` auf 0, bevor `tcpclose` lief, und dieses gibt in
-  `tcpoutput` den Conv-Lock frei. Kam inzwischen das ACK auf das FIN, vergab `Fsprotoclone` die
-  Verbindung neu, und das alte `closeconv` setzte danach den Zustand des neuen Besitzers auf
-  Idle: dessen `connect` schlief für immer. Fix in ../9front-gccwt (`gcc` 237bfdd4b, Patch
-  `patch-upstream/0025`, Einzelheiten dort in MEMORY.md). Danach mit 12 Test-Threads die
-  Netztests 6 von 6 Läufen grün (61 ok, je ~1,1 s; `logs/stdtest.net-fix*.log`), csstress mit
-  12, 24, 50 Procs durch. std wählt numerische Adressen weiter direkt (`/net/tcp/clone`), cs
-  ist für SocketAddr unnötig.
-- **Offen: TCP halb schließen.** 9fronts ctl `close` legt auch die Leseseite auf (`tcpclose`:
-  `qhangup(c->rq)`), `shutdown(Write)` beendet also beide Richtungen: eine Antwort der
-  Gegenseite geht still verloren (HTTP-Clients, nc-artige Werkzeuge). Nur im Kernel lösbar.
+- **Results** (2026-10-31): std amd64: unit 343 ok, 39 ignored, 2 failed
+  (`multiple_connect_interleaved_*`, TCP under load), all 29 integration programs ok;
+  std 386: unit 345 ok, 38 ignored, 0 failed (the two ext4srv tests only with
+  the rebuilt 386 ext4srv), 29 ok. `./x test library/coretests library/alloctests`:
+  amd64 and 386 without failures, without adaptation (core 2970 and 2969 respectively, 2 ignored as upstream;
+  alloc 339/1494/643 and 338/1495/643 respectively, the two alloc_error programs).
+- **Test hang under load: libgcc's unwinder without locks.** pstack showed a Broken
+  proc in `__plan9_abort` ← `_Unwind_RaiseException_Phase2` (panic in a test thread):
+  gthr-posix checks via a weak reference to `pthread_cancel` whether threads exist; that
+  does not pull APE's pthread.o into the Rust program, the FDE lists stayed unlocked. Fixed in
+  9front-gcc (`GTHREAD_USE_WEAK 0` in `gcc/config/plan9.h`). The `abort` of the test copy of std
+  ended only its threads: main (sysroot std) waited forever.
+- **Solved 2026-11-11: TCP under load** (formerly two open items: with 12 test threads
+  `multiple_connect_interleaved_*` failed with "connection refused", "i/o on hungup
+  channel", once "listen hungup"; and `connect` over loopback hung, reproduced with C in
+  `tools/csstress.c`, `tools/csstress.rc`, also with the kencc kernel). Cause in 9front, in
+  `devip.c:closeconv`: it set `inuse` to 0 before `tcpclose` ran, and that releases the
+  conv lock in `tcpoutput`. If the ACK for the FIN arrived meanwhile, `Fsprotoclone` reassigned the
+  connection, and the old `closeconv` afterwards set the state of the new owner to
+  Idle: its `connect` slept forever. Fix in ../9front-gccwt (`gcc` 237bfdd4b, patch
+  `patch-upstream/0025`, details there in MEMORY.md). After that with 12 test threads the
+  network tests green in 6 of 6 runs (61 ok, ~1.1 s each; `logs/stdtest.net-fix*.log`), csstress with
+  12, 24, 50 procs passes. std still chooses numeric addresses directly (`/net/tcp/clone`), cs
+  is unnecessary for SocketAddr.
+- **Open: TCP half close.** 9front's ctl `close` also hangs up the read side (`tcpclose`:
+  `qhangup(c->rq)`), so `shutdown(Write)` ends both directions: a reply from the
+  peer is silently lost (HTTP clients, nc-style tools). Solvable only in the kernel.
 
 ## Tests
 
-- `tests/run.sh`: baut `tests/*.rs` und `tests/c`, läuft im Gast, eine Zeile pro Test; Stand: alle 7 ok.
-- `tests/nostd.rs` (core, libc von Hand), `tests/std1.rs` (args, scoped threads, Mutex unter
-  Last, Condvar/Timeout, Barrier, RwLock, Kanäle rendezvous/gepuffert, TLS + Destruktor,
-  sleep, SystemTime, HashMap, Float-Format), `tests/overflow.rs` (Überlauf in main und Thread
-  → Broken): laufen im Gast (2026-10-29).
+- `tests/run.sh`: builds `tests/*.rs` and `tests/c`, runs in the guest, one line per test; state: all 7 ok.
+- `tests/nostd.rs` (core, libc by hand), `tests/std1.rs` (args, scoped threads, Mutex under
+  load, Condvar/timeout, Barrier, RwLock, channels rendezvous/buffered, TLS + destructor,
+  sleep, SystemTime, HashMap, float format), `tests/overflow.rs` (overflow in main and thread
+  → Broken): run in the guest (2026-10-29).
 
-## async: mio und tokio (Teil 10, 2026-10-31)
+## async: mio and tokio (Part 10, 2026-10-31)
 
-Plan 9 hat kein epoll/kqueue/poll für native fds, nur blockierende Aufrufe.
-- **std** (`sys/net/connection/plan9/pump.rs`): ein Socket, der nonblocking geschaltet oder
-  gepeekt wird, bekommt eine Pumpe: ein Lese-Proc in einen Puffer (Strom 64 KiB, Datagramme,
-  angenommene Rufe eines Listeners), ein Schreib-Proc aus einem Puffer (erst mit dem ersten
-  write: ein nur lesender Socket kostet einen Proc). read/peek/recv/accept daraus oder
-  WouldBlock, write hinein; eigener fd (dup), beim Schließen des letzten fds wird der Leser per
-  Note (`rust: interrupt`) unterbrochen, der Schreiber schreibt aus. `shutdown(Write)` erst nach
-  dem Gepufferten, über das beim Aufruf geöffnete ctl (ein späteres Öffnen per Name fand die
-  Nummer schon an eine andere Verbindung vergeben). `os::plan9::net`: `readiness`,
-  `set_ready_hook`, `connect_nonblocking` (ctl angelegt, data gleich offen, connect im Proc).
-  Peek geht jetzt auch blockierend. `tests/nb.rs` (in run.sh).
-- **mio** (`crates/mio-1.2.1`, `sys/plan9`): Selector = Liste geänderter fds + Condvar, die
-  Hooks tragen ein; `select` liest `readiness`. Waker, connect/bind über std (kein Socket vor
-  dem connect). `tests/crates/mioecho`.
-- **tokio** (`crates/tokio-1.54.1`): ohne socket2 auf plan9 (keine BSD-Sockets): kein
-  `TcpSocket`, linger/UDP-Optionen Unsupported, `peek_sender` über std's peek_from.
-  `tests/crates/tokioecho`: multi-thread runtime, 20 Echo-Clients mit halbem Schließen, sleep,
-  timeout, Kanal, fs. `tests/async.sh` (beide Architekturen).
-- **Kernel** (9front-gccwt): TCP halb schließen (ctl `shutdown`), ein veralteter bypass-Zeiger
-  bei Loopback legte neue Verbindungen auf (MEMORY.md dort).
-- Kosten: ein bis zwei Procs pro nonblocking Verbindung (9fronts Grenze: conf.nproc).
+Plan 9 has no epoll/kqueue/poll for native fds, only blocking calls.
+- **std** (`sys/net/connection/plan9/pump.rs`): a socket that is switched to nonblocking or
+  peeked gets a pump: a reader proc into a buffer (stream 64 KiB, datagrams,
+  accepted calls of a listener), a writer proc from a buffer (only with the first
+  write: a read-only socket costs one proc). read/peek/recv/accept from that or
+  WouldBlock, write into it; own fd (dup), when the last fd closes the reader is interrupted by
+  note (`rust: interrupt`), the writer writes out. `shutdown(Write)` only after
+  the buffered data, via the ctl opened at the call (a later open by name found the
+  number already assigned to another connection). `os::plan9::net`: `readiness`,
+  `set_ready_hook`, `connect_nonblocking` (ctl created, data opened right away, connect in the proc).
+  Peek now works blocking too. `tests/nb.rs` (in run.sh).
+- **mio** (`crates/mio-1.2.1`, `sys/plan9`): selector = list of changed fds + Condvar, the
+  hooks register; `select` reads `readiness`. Waker, connect/bind via std (no socket before
+  the connect). `tests/crates/mioecho`.
+- **tokio** (`crates/tokio-1.54.1`): without socket2 on plan9 (no BSD sockets): no
+  `TcpSocket`, linger/UDP options Unsupported, `peek_sender` via std's peek_from.
+  `tests/crates/tokioecho`: multi-thread runtime, 20 echo clients with half close, sleep,
+  timeout, channel, fs. `tests/async.sh` (both architectures).
+- **Kernel** (9front-gccwt): TCP half close (ctl `shutdown`), a stale bypass pointer
+  on loopback set up new connections (MEMORY.md there).
+- Cost: one to two procs per nonblocking connection (9front's limit: conf.nproc).
 
-## HTTP, HTTPS, DNS (Teil 11, 2026-10-31)
+## HTTP, HTTPS, DNS (Part 11, 2026-10-31)
 
-- **hyper-util** (`crates/hyper-util-0.1.21`): der `HttpConnector` (client-legacy, von reqwest
-  benutzt) baut seinen Socket mit socket2 und tokios `TcpSocket`; auf plan9 verbindet er über
-  `tokio::net::TcpStream::connect` (std's connect im Hintergrund). Lokale Adresse: Unsupported;
-  keepalive wird nicht gesetzt (TCPs ctl `keepalive` hat std nicht).
-- `tests/crates/httptest`: hyper-Server (HTTP/1.1 und HTTP/2, auto), hyper-Clients (http1,
-  http2 mit 10 Strömen), hyper-utils Client (Pool), reqwest (GET, POST 1 MiB, JSON, chunked,
-  404, timeout, 20 gleichzeitig, HTTP/2).
-- `tests/crates/tlsdns`: DNS über `/net/cs` (std und tokio `lookup_host`, localhost, ein
-  unbekannter Name, 10 gleichzeitig), HTTPS mit rustls (ring) gegen einen lokalen
-  tokio-rustls-Server mit rcgen-Zertifikat (HTTP/1.1, HTTP/2 per ALPN, 1 MiB, unbekannter
-  Aussteller abgelehnt) und zu crates.io mit den Wurzeln aus `/sys/lib/tls/ca.pem`. Braucht das
-  Netz (QEMUs DHCP/DNS).
-- 9front-Fehler gefunden: ndb/cs schnitt Fehlermeldungen auf 63 Zeichen ab (`curerr[64]` in
-  `rwrite`), bei langen Namen fehlte „name does not exist“; im gcc-Branch behoben.
-- `tests/async.sh` läuft alle vier (mio, tokio, http, tlsdns).
-- Sporadisch „early eof“ in tokioecho (20 Clients auf einmal): 9fronts Kernel legte bei voller
-  Anrufschlange (`Maxincall` 10) einen Anruf mit Reset auf, den der Client schon als
-  verbunden hatte (sein connect war fertig): er las sofort EOF („eof after 0“, mit
-  `Fsnewcall: incall queue full`). Im gcc-Branch behoben (9front-gccwt MEMORY.md): der Anruf
-  bleibt im Limbo wie bei BSD/Linux mit vollem Backlog. tokioecho prüft es gezielt: ein
-  std-Listener nimmt eine Sekunde lang nichts an, 30 Clients verbinden sich (alter Kernel: 20
-  lesen EOF).
+- **hyper-util** (`crates/hyper-util-0.1.21`): the `HttpConnector` (client-legacy, used by
+  reqwest) builds its socket with socket2 and tokio's `TcpSocket`; on plan9 it connects via
+  `tokio::net::TcpStream::connect` (std's connect in the background). Local address: Unsupported;
+  keepalive is not set (TCP's ctl `keepalive` is not in std).
+- `tests/crates/httptest`: hyper server (HTTP/1.1 and HTTP/2, auto), hyper clients (http1,
+  http2 with 10 streams), hyper-util's client (pool), reqwest (GET, POST 1 MiB, JSON, chunked,
+  404, timeout, 20 simultaneous, HTTP/2).
+- `tests/crates/tlsdns`: DNS via `/net/cs` (std and tokio `lookup_host`, localhost, an
+  unknown name, 10 simultaneous), HTTPS with rustls (ring) against a local
+  tokio-rustls server with rcgen certificate (HTTP/1.1, HTTP/2 via ALPN, 1 MiB, unknown
+  issuer rejected) and to crates.io with the roots from `/sys/lib/tls/ca.pem`. Needs the
+  network (QEMU's DHCP/DNS).
+- 9front bug found: ndb/cs truncated error messages to 63 characters (`curerr[64]` in
+  `rwrite`), with long names "name does not exist" was missing; fixed in the gcc branch.
+- `tests/async.sh` runs all four (mio, tokio, http, tlsdns).
+- Sporadic "early eof" in tokioecho (20 clients at once): with a full call queue
+  (`Maxincall` 10), 9front's kernel set up a call with reset that the client already considered
+  connected (its connect had finished): it read EOF immediately ("eof after 0", with
+  `Fsnewcall: incall queue full`). Fixed in the gcc branch (9front-gccwt MEMORY.md): the call
+  stays in limbo as on BSD/Linux with a full backlog. tokioecho checks it specifically: a
+  std listener accepts nothing for one second, 30 clients connect (old kernel: 20
+  read EOF).
 
-## tokio::process und tokio::signal (Teil 12, 2026-10-31)
+## tokio::process and tokio::signal (Part 12, 2026-10-31)
 
-- **std** `os::plan9::note`: `catch(name)` fängt eine Note (genau dieser Name; nicht `sys: …`,
-  `alarm`, `rust: …`): das Programm stirbt nicht mehr daran, `Note::wait`/`take` zählen sie
-  (Semaphor, `semrelease` im Note-Handler: kein Lock, keine Allokation). Eine Note an die
-  Gruppe (Delete, `notepg`) erreicht jeden Proc des Programms; gezählt wird sie nur im Proc
-  von `main` (`proc::main_pid`), die anderen machen weiter. Der Kernel lässt den Absender
-  einer `notepg` aus (`postnotepg`: `p == up`): wer aus main an die eigene Gruppe postet,
-  erreicht main nicht. Dazu fd-Traits für `ChildStdin/Stdout/Stderr` (wie unix).
-- **Einschränkung**: eine gefangene Note unterbricht blockierte Systemaufrufe in allen Procs
-  („interrupted“, `ErrorKind::Interrupted`). Unix startet sie meist neu (SA_RESTART), Plan 9
-  nicht: std's eigene Stellen (Pumpe, Parken, wait, read_exact/read_to_end) und tokios
-  Kind-Pipes wiederholen, ein einzelnes `read` eines Programms kann den Fehler sehen.
-- **tokio::signal** (`signal/plan9.rs`): `ctrl_c()` = Note `interrupt`,
-  `tokio::signal::plan9::note(name)`; ein Thread pro Note wartet am Semaphor und weckt einen
-  watch-Kanal (wie tokios Registry unter unix; Noten vor dem Hinsehen fallen zusammen).
-- **tokio::process** (`process/plan9.rs`, nach windows.rs): ein Waiter-Thread pro Kind forkt
-  es selbst und wartet (std's `wait`): das Waitmsg geht an den forkenden Proc, der so lebt,
-  bis das Kind endet (auch ein fallengelassenes Kind wird abgeholt). Pipes blockierend im
-  Blocking-Pool (`Blocking`, Plan-9-Pipes sind nicht pollbar), Wiederholung bei
-  „interrupted“. kill über `/proc/<pid>/ctl`. Kosten: ein Proc pro laufendem Kind.
-- `tests/crates/tokioproc` in `tests/async.sh` (in eigener Note-Gruppe: `rfork s`, exec):
-  output, Exit-Status, 1 MiB durch cat, kill, kill_on_drop, try_wait, 10 gleichzeitig, nicht
-  gefunden, std-Zählung (einmal für die Gruppe), ctrl_c, eine Pipe über die Note hinweg,
+- **std** `os::plan9::note`: `catch(name)` catches a note (exactly this name; not `sys: …`,
+  `alarm`, `rust: …`): the program no longer dies from it, `Note::wait`/`take` count it
+  (semaphore, `semrelease` in the note handler: no lock, no allocation). A note to the
+  group (Delete, `notepg`) reaches every proc of the program; it is counted only in the proc
+  of `main` (`proc::main_pid`), the others carry on. The kernel leaves out the sender
+  of a `notepg` (`postnotepg`: `p == up`): whoever posts from main to its own group
+  does not reach main. Plus fd traits for `ChildStdin/Stdout/Stderr` (like unix).
+- **Limitation**: a caught note interrupts blocked system calls in all procs
+  ("interrupted", `ErrorKind::Interrupted`). Unix mostly restarts them (SA_RESTART), Plan 9
+  does not: std's own places (pump, parking, wait, read_exact/read_to_end) and tokio's
+  child pipes retry, a single `read` of a program may see the error.
+- **tokio::signal** (`signal/plan9.rs`): `ctrl_c()` = note `interrupt`,
+  `tokio::signal::plan9::note(name)`; one thread per note waits on the semaphore and wakes a
+  watch channel (like tokio's registry under unix; notes before looking coalesce).
+- **tokio::process** (`process/plan9.rs`, after windows.rs): a waiter thread per child forks
+  it itself and waits (std's `wait`): the Waitmsg goes to the forking proc, which thus lives
+  until the child ends (a dropped child is also reaped). Pipes blocking in the
+  blocking pool (`Blocking`, Plan 9 pipes are not pollable), retry on
+  "interrupted". kill via `/proc/<pid>/ctl`. Cost: one proc per running child.
+- `tests/crates/tokioproc` in `tests/async.sh` (in its own note group: `rfork s`, exec):
+  output, exit status, 1 MiB through cat, kill, kill_on_drop, try_wait, 10 simultaneous, not
+  found, std counting (once for the group), ctrl_c, a pipe across the note,
   plan9::note.
-- **Listener schließen synchron** (gefunden: `nb` „refused“ auf 386, seit Teil 10 rot): der
-  Leser einer Pumpe blockiert in `listen` und hält die Ankündigung; `drop` gab nur die Note
-  und kehrte zurück, ein gleich folgendes connect wurde noch angenommen und dann geschlossen
-  (EOF statt „refused“). Jetzt wartet das Schließen auf das Ende des Lesers; die Note geht alle
-  10 ms erneut (kommt sie, bevor er in `listen` ist, verpufft sie), höchstens 5 s. Der Port
-  ist frei, wenn close zurückkehrt, wie unter unix.
+- **Listener closes synchronously** (found: `nb` "refused" on 386, red since Part 10): the
+  reader of a pump blocks in `listen` and holds the announcement; `drop` only gave the note
+  and returned, a connect following right away was still accepted and then closed
+  (EOF instead of "refused"). Now closing waits for the reader to end; the note is sent again every
+  10 ms (if it arrives before it is in `listen`, it fizzles), at most 5 s. The port
+  is free when close returns, as under unix.
 
-## Installation und Werkzeuge (Teil 13, 2026-10-31)
+## Installation and tools (Part 13, 2026-10-31)
 
-- **Rebase** des gcc-Branchs auf front 350266104 (27 Commits von upstream, keine Konflikte;
-  Manifeste neu, `news.c` weg): alle drei Architekturen bauen, run.sh und async.sh auf amd64
-  und 386 grün.
-- **rustdoc, rustfmt, clippy für 9front** (`./x build --stage 2 --host T --target T
-  src/tools/rustdoc src/tools/rustfmt src/tools/clippy`): wie rustc statisch, ohne
-  `rustc_driver`-dylib: `extern crate rustc_driver_impl as rustc_driver` (rustdoc, rustfmt's
-  bin, clippy-driver), wo nur zum Linken gebraucht entfällt es (rustfmt's lib,
-  clippy_utils); cargo-clippy bekommt `EXIT_FAILURE` aus einem kleinen Modul statt des ganzen
-  Compilers. bootstrap legt für plan9 die rlibs der Compiler-Crates in den Sysroot (sonst nur
-  rmeta: auf Linux sind sie in librustc_driver.so). rustdoc: `Os::Plan9` in `clean/cfg.rs`,
-  sein eigenes `flock` nimmt `os::plan9::fs::lock_file` (DMEXCL). Crates: stacker 0.1.21 (ein
-  Stack aus malloc wie wasm/hermit: std findet seine Thread-Daten über `_privates`, nicht über
-  den Stackzeiger), dirs-sys 0.5.0 (`$home`, keine XDG-Verzeichnisse). Die Werkzeuge liegen in
-  `build/x86_64-unknown-linux-gnu/stage2-tools/T/release` (stage2/bin legt bootstrap jedes Mal
-  neu an). Gestrippt: rustdoc 165 MB, clippy-driver 169 MB, rustfmt 49 MB (amd64).
+- **Rebase** of the gcc branch onto front 350266104 (27 commits from upstream, no conflicts;
+  manifests regenerated, `news.c` gone): all three architectures build, run.sh and async.sh on amd64
+  and 386 green.
+- **rustdoc, rustfmt, clippy for 9front** (`./x build --stage 2 --host T --target T
+  src/tools/rustdoc src/tools/rustfmt src/tools/clippy`): static like rustc, without the
+  `rustc_driver` dylib: `extern crate rustc_driver_impl as rustc_driver` (rustdoc, rustfmt's
+  bin, clippy-driver), where it is only needed for linking it is dropped (rustfmt's lib,
+  clippy_utils); cargo-clippy gets `EXIT_FAILURE` from a small module instead of the whole
+  compiler. bootstrap puts the rlibs of the compiler crates into the sysroot for plan9 (otherwise only
+  rmeta: on Linux they are in librustc_driver.so). rustdoc: `Os::Plan9` in `clean/cfg.rs`,
+  its own `flock` takes `os::plan9::fs::lock_file` (DMEXCL). Crates: stacker 0.1.21 (a
+  stack from malloc like wasm/hermit: std finds its thread data via `_privates`, not via
+  the stack pointer), dirs-sys 0.5.0 (`$home`, no XDG directories). The tools are in
+  `build/x86_64-unknown-linux-gnu/stage2-tools/T/release` (stage2/bin is recreated by bootstrap every
+  time). Stripped: rustdoc 165 MB, clippy-driver 169 MB, rustfmt 49 MB (amd64).
 - **Installation** (`scripts/install.sh`): `out/$objtype/$objtype/rust` (bin, lib/rustlib/T/lib
-  mit rlib und rmeta: bootstrap baut std mit `-Zembed-metadata=no`, ohne die rmeta findet
-  rustc keine Metadaten; README) und zwei Archive zur optionalen Installation,
-  Pfade ab `/`: `rust-T.tgz` (rustc, cargo, std, 117 MB) und `rust-tools-T.tgz` (150 MB).
-  std aus dem stage-1-Sysroot (dieselben Dateien wie stage 2, das bootstrap hochhebt; ein
-  stage-2-Build für ein Target entfernt die std der anderen). Auf die Install-CD nur auf
-  Wunsch: `RUST_OUT` für 9front-gccwt's `stage-dist.sh` (`rustproto`).
-- `tests/tools.sh`: entpackt die Archive mit 9fronts tar im Gast, dann rustc/cargo/rustdoc/
-  rustfmt/clippy --version, cargo build/run, cargo fmt (--check vorher rot, nachher grün),
-  cargo clippy (needless_return), cargo doc, cargo test mit Unit- und Doc-Test.
+  with rlib and rmeta: bootstrap builds std with `-Zembed-metadata=no`, without the rmeta
+  rustc finds no metadata; README) and two archives for optional installation,
+  paths from `/`: `rust-T.tgz` (rustc, cargo, std, 117 MB) and `rust-tools-T.tgz` (150 MB).
+  std from the stage-1 sysroot (the same files as stage 2, which bootstrap lifts up; a
+  stage-2 build for one target removes the std of the others). On the install CD only on
+  request: `RUST_OUT` for 9front-gccwt's `stage-dist.sh` (`rustproto`).
+- `tests/tools.sh`: unpacks the archives with 9front's tar in the guest, then rustc/cargo/rustdoc/
+  rustfmt/clippy --version, cargo build/run, cargo fmt (--check red before, green after),
+  cargo clippy (needless_return), cargo doc, cargo test with unit and doc test.
 
-## arm64: aarch64-unknown-plan9 (Teil 14, 2026-10-31)
+## arm64: aarch64-unknown-plan9 (Part 14, 2026-10-31)
 
-- **Toolchain**: 9front-gcc kann jetzt `aarch64-pc-plan9` (cross und nativ, `/arm64/gnu`; dort
-  NOTES): char vorzeichenbehaftet, keine Outline-Atomics, crt*.o ohne Unwind-Tabellen. Im
-  gcc-Branch: `arm64/plan9.ld` sammelt `.init_array`/`.gcc_except_table`, APEs `fenv.h` hat
-  arm64s Werte.
-- **Target** `aarch64_unknown_plan9.rs`: Datenlayout von aarch64-linux-gnu, `+v8a` ohne
-  `+outline-atomics`, Linker `aarch64-pc-plan9-gcc`. `core::ffi::c_char` ist auf Plan 9 auf jeder
-  Architektur `i8` (7c, jc; gccs DEFAULT_SIGNED_CHAR). libc: `jmp_buf` 22 Wörter.
-- **std**: `proc.rs` runon/rforkthread/rforkrun in AArch64 (Nummer in R0, Argument bei 8(SP),
-  `SVC #0`; das Kind bekommt alle Register, R0 = 0: privtop und Argument in x26/x27 wie APEs
-  pthread.c). Die Stack-Slots passen in arm64s 32-GiB-Adressraum (EVASHIFT 36). Sonst nichts.
-- **Gast**: QEMU virt unter TCG, ein Prozessor (`tests/guest.sh`: 9fronts qemu-Kernel startet
-  keine weiteren, MEMORY.md des Trees); die ext4-Platte als virtio-blk-pci 1.0 (`/dev/sdG0`, sdF0
-  ist u-boots FAT). Falle: der Gast bootet `arm64/9qemu.u`, das nur `build-boot.sh` erneuert —
-  mit dem alten lief tokio ohne TCP-`shutdown` (EOF, unvollständige HTTP-Anfragen).
-- **Ergebnisse**: run.sh 13/13, async.sh 5/5 (mio, tokio, http, tlsdns, proc), cargo.sh 5/5
-  (cargo von Linux aus gebaut), rustc.sh 3/3 (rustc nativ: LLVM mit AArch64-Backend,
-  `objtype=arm64 scripts/build-llvm.sh`, 15 min für rustc und die Werkzeuge).
+- **Toolchain**: 9front-gcc now supports `aarch64-pc-plan9` (cross and native, `/arm64/gnu`; NOTES
+  there): char signed, no outline atomics, crt*.o without unwind tables. In the
+  gcc branch: `arm64/plan9.ld` collects `.init_array`/`.gcc_except_table`, APE's `fenv.h` has
+  arm64's values.
+- **Target** `aarch64_unknown_plan9.rs`: data layout of aarch64-linux-gnu, `+v8a` without
+  `+outline-atomics`, linker `aarch64-pc-plan9-gcc`. `core::ffi::c_char` is `i8` on Plan 9 on every
+  architecture (7c, jc; gcc's DEFAULT_SIGNED_CHAR). libc: `jmp_buf` 22 words.
+- **std**: `proc.rs` runon/rforkthread/rforkrun in AArch64 (number in R0, argument at 8(SP),
+  `SVC #0`; the child gets all registers, R0 = 0: privtop and argument in x26/x27 like APE's
+  pthread.c). The stack slots fit in arm64's 32 GiB address space (EVASHIFT 36). Nothing else.
+- **Guest**: QEMU virt under TCG, one processor (`tests/guest.sh`: 9front's qemu kernel does not start
+  any others, MEMORY.md of the tree); the ext4 disk as virtio-blk-pci 1.0 (`/dev/sdG0`, sdF0
+  is u-boot's FAT). Pitfall: the guest boots `arm64/9qemu.u`, which only `build-boot.sh` renews —
+  with the old one tokio ran without TCP `shutdown` (EOF, incomplete HTTP requests).
+- **Results**: run.sh 13/13, async.sh 5/5 (mio, tokio, http, tlsdns, proc), cargo.sh 5/5
+  (cargo built from Linux), rustc.sh 3/3 (rustc native: LLVM with AArch64 backend,
+  `objtype=arm64 scripts/build-llvm.sh`, 15 min for rustc and the tools).
 
-## riscv64: riscv64gc-unknown-plan9 (Teil 15, 2026-11-10)
+## riscv64: riscv64gc-unknown-plan9 (Part 15, 2026-11-10)
 
-- **Toolchain**: 9front-gccs `riscv64-unknown-plan9` (rv64gc, lp64d, medany, `-mno-relax`, char
-  vorzeichenbehaftet), gegen den Baum `../9front-riscv` (Branch riscv, auf gcc 82ddeb288
-  rebased). Der alte Cross-gcc (Branch riscv, 21.10.) hatte noch die compat-Header im Präfix,
-  die seitdem im APE des Baums liegen: `max_align_t`/`lldiv_t` doppelt. Neu gebaut vom Branch
-  gpu (`objtype=riscv64 PLAN9=../9front-riscv ./build.sh cross`; der alte liegt in
-  `build/riscv64.2026-10-21`); damit auch `GTHREAD_USE_WEAK 0` (gleichzeitige Panics).
-- **Target** `riscv64gc_unknown_plan9.rs`: Datenlayout von riscv64gc-linux-gnu,
-  `+m,+a,+f,+d,+c,+zicsr,+zifencei,-relax` (niemand setzt gp), `CodeModel::Medium`, lp64d,
-  Linker `riscv64-unknown-plan9-gcc`. libc: `jmp_buf` 26 Wörter (sp, pc, s0-s11, fs0-fs11).
-- **std**: `proc.rs` runon/rforkthread/rforkrun in RISC-V (Nummer und Ergebnis in s0,
-  Argument bei 8(sp), `ecall`; das Kind bekommt die ganze Ureg, s0 = 0: privtop und Argument
-  in s1/s2 wie APEs pthread.c). Stack-Slots passen (USTKTOP 256 GiB, Sv39).
-- `bootstrap.toml`: die Cross-gccs liegen jetzt in `9front-gcc/build/` (nicht mehr
-  `build-gcc/`); `tests/run.sh` braucht dafür `GCC9BUILD=…/9front-gcc/build`.
-- **cc-Crate** (1.4.3 cargo, 1.10.0 async-Tests, 1.11.1 GUI-Tests; `patches/crates/cc-*.patch`):
-  für riscv64 gibt es `-march=rv64gc -mabi=lp64d` nur unter Linux, FreeBSD, NetBSD (…), sonst
-  `-mabi=lp64` (Soft-Float): ring's C-Objekte linkten nicht („can't link soft-float modules with
-  double-float modules“). `plan9` in die Liste.
-- Falle: nach dem Neubau des stage-1-rustc (gleiche Versionszeile) nimmt cargo die alten
-  Host-Artefakte (Build-Skripte) weiter: E0460/E0463. `target/release` der Testcrates und
-  `tests/out/cargo-port/release` löschen.
-- **Ergebnis** (QEMU virt, TCG, 4 Harts, `GCC9BUILD=…/9front-gcc/build`): run.sh 13/13,
-  async.sh 5/5 (mio, tokio, http, tlsdns, proc), cargo.sh 5/5 (cargo von Linux aus gebaut,
-  `objtype=riscv64 scripts/build-cargo.sh`). Kein rustc nativ (LLVM für riscv64).
-- **std-Testsuite** (`./x test library/std --target riscv64gc-unknown-plan9 --no-doc
-  --no-fail-fast`, `STDTEST_TIMEOUT=2400`): `std-runner.sh` erkennt arm64 und riscv64 (`file`),
-  riscv64 bootet `../9front-riscv`; `guest.sh -D`: die ext4-Platte als virtio-blk-pci 1.0 wie
-  arm64, im riscv64-Gast `/dev/sdF0` (ohne u-boots Platte). Nebenbei behoben: `-D` mit einem
-  Verzeichnis auf einem anderen Dateisystem kopierte nach `d1/<name>/` (das gescheiterte
-  `cp --link` hatte `d1` schon angelegt). Ergebnis: alle 29 Integrationsprogramme ok
-  (`tests/time.rs` 1418 s unter TCG); Unit-Programm 341 ok, 39 ignoriert, 1 fehlgeschlagen
-  (`net::tcp::tests::connect_error`: „connection timed out“ statt „refused“), dann hingen
+- **Toolchain**: 9front-gcc's `riscv64-unknown-plan9` (rv64gc, lp64d, medany, `-mno-relax`, char
+  signed), against the tree `../9front-riscv` (branch riscv, rebased onto gcc 82ddeb288). The
+  old cross gcc (branch riscv, 21.10.) still had the compat headers in the prefix,
+  which have since moved into the tree's APE: `max_align_t`/`lldiv_t` twice. Rebuilt from the branch
+  gpu (`objtype=riscv64 PLAN9=../9front-riscv ./build.sh cross`; the old one is in
+  `build/riscv64.2026-10-21`); with it also `GTHREAD_USE_WEAK 0` (simultaneous panics).
+- **Target** `riscv64gc_unknown_plan9.rs`: data layout of riscv64gc-linux-gnu,
+  `+m,+a,+f,+d,+c,+zicsr,+zifencei,-relax` (nobody sets gp), `CodeModel::Medium`, lp64d,
+  linker `riscv64-unknown-plan9-gcc`. libc: `jmp_buf` 26 words (sp, pc, s0-s11, fs0-fs11).
+- **std**: `proc.rs` runon/rforkthread/rforkrun in RISC-V (number and result in s0,
+  argument at 8(sp), `ecall`; the child gets the whole Ureg, s0 = 0: privtop and argument
+  in s1/s2 like APE's pthread.c). Stack slots fit (USTKTOP 256 GiB, Sv39).
+- `bootstrap.toml`: the cross gccs are now in `9front-gcc/build/` (no longer
+  `build-gcc/`); `tests/run.sh` needs `GCC9BUILD=…/9front-gcc/build` for that.
+- **cc crate** (1.4.3 cargo, 1.10.0 async tests, 1.11.1 GUI tests; `patches/crates/cc-*.patch`):
+  for riscv64, `-march=rv64gc -mabi=lp64d` exists only under Linux, FreeBSD, NetBSD (…), otherwise
+  `-mabi=lp64` (soft float): ring's C objects did not link ("can't link soft-float modules with
+  double-float modules"). `plan9` into the list.
+- Pitfall: after rebuilding the stage-1 rustc (same version line), cargo keeps using the old
+  host artifacts (build scripts): E0460/E0463. Delete `target/release` of the test crates and
+  `tests/out/cargo-port/release`.
+- **Result** (QEMU virt, TCG, 4 harts, `GCC9BUILD=…/9front-gcc/build`): run.sh 13/13,
+  async.sh 5/5 (mio, tokio, http, tlsdns, proc), cargo.sh 5/5 (cargo built from Linux,
+  `objtype=riscv64 scripts/build-cargo.sh`). No native rustc (LLVM for riscv64).
+- **std test suite** (`./x test library/std --target riscv64gc-unknown-plan9 --no-doc
+  --no-fail-fast`, `STDTEST_TIMEOUT=2400`): `std-runner.sh` recognizes arm64 and riscv64 (`file`),
+  riscv64 boots `../9front-riscv`; `guest.sh -D`: the ext4 disk as virtio-blk-pci 1.0 like
+  arm64, in the riscv64 guest `/dev/sdF0` (without u-boot's disk). Fixed on the side: `-D` with a
+  directory on another file system copied to `d1/<name>/` (the failed
+  `cp --link` had already created `d1`). Result: all 29 integration programs ok
+  (`tests/time.rs` 1418 s under TCG); unit program 341 ok, 39 ignored, 1 failed
+  (`net::tcp::tests::connect_error`: "connection timed out" instead of "refused"), then
   `fs::tests::concurrent_recursive_mkdir`, `fs::tests::read_large_dir`,
-  `net::tcp::tests::close_readwrite_smoke` bis zur Grenze; dabei lief nur Hart 0 des Gasts
-  (~90 %), die anderen drei standen. Geklärt (2026-11-10): die beiden fs-Tests hängen nicht,
-  sie sind unter TCG nur langsam (`read_large_dir` allein 289 s). `close_readwrite_smoke` hing
-  auf allen Architekturen: seit `shutdown(Write)` halb schließt, tat `shutdown(Read)` bei einem
-  blockierenden Socket nichts. Jetzt in std: alle Deskriptoren der Konversation im Prozess
-  (`#p/<pid>/fd`) lesen das Ende (`FdState.read_shut`, ein dup kopiert es); `shutdown_smoke`
-  läuft, `close_read_wakes_up` bleibt `ignore` (ein schon im Kernel blockierter Leser wird
-  nicht geweckt). `connect_error`: 0.0.0.0 ging an die Default-Route (SYN ohne Antwort);
-  die unbestimmte Adresse ist jetzt Loopback wie unter unix und in Gos net auf Plan 9.
-  Parallel hängen weiter Netztests am TCP-Fehler unter Last (unten), nacheinander alle grün.
-  Danach Unit-Programm riscv64: 346 ok, 0 fehlgeschlagen, 38 ignoriert, in 2558 s (die beiden
-  fs-Tests allein ~25 min; knapp an `STDTEST_TIMEOUT=2400` + den 300 s von guest.sh);
-  `std-runner.sh` nimmt für riscv64 jetzt 3600 s, wenn `STDTEST_TIMEOUT` nicht gesetzt ist.
-- Danach (2026-11-10) alles neu: 9front-gccwt (gcc, rebased) amd64/386/arm64 gebaut, die
-  Cross-gccs amd64/386/arm64 vom Branch gpu gegen ihn (alte in `build/<arch>.2026-11-04`),
-  rustc/std waren aktuell. run.sh amd64 13/13, riscv64 13/13.
+  `net::tcp::tests::close_readwrite_smoke` hung until the limit; only hart 0 of the guest was running
+  (~90 %), the other three stood still. Clarified (2026-11-10): the two fs tests do not hang,
+  they are just slow under TCG (`read_large_dir` alone 289 s). `close_readwrite_smoke` hung
+  on all architectures: since `shutdown(Write)` half-closes, `shutdown(Read)` did nothing on a
+  blocking socket. Now in std: all descriptors of the conversation in the process
+  (`#p/<pid>/fd`) read the end (`FdState.read_shut`, a dup copies it); `shutdown_smoke`
+  runs, `close_read_wakes_up` stays `ignore` (a reader already blocked in the kernel is not
+  woken). `connect_error`: 0.0.0.0 went to the default route (SYN without reply);
+  the unspecified address is now loopback as under unix and in Go's net on Plan 9.
+  In parallel, network tests still hang on the TCP bug under load (below), one after another all green.
+  After that unit program riscv64: 346 ok, 0 failed, 38 ignored, in 2558 s (the two
+  fs tests alone ~25 min; just within `STDTEST_TIMEOUT=2400` + the 300 s of guest.sh);
+  `std-runner.sh` now uses 3600 s for riscv64 when `STDTEST_TIMEOUT` is not set.
+- After that (2026-11-10) everything rebuilt: 9front-gccwt (gcc, rebased) amd64/386/arm64 built, the
+  cross gccs amd64/386/arm64 from branch gpu against it (old ones in `build/<arch>.2026-11-04`),
+  rustc/std were current. run.sh amd64 13/13, riscv64 13/13.
 
-## Rust 1.102: Rebase auf Upstream, Patch-Reihen (Teil 16, 2026-11-10)
+## Rust 1.102: rebase onto upstream, patch series (Part 16, 2026-11-10)
 
-- **rust** `plan9` von `ce37c4ff837` (1.101, 29.10.) auf `origin/main` `6f1c7ee0ec0` (1.102,
-  10.11., 1737 Commits weiter) rebased: 24 Commits, zwei Konflikte. `hop_limit` in den TCP-
-  und UDP-Tests baut Upstream jetzt nur für unix und Windows: unser `ignore` entfällt. Die
-  Gitlinks der Submodule beim Rebase auf Upstreams Stand, danach ein Commit mit cargo und
-  llvm-project auf ihren `plan9`; der Commit, der nur cargos Gitlink setzte, fällt weg.
-  `Cargo.lock` bei Konflikten von Upstream, von cargo neu erzeugt. Sicherung der alten
-  Branches: `plan9-2026-11-10` in allen fünf Repositories.
-- **cargo** (3 Commits) auf `c07ac2c4d`, **llvm-project** (1 Commit) auf `0a5579eb649d`
-  (Rusts `rustc/23.1-2026-07-22`), ohne Konflikt; **backtrace** und **libc** (0.2.191,
-  `libc-0.2` unverändert) blieben.
-- **stacker**: rust verlangt 0.1.24, unser Patch war für 0.1.21 (unbenutzt, „patch was not
-  used“): `crates/stacker-0.1.24` mit derselben Änderung, `patches/crates/stacker-0.1.24.patch`.
-- **cargo für 9front**: das neue cargo pinnt libc 0.2.186 und libssh2-sys 0.3.4; gegen einen
-  gepinnten Lock greift ein `[patch]` anderer Version nicht (libz-sys: kein `off_t`).
+- **rust** `plan9` from `ce37c4ff837` (1.101, 29.10.) rebased onto `origin/main` `6f1c7ee0ec0` (1.102,
+  10.11., 1737 commits further): 24 commits, two conflicts. `hop_limit` in the TCP
+  and UDP tests is now built by upstream only for unix and Windows: our `ignore` goes away. The
+  gitlinks of the submodules at the rebase to upstream's state, then one commit with cargo and
+  llvm-project on their `plan9`; the commit that only set cargo's gitlink is dropped.
+  `Cargo.lock` from upstream on conflicts, regenerated by cargo. Backup of the old
+  branches: `plan9-2026-11-10` in all five repositories.
+- **cargo** (3 commits) onto `c07ac2c4d`, **llvm-project** (1 commit) onto `0a5579eb649d`
+  (Rust's `rustc/23.1-2026-07-22`), without conflict; **backtrace** and **libc** (0.2.191,
+  `libc-0.2` unchanged) stayed.
+- **stacker**: rust requires 0.1.24, our patch was for 0.1.21 (unused, "patch was not
+  used"): `crates/stacker-0.1.24` with the same change, `patches/crates/stacker-0.1.24.patch`.
+- **cargo for 9front**: the new cargo pins libc 0.2.186 and libssh2-sys 0.3.4; against a
+  pinned lock a `[patch]` of another version does not apply (libz-sys: no `off_t`).
   `cargo update --config cargo-plan9.toml -p libc -p libssh2-sys` in `rust/src/tools/cargo`
-  (die Lock-Änderung bleibt lokal, wie vorher).
-- **Patch-Reihen**: `patches/{rust,cargo,backtrace,llvm-project,libc}` (`git format-patch`,
-  `BASE`: Upstream-URL und Basis), `scripts/rust-patches.sh diff|apply`; geprüft: auf die
-  Basis angewandt ergeben sie die Bäume von `plan9` genau.
-- Stage 1 baut ohne neue Warnungen (die 31 „unexpected cfg plan9“ sind des stage-0-Compilers).
-  Tests: run.sh amd64, 386, arm64, riscv64 je 13/13; cargo.sh 5/5 und async.sh 5/5 (amd64).
-  arm64: `9qemu.u` war älter als der neu gebaute Kernel (boot-cli verweigert): build-boot.sh.
-- Nebenbei: die Standardpfade der Skripte auf 9front-gccs `build/` und `out/` (`build-gcc`
-  gibt es nicht mehr, `out-gcc` war veraltet); die nativen gccs für 9front (amd64, 386, arm64,
-  riscv64) neu in `out/` gegen die aktuellen Bäume.
-- **Nativ (2026-11-11)**: LLVM für 9front (amd64, 386, arm64) neu aus dem rebasten
-  llvm-project (23.1.5), dann rustc 1.102 stage 2 je Host. Ein frischer LLVM-Bau hatte kein
-  `bin/llvm-config` (bootstrap: „No such file“), und llvm-native-tools nicht die Bibliotheken,
-  die `llvm-config-plan9.sh` linkt: `build-llvm.sh` baut sie mit und macht llvm-config am Ende.
-  `tests/rustc.sh` amd64, 386, arm64 je 3/3; `tests/cargo-build.sh` amd64, 386, arm64 je 10/10
-  (Proc-Macros, serde-derive); cargo für 386, arm64, riscv64 neu, `tests/cargo.sh` je 5/5.
-- **std für 386 und arm64 im stage-1-Sysroot (2026-11-11, für 9fronts cargo.sh):** die
-  Zielliste in `bootstrap.toml` hat jetzt auch `i686-unknown-plan9` und `aarch64-unknown-plan9`.
-  Falle: `./x build library --stage 1 --target A,B` räumt das Sysroot
-  (`build/host/stage1/lib/rustlib`) auf genau A und B — die std von `x86_64-unknown-plan9`
-  war danach weg; immer alle Ziele angeben (oder die Liste aus `bootstrap.toml` nehmen).
-- **386: Stack-Slots nahmen den ganzen unteren Adressraum (2026-11-11, gefunden an wsys im
-  9pc-Gast, `/proc/N/segment`):** 64 Slots zu 64 MB ab 1 GiB unter dem Stack belegten auf 386
-  alles von 0x2100000 bis 0x7ff00000 (31 Stück, bis zum Überlapp mit bss) — darin segment(3)s
-  gemeinsamer Bereich (SHAREDBASE 0x6fe00000: wsys konnte Wayland-Pools nicht einblenden,
-  „segments overlap“) und der Heap behielt 31 MB. Jetzt auf 32 Bit 16 Slots zu 8 MB direkt
-  unter SHAREDBASE (USTKTOP/2, aus der Lage des Stacks), ~1,5 GB Heap; 64 Bit unverändert.
+  (the lock change stays local, as before).
+- **Patch series**: `patches/{rust,cargo,backtrace,llvm-project,libc}` (`git format-patch`,
+  `BASE`: upstream URL and base), `scripts/rust-patches.sh diff|apply`; checked: applied to the
+  base they yield exactly the trees of `plan9`.
+- Stage 1 builds without new warnings (the 31 "unexpected cfg plan9" belong to the stage-0 compiler).
+  Tests: run.sh amd64, 386, arm64, riscv64 13/13 each; cargo.sh 5/5 and async.sh 5/5 (amd64).
+  arm64: `9qemu.u` was older than the newly built kernel (boot-cli refuses): build-boot.sh.
+- On the side: the default paths of the scripts to 9front-gcc's `build/` and `out/` (`build-gcc`
+  no longer exists, `out-gcc` was outdated); the native gccs for 9front (amd64, 386, arm64,
+  riscv64) rebuilt in `out/` against the current trees.
+- **Native (2026-11-11)**: LLVM for 9front (amd64, 386, arm64) rebuilt from the rebased
+  llvm-project (23.1.5), then rustc 1.102 stage 2 per host. A fresh LLVM build had no
+  `bin/llvm-config` (bootstrap: "No such file"), and llvm-native-tools did not have the libraries
+  that `llvm-config-plan9.sh` links: `build-llvm.sh` builds them too and makes llvm-config at the end.
+  `tests/rustc.sh` amd64, 386, arm64 3/3 each; `tests/cargo-build.sh` amd64, 386, arm64 10/10 each
+  (proc macros, serde-derive); cargo for 386, arm64, riscv64 rebuilt, `tests/cargo.sh` 5/5 each.
+- **std for 386 and arm64 in the stage-1 sysroot (2026-11-11, for 9front's cargo.sh):** the
+  target list in `bootstrap.toml` now also has `i686-unknown-plan9` and `aarch64-unknown-plan9`.
+  Pitfall: `./x build library --stage 1 --target A,B` cleans the sysroot
+  (`build/host/stage1/lib/rustlib`) down to exactly A and B — the std of `x86_64-unknown-plan9`
+  was gone afterwards; always give all targets (or take the list from `bootstrap.toml`).
+- **386: stack slots took the whole lower address space (2026-11-11, found with wsys in the
+  9pc guest, `/proc/N/segment`):** 64 slots of 64 MB from 1 GiB below the stack occupied on 386
+  everything from 0x2100000 to 0x7ff00000 (31 of them, up to the overlap with bss) — including segment(3)'s
+  shared region (SHAREDBASE 0x6fe00000: wsys could not map in Wayland pools,
+  "segments overlap") and the heap kept 31 MB. Now on 32 bit 16 slots of 8 MB directly
+  below SHAREDBASE (USTKTOP/2, from the position of the stack), ~1.5 GB heap; 64 bit unchanged.
   `tests/run.sh` 386 13/13.
 
-## Offen
+## Open
 
-Stand 2026-10-31: amd64 und 386 cross und nativ (std, rustc, cargo, Proc-Macros als Programme,
-Datei-Locks), std/core/alloc-Testsuiten im Gast grün bis auf die TCP-Tests unter Last.
-- **async**: TCP-keepalive in std fehlt; eine gefangene Note unterbricht blockierte Aufrufe
-  (Teil 12).
-- **9front-Kernel** (nicht vom Port, 9front-gccwt MEMORY.md): TCP-`connect` über Loopback hängt
-  unter Last (`tools/csstress`); 2026-11-10 auch auf dem unveränderten `front`, Kernel und
-  Userland mit kencc gebaut.
-- **arm64** (Teil 14): std-Testsuite nicht gelaufen; der Gast hat nur einen Prozessor.
-- **Werkzeuge**: die Doc-Tests der std nie gelaufen (`--no-doc`); rustdoc und clippy-driver
-  enthalten je den ganzen Compiler (zusammen mit rustc ~490 MB; ein Programm für alle drei
-  wäre ~170 MB).
-- APEs Kopier-Procs: nach `close` mit laufendem read bleibt ihr Puffer stehen (Leck, cargo).
-- acid liest die ELF-Symbole des gcc-Ports nicht (tools/pstack + addr2line statt dessen).
-- Was Plan 9 nicht hat (bleibt so, Tests `ignore` mit Grund): Symlinks, Hardlinks, atime
-  setzen, TTL/keepalive zurücklesen, linger.
+As of 2026-10-31: amd64 and 386 cross and native (std, rustc, cargo, proc macros as programs,
+file locks), std/core/alloc test suites in the guest green except the TCP tests under load.
+- **async**: TCP keepalive in std is missing; a caught note interrupts blocked calls
+  (Part 12).
+- **9front kernel** (not from the port, 9front-gccwt MEMORY.md): TCP `connect` over loopback hangs
+  under load (`tools/csstress`); 2026-11-10 also on the unmodified `front`, kernel and
+  userland built with kencc.
+- **arm64** (Part 14): std test suite not run; the guest has only one processor.
+- **Tools**: the doc tests of std never run (`--no-doc`); rustdoc and clippy-driver
+  each contain the whole compiler (together with rustc ~490 MB; one program for all three
+  would be ~170 MB).
+- APE's copy procs: after `close` with a running read their buffer stays (leak, cargo).
+- acid does not read the ELF symbols of the gcc port (tools/pstack + addr2line instead).
+- What Plan 9 does not have (stays so, tests `ignore`d with reason): symlinks, hard links, setting
+  atime, reading back TTL/keepalive, linger.

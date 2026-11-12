@@ -7,7 +7,7 @@ are APE programs as any; APE is linked beside the native libc. Programs are link
 nfront's gcc (`GCC_DIR` of nfront's `dist/paths.env`, `toolchain/gcc`) as cross gcc (its `build/`)
 against the gcc-built 9front tree, branch `gcc` (`TREE_GCC`, `tree-gcc`).
 
-Log of the port (German): `NOTES.md`.
+Log of the port: `NOTES.md`.
 
 ## Layout
 
