@@ -37,3 +37,4 @@ while IFS=$'\t' read -r name url file key; do
 	echo "fetch: $name/: $tag"
 done < sources.txt
 scripts/rust-patches.sh apply
+scripts/cargo-config.sh	# cargo-plan9.toml (the patched crates of crates/)

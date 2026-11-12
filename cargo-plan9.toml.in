@@ -1,0 +1,47 @@
+# cargo --config cargo-plan9.toml: the crates with 9front changes (crates/, scripts/crate.sh)
+# (written as cargo-plan9.toml by scripts/cargo-config.sh: @TOP@ is this repository)
+[patch.crates-io]
+libc = { path = "@TOP@/libc" }
+getrandom = { package = "getrandom", path = "@TOP@/crates/getrandom-0.4.3" }
+getrandom-0_2_17 = { package = "getrandom", path = "@TOP@/crates/getrandom-0.2.17" }
+getrandom-0_3_4 = { package = "getrandom", path = "@TOP@/crates/getrandom-0.3.4" }
+filetime = { package = "filetime", path = "@TOP@/crates/filetime-0.2.29" }
+gix-sec = { package = "gix-sec", path = "@TOP@/crates/gix-sec-0.16.0" }
+curl = { package = "curl", path = "@TOP@/crates/curl-0.4.50" }
+libssh2-sys = { package = "libssh2-sys", path = "@TOP@/crates/libssh2-sys-0.3.2" }
+libgit2-sys = { package = "libgit2-sys", path = "@TOP@/crates/libgit2-sys-0.18.7+1.9.6" }
+curl-sys = { package = "curl-sys", path = "@TOP@/crates/curl-sys-0.4.90+curl-8.21.0" }
+ring = { package = "ring", path = "@TOP@/crates/ring-0.17.14" }
+home = { package = "home", path = "@TOP@/crates/home-0.5.12" }
+is_executable = { package = "is_executable", path = "@TOP@/crates/is_executable-1.0.6" }
+gix-config-value = { package = "gix-config-value", path = "@TOP@/crates/gix-config-value-0.21.1" }
+tar = { package = "tar", path = "@TOP@/crates/tar-0.4.46" }
+url = { package = "url", path = "@TOP@/crates/url-2.5.8" }
+git2 = { package = "git2", path = "@TOP@/crates/git2-0.21.0" }
+rustls-platform-verifier = { package = "rustls-platform-verifier", path = "@TOP@/crates/rustls-platform-verifier-0.5.3" }
+rustls-native-certs = { package = "rustls-native-certs", path = "@TOP@/crates/rustls-native-certs-0.8.5" }
+libsqlite3-sys = { package = "libsqlite3-sys", path = "@TOP@/crates/libsqlite3-sys-0.38.1" }
+getrandom-0_3_3 = { package = "getrandom", path = "@TOP@/crates/getrandom-0.3.3" }
+libloading = { package = "libloading", path = "@TOP@/crates/libloading-0.9.0" }
+jobserver = { package = "jobserver", path = "@TOP@/crates/jobserver-0.1.34" }
+mio = { package = "mio", path = "@TOP@/crates/mio-1.2.1" }
+tokio = { package = "tokio", path = "@TOP@/crates/tokio-1.54.1" }
+hyper-util = { package = "hyper-util", path = "@TOP@/crates/hyper-util-0.1.21" }
+stacker = { package = "stacker", path = "@TOP@/crates/stacker-0.1.21" }
+dirs-sys = { package = "dirs-sys", path = "@TOP@/crates/dirs-sys-0.5.0" }
+raw-window-handle = { package = "raw-window-handle", path = "@TOP@/crates/raw-window-handle-0.6.2" }
+winit = { package = "winit", path = "@TOP@/crates/winit-0.30.13" }
+softbuffer = { package = "softbuffer", path = "@TOP@/crates/softbuffer-0.4.8" }
+wgpu = { package = "wgpu", path = "@TOP@/crates/wgpu-30.0.1" }
+wgpu-core = { package = "wgpu-core", path = "@TOP@/crates/wgpu-core-30.0.1" }
+wgpu-hal = { package = "wgpu-hal", path = "@TOP@/crates/wgpu-hal-30.0.1" }
+window_clipboard = { package = "window_clipboard", path = "@TOP@/crates/window_clipboard-0.5.1" }
+iced_graphics = { package = "iced_graphics", path = "@TOP@/crates/iced_graphics-0.14.0" }
+eframe = { package = "eframe", path = "@TOP@/crates/eframe-0.37.0" }
+wgpu-28_0_0 = { package = "wgpu", path = "@TOP@/crates/wgpu-28.0.0" }
+wgpu-core-28_0_1 = { package = "wgpu-core", path = "@TOP@/crates/wgpu-core-28.0.1" }
+wgpu-hal-28_0_1 = { package = "wgpu-hal", path = "@TOP@/crates/wgpu-hal-28.0.1" }
+cc = { package = "cc", path = "@TOP@/crates/cc-1.4.3" }
+cc-1_10_0 = { package = "cc", path = "@TOP@/crates/cc-1.10.0" }
+cc-1_11_1 = { package = "cc", path = "@TOP@/crates/cc-1.11.1" }
+stacker-0_1_24 = { package = "stacker", path = "@TOP@/crates/stacker-0.1.24" }
