@@ -185,6 +185,17 @@ impl Inputs {
 
 /// a message to the window's /dev/wctl (rio(4): resize, move, hide, unhide,
 /// current); without a window system nothing
+/// the window system's dots per inch: its window's dpi file (wsys(4),
+/// libdraw's display->dpi); 96 without one (rio)
+pub fn dpi() -> i32 {
+    std::fs::read_to_string("/dev/dpi").ok().and_then(|s| s.trim().parse().ok()).filter(|&d: &i32| d > 0).unwrap_or(96)
+}
+
+/// the scale the window system draws at: dpi/96 (1 under rio)
+pub fn scale() -> f64 {
+    dpi() as f64 / 96.0
+}
+
 pub fn wctl(msg: &str) -> io::Result<()> {
     match Fd::open("/dev/wctl", OWRITE) {
         Ok(fd) => fd.write1(msg.as_bytes()),

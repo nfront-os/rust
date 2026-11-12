@@ -23,13 +23,13 @@ diff -ruN '--exclude=target' winit-0.30.13/Cargo.toml /home/stefan/Devel/9front-
 +path = "../../plan9/p9win"
 diff -ruN '--exclude=target' winit-0.30.13/src/event.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/event.rs
 --- a/src/event.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/event.rs	2026-11-06 22:28:23.715292529 +0100
++++ b/src/event.rs	2026-11-12 08:04:45.777335334 +0100
 @@ -982,7 +982,7 @@
  }
  
  impl InnerSizeWriter {
 -    #[cfg(not(orbital_platform))]
-+    #[cfg(not(any(orbital_platform, plan9_platform)))] // 9front: plan9 too
++    #[cfg(not(orbital_platform))] // 9front: plan9 has a scale too (wsys' dpi)
      pub(crate) fn new(new_inner_size: Weak<Mutex<PhysicalSize<u32>>>) -> Self {
          Self { new_inner_size }
      }
@@ -90,8 +90,8 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/mod.rs /home/stefan
  compile_error!("The platform you're compiling for is not supported by winit");
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 --- a/src/platform_impl/plan9/event_loop.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/event_loop.rs	2026-11-11 15:24:56.641359401 +0100
-@@ -0,0 +1,799 @@
++++ b/src/platform_impl/plan9/event_loop.rs	2026-11-12 08:05:01.425931248 +0100
+@@ -0,0 +1,816 @@
 +//! 9front: the event loop of winit's plan9 backend. The readers of p9win
 +//! (threads) put what they read into a queue; the loop takes it out and makes
 +//! winit's events of it, and waits on the queue (a condition variable) for
@@ -109,6 +109,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +use p9win::{Input, Inputs};
 +use smol_str::SmolStr;
 +
++use crate::dpi::PhysicalSize;
 +use crate::error::EventLoopError;
 +use crate::event::{self, Modifiers, StartCause};
 +use crate::event_loop::{self, ControlFlow, DeviceEvents};
@@ -180,6 +181,8 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +    /// before maximizing or fullscreen: the window's rectangle (with its border)
 +    pub restore: Mutex<Option<Rect>>,
 +    pub fullscreen: AtomicBool,
++    /// the window system's scale (p9win::scale: its dpi/96), as last looked at
++    pub scale: Mutex<f64>,
 +}
 +
 +impl WinState {
@@ -206,6 +209,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +        }
 +        let c = d.content();
 +        *self.content.lock().unwrap() = c;
++        *self.scale.lock().unwrap() = p9win::scale();
 +        c
 +    }
 +}
@@ -322,6 +326,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +    inside: bool,
 +    content: Rect,
 +    theme: Option<String>, // the desktop's theme as last read (/dev/theme)
++    scale: f64,            // the scale the program was told
 +}
 +
 +impl State {
@@ -446,6 +451,17 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +        let c = win.relook();
 +        let old = st.content;
 +        st.content = c;
++        // another scale (wsys' theme): the program sizes what it draws anew; the
++        // size it asks for is not taken (the window system's says it)
++        let scale = *win.scale.lock().unwrap();
++        if scale != st.scale {
++            st.scale = scale;
++            let size = Arc::new(Mutex::new(PhysicalSize::new(c.dx().max(0) as u32, c.dy().max(0) as u32)));
++            window_event(h, event::WindowEvent::ScaleFactorChanged {
++                scale_factor: scale,
++                inner_size_writer: event::InnerSizeWriter::new(Arc::downgrade(&size)),
++            });
++        }
 +        if c.dx() != old.dx() || c.dy() != old.dy() {
 +            window_event(h, event::WindowEvent::Resized(
 +                (c.dx().max(0) as u32, c.dy().max(0) as u32).into(),
@@ -705,6 +721,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +                // the first size and place
 +                *st = State::default();
 +                st.content = *win.content.lock().unwrap();
++                st.scale = *win.scale.lock().unwrap();
 +                let c = st.content;
 +                window_event(&mut h, event::WindowEvent::Resized(
 +                    (c.dx().max(0) as u32, c.dy().max(0) as u32).into(),
@@ -893,7 +910,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/event_loop.rs
 +}
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/mod.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/mod.rs
 --- a/src/platform_impl/plan9/mod.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/mod.rs	2026-11-06 22:28:23.715872512 +0100
++++ b/src/platform_impl/plan9/mod.rs	2026-11-12 08:04:45.777688168 +0100
 @@ -0,0 +1,159 @@
 +//! 9front: winit's plan9 backend (target_os = "plan9"): the process's window
 +//! of wsys or rio, the screen without either, through p9win
@@ -1005,7 +1022,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/mod.rs /home/
 +    }
 +
 +    pub fn scale_factor(&self) -> f64 {
-+        1.0
++        p9win::scale()
 +    }
 +
 +    pub fn refresh_rate_millihertz(&self) -> Option<u32> {
@@ -1056,8 +1073,8 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/mod.rs /home/
 +}
 diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /home/stefan/Devel/9front-rust/crates/winit-0.30.13/src/platform_impl/plan9/window.rs
 --- a/src/platform_impl/plan9/window.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/platform_impl/plan9/window.rs	2026-11-12 01:09:09.972671833 +0100
-@@ -0,0 +1,508 @@
++++ b/src/platform_impl/plan9/window.rs	2026-11-12 08:05:01.425791620 +0100
+@@ -0,0 +1,510 @@
 +//! 9front: the window of winit's plan9 backend, the process's window of wsys
 +//! or rio (the screen without either). Size, place and hiding go to
 +//! /dev/wctl (rio(4)); the window system's answer comes back as a change the
@@ -1147,12 +1164,13 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +                ));
 +            }
 +        } else {
++            // logical sizes at the window system's scale (wsys' dpi)
 +            if let Some(size) = attrs.inner_size {
-+                let (w, h): (u32, u32) = size.to_physical::<u32>(1.0).into();
++                let (w, h): (u32, u32) = size.to_physical::<u32>(p9win::scale()).into();
 +                wctl(&format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
 +            }
 +            if let Some(pos) = attrs.position {
-+                let (x, y): (i32, i32) = pos.to_physical::<i32>(1.0).into();
++                let (x, y): (i32, i32) = pos.to_physical::<i32>(p9win::scale()).into();
 +                wctl(&format!("move -minx {x} -miny {y}"));
 +            }
 +        }
@@ -1177,6 +1195,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +            invisible: AtomicBool::new(false),
 +            restore: Mutex::new(restore),
 +            fullscreen: AtomicBool::new(fullscreen),
++            scale: Mutex::new(p9win::scale()),
 +        });
 +        *shared.win.lock().unwrap() = Some(st.clone());
 +        let w = Window { shared: shared.clone(), st };
@@ -1241,7 +1260,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +
 +    #[inline]
 +    pub fn scale_factor(&self) -> f64 {
-+        1.0
++        *self.st.scale.lock().unwrap()
 +    }
 +
 +    #[inline]
@@ -1269,7 +1288,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +
 +    #[inline]
 +    pub fn set_outer_position(&self, position: Position) {
-+        let (x, y): (i32, i32) = position.to_physical::<i32>(1.0).into();
++        let (x, y): (i32, i32) = position.to_physical::<i32>(self.scale_factor()).into();
 +        wctl(&format!("move -minx {x} -miny {y}"));
 +        self.st.relook();
 +    }
@@ -1282,7 +1301,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +
 +    #[inline]
 +    pub fn request_inner_size(&self, size: Size) -> Option<PhysicalSize<u32>> {
-+        let (w, h): (u32, u32) = size.to_physical::<u32>(1.0).into();
++        let (w, h): (u32, u32) = size.to_physical::<u32>(self.scale_factor()).into();
 +        let b = self.border();
 +        wctl(&format!("resize -dx {} -dy {}", w as i32 + 2 * b, h as i32 + 2 * b));
 +        // the window system's answer comes as a resize the event loop sees
@@ -1462,7 +1481,7 @@ diff -ruN '--exclude=target' winit-0.30.13/src/platform_impl/plan9/window.rs /ho
 +
 +    #[inline]
 +    pub fn set_cursor_position(&self, position: Position) -> Result<(), error::ExternalError> {
-+        let (x, y): (i32, i32) = position.to_physical::<i32>(1.0).into();
++        let (x, y): (i32, i32) = position.to_physical::<i32>(self.scale_factor()).into();
 +        let c = self.content();
 +        self.st
 +            .inputs

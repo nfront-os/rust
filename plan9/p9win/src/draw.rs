@@ -16,6 +16,11 @@ pub const ARGB32: u32 = 0x4808_1828;
 const GREY1: u32 = 0x31;
 /// rio's and wsys' border around the window image a client draws in
 pub const BORDERWIDTH: i32 = 4;
+
+/// n pixels at 96 dpi at dpi, rounded (libdraw's scalesize(2))
+pub fn scalesize(dpi: i32, n: i32) -> i32 {
+    if dpi <= 0 { n } else { (n * dpi + 48) / 96 }
+}
 // libdraw sends at most its buffer (8000 bytes without an iounit); the same here
 const MAXMSG: usize = 8000;
 
@@ -245,8 +250,9 @@ impl Draw {
         self.win = id;
         self.chan = strtochan(&f[2]).unwrap_or(XRGB32);
         self.r = Rect::new(int(&f[4]), int(&f[5]), int(&f[6]), int(&f[7]));
-        // rio's windows have a border; devdraw's screen (noborder.screen.N) has none
-        self.border = if name.starts_with("noborder.") { 0 } else { BORDERWIDTH };
+        // rio's windows have a border; devdraw's screen (noborder.screen.N) has none;
+        // at another scale than 1 (wsys' dpi) libdraw's scalesize(BORDERWIDTH)
+        self.border = if name.starts_with("noborder.") { 0 } else { scalesize(crate::dpi(), BORDERWIDTH) };
         self.name = name;
         Ok(())
     }
