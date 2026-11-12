@@ -7,6 +7,9 @@ change-id = "ignore"
 download-ci-llvm = true
 
 [build]
+# the sources are an archive (fetch.sh) with vendor/; our patches change dependencies
+# (libc by path, crates of other versions): cargo fetches them as for a clone
+vendor = false
 # the submodules are the port's branches (llvm-project: plan9): bootstrap leaves them
 submodules = false
 target = ["x86_64-unknown-linux-gnu", "x86_64-unknown-plan9", "i686-unknown-plan9", "aarch64-unknown-plan9"]
