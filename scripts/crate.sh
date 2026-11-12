@@ -4,7 +4,7 @@
 # in cargo-plan9.toml ([patch.crates-io]; cargo --config cargo-plan9.toml).
 # usage: scripts/crate.sh name version
 set -e
-TOP=$(cd "$(dirname "$0")/.." && pwd)
+TOP=$(cd -P "$(dirname "$0")/.." && pwd -P)	# physical: cargo-plan9.toml gets this path
 name=$1 ver=$2
 src=$(ls -d ~/.cargo/registry/src/*/"$name-$ver" | head -1)
 [ -d "$src" ] || { echo "$name-$ver not in the registry" >&2; exit 1; }
