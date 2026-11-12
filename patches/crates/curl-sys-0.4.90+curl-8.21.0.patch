@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/build.rs /home/stefan/Devel/9front-rust/crates/curl-sys-0.4.90+curl-8.21.0/build.rs
---- a/build.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/build.rs	2026-10-29 12:51:53.400023012 +0100
+diff -ruN a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
 @@ -15,6 +15,9 @@
      );
      let target = env::var("TARGET").unwrap();
@@ -69,9 +69,9 @@ diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/build.rs /home/stefan/D
  
          if target.contains("-apple-") {
              cfg.define("__APPLE__", None)
-diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/Cargo.toml /home/stefan/Devel/9front-rust/crates/curl-sys-0.4.90+curl-8.21.0/Cargo.toml
---- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-10-29 12:51:53.400166020 +0100
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -70,7 +70,9 @@
  
  [dependencies.rustls-ffi]
@@ -83,9 +83,9 @@ diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/Cargo.toml /home/stefan
  optional = true
  
  [build-dependencies.cc]
-diff -ruN '--exclude=target' curl-sys-0.4.90+curl-8.21.0/lib.rs /home/stefan/Devel/9front-rust/crates/curl-sys-0.4.90+curl-8.21.0/lib.rs
---- a/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/lib.rs	2026-10-29 12:51:53.400292059 +0100
+diff -ruN a/lib.rs b/lib.rs
+--- a/lib.rs
++++ b/lib.rs
 @@ -14,7 +14,7 @@
  use libc::c_ulong;
  use libc::{c_char, c_double, c_int, c_long, c_short, c_uint, c_void, size_t, time_t};

@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' mio-1.2.1/src/io_source.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/io_source.rs
---- a/src/io_source.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/io_source.rs	2026-10-31 00:53:17.595409607 +0100
+diff -ruN a/src/io_source.rs b/src/io_source.rs
+--- a/src/io_source.rs
++++ b/src/io_source.rs
 @@ -1,5 +1,5 @@
  use std::ops::{Deref, DerefMut};
 -#[cfg(any(unix, target_os = "wasi"))]
@@ -16,9 +16,9 @@ diff -ruN '--exclude=target' mio-1.2.1/src/io_source.rs /home/stefan/Devel/9fron
      all(target_os = "wasi", not(target_env = "p1"))
  ))]
  impl<T> event::Source for IoSource<T>
-diff -ruN '--exclude=target' mio-1.2.1/src/net/tcp/listener.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/net/tcp/listener.rs
---- a/src/net/tcp/listener.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/tcp/listener.rs	2026-10-31 00:53:49.379824611 +0100
+diff -ruN a/src/net/tcp/listener.rs b/src/net/tcp/listener.rs
+--- a/src/net/tcp/listener.rs
++++ b/src/net/tcp/listener.rs
 @@ -1,5 +1,5 @@
  use std::net::{self, SocketAddr};
 -#[cfg(any(unix, target_os = "wasi"))]
@@ -113,9 +113,9 @@ diff -ruN '--exclude=target' mio-1.2.1/src/net/tcp/listener.rs /home/stefan/Deve
              {
                  net::TcpListener::from_raw_fd(listener.into_raw_fd())
              }
-diff -ruN '--exclude=target' mio-1.2.1/src/net/tcp/stream.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/net/tcp/stream.rs
---- a/src/net/tcp/stream.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/tcp/stream.rs	2026-10-31 00:53:49.379599943 +0100
+diff -ruN a/src/net/tcp/stream.rs b/src/net/tcp/stream.rs
+--- a/src/net/tcp/stream.rs
++++ b/src/net/tcp/stream.rs
 @@ -1,7 +1,7 @@
  use std::fmt;
  use std::io::{self, IoSlice, IoSliceMut, Read, Write};
@@ -212,9 +212,9 @@ diff -ruN '--exclude=target' mio-1.2.1/src/net/tcp/stream.rs /home/stefan/Devel/
              {
                  net::TcpStream::from_raw_fd(stream.into_raw_fd())
              }
-diff -ruN '--exclude=target' mio-1.2.1/src/net/udp.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/net/udp.rs
---- a/src/net/udp.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/udp.rs	2026-10-31 00:53:49.375741238 +0100
+diff -ruN a/src/net/udp.rs b/src/net/udp.rs
+--- a/src/net/udp.rs
++++ b/src/net/udp.rs
 @@ -8,7 +8,7 @@
  //! [portability guidelines]: ../struct.Poll.html#portability
  
@@ -283,9 +283,9 @@ diff -ruN '--exclude=target' mio-1.2.1/src/net/udp.rs /home/stefan/Devel/9front-
              {
                  net::UdpSocket::from_raw_fd(socket.into_raw_fd())
              }
-diff -ruN '--exclude=target' mio-1.2.1/src/sys/mod.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/sys/mod.rs
---- a/src/sys/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/sys/mod.rs	2026-10-31 09:14:33.192262762 +0100
+diff -ruN a/src/sys/mod.rs b/src/sys/mod.rs
+--- a/src/sys/mod.rs
++++ b/src/sys/mod.rs
 @@ -14,6 +14,8 @@
  //! * `Waker`: see [`crate::Waker`].
  
@@ -309,9 +309,9 @@ diff -ruN '--exclude=target' mio-1.2.1/src/sys/mod.rs /home/stefan/Devel/9front-
  #[cfg(all(target_os = "wasi", target_env = "p1"))]
  cfg_os_poll! {
      mod wasip1;
-diff -ruN '--exclude=target' mio-1.2.1/src/sys/plan9/mod.rs /home/stefan/Devel/9front-rust/crates/mio-1.2.1/src/sys/plan9/mod.rs
---- a/src/sys/plan9/mod.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/sys/plan9/mod.rs	2026-10-31 00:54:27.073277245 +0100
+diff -ruN a/src/sys/plan9/mod.rs b/src/sys/plan9/mod.rs
+--- a/src/sys/plan9/mod.rs
++++ b/src/sys/plan9/mod.rs
 @@ -0,0 +1,356 @@
 +//! 9front (Plan 9): readiness from std's non-blocking sockets.
 +//!

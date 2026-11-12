@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' wgpu-core-28.0.1/build.rs /home/stefan/Devel/9front-rust/crates/wgpu-core-28.0.1/build.rs
---- a/build.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/build.rs	2026-11-07 08:02:27.801370244 +0100
+diff -ruN a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
 @@ -18,7 +18,8 @@
          ) },
          vulkan: { any(
@@ -11,9 +11,9 @@ diff -ruN '--exclude=target' wgpu-core-28.0.1/build.rs /home/stefan/Devel/9front
          ) },
          metal: { all(target_vendor = "apple", feature = "metal") },
  
-diff -ruN '--exclude=target' wgpu-core-28.0.1/Cargo.toml /home/stefan/Devel/9front-rust/crates/wgpu-core-28.0.1/Cargo.toml
---- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-11-07 08:02:27.801484983 +0100
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -93,7 +93,11 @@
      "naga/serialize",
      "wgpu-types/trace",

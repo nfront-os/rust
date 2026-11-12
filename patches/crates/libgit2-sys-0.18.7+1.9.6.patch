@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' libgit2-sys-0.18.7+1.9.6/build.rs /home/stefan/Devel/9front-rust/crates/libgit2-sys-0.18.7+1.9.6/build.rs
---- a/build.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/build.rs	2026-10-29 22:00:30.827029512 +0100
+diff -ruN a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
 @@ -82,8 +82,11 @@
          )"
      );
@@ -51,9 +51,9 @@ diff -ruN '--exclude=target' libgit2-sys-0.18.7+1.9.6/build.rs /home/stefan/Deve
      } else {
          features.push_str("#define GIT_USE_STAT_MTIM 1\n");
      }
-diff -ruN '--exclude=target' libgit2-sys-0.18.7+1.9.6/libgit2/src/util/integer.h /home/stefan/Devel/9front-rust/crates/libgit2-sys-0.18.7+1.9.6/libgit2/src/util/integer.h
---- a/libgit2/src/util/integer.h	2006-07-24 03:21:28.000000000 +0200
-+++ b/libgit2/src/util/integer.h	2026-10-30 15:30:24.903824652 +0100
+diff -ruN a/libgit2/src/util/integer.h b/libgit2/src/util/integer.h
+--- a/libgit2/src/util/integer.h
++++ b/libgit2/src/util/integer.h
 @@ -53,24 +53,15 @@
  #if (__has_builtin(__builtin_add_overflow) || \
       (defined(__GNUC__) && (__GNUC__ >= 5)))
@@ -88,9 +88,9 @@ diff -ruN '--exclude=target' libgit2-sys-0.18.7+1.9.6/libgit2/src/util/integer.h
  
  # define git__add_int_overflow(out, one, two) \
      __builtin_sadd_overflow(one, two, out)
-diff -ruN '--exclude=target' libgit2-sys-0.18.7+1.9.6/lib.rs /home/stefan/Devel/9front-rust/crates/libgit2-sys-0.18.7+1.9.6/lib.rs
---- a/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/lib.rs	2026-10-29 12:51:53.461495836 +0100
+diff -ruN a/lib.rs b/lib.rs
+--- a/lib.rs
++++ b/lib.rs
 @@ -5,7 +5,7 @@
  extern crate libz_sys as libz;
  

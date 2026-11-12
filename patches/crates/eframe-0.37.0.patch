@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' eframe-0.37.0/Cargo.toml /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/Cargo.toml
---- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-11-07 07:34:11.350439762 +0100
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -90,6 +90,12 @@
      "serde",
  ]
@@ -30,9 +30,9 @@ diff -ruN '--exclude=target' eframe-0.37.0/Cargo.toml /home/stefan/Devel/9front-
  [dependencies.web-time]
  version = "1.1"
  
-diff -ruN '--exclude=target' eframe-0.37.0/src/epi.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/epi.rs
---- a/src/epi.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/epi.rs	2026-11-07 07:34:11.350794697 +0100
+diff -ruN a/src/epi.rs b/src/epi.rs
+--- a/src/epi.rs
++++ b/src/epi.rs
 @@ -10,7 +10,7 @@
  use core::any::Any;
  
@@ -233,9 +233,9 @@ diff -ruN '--exclude=target' eframe-0.37.0/src/epi.rs /home/stefan/Devel/9front-
              ) => {
                  if let Ok(window_handle) = &self.raw_window_handle {
                      // Convert from egui points to native points:
-diff -ruN '--exclude=target' eframe-0.37.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-11-07 07:34:11.350962305 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -187,22 +187,22 @@
  // When compiling natively
  
@@ -355,9 +355,9 @@ diff -ruN '--exclude=target' eframe-0.37.0/src/lib.rs /home/stefan/Devel/9front-
  pub fn run_ui_native(
      app_name: &str,
      native_options: NativeOptions,
-diff -ruN '--exclude=target' eframe-0.37.0/src/native/mod.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/mod.rs
---- a/src/native/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/native/mod.rs	2026-11-07 07:34:11.351261061 +0100
+diff -ruN a/src/native/mod.rs b/src/native/mod.rs
+--- a/src/native/mod.rs
++++ b/src/native/mod.rs
 @@ -15,5 +15,10 @@
  #[cfg(feature = "glow")]
  mod glow_integration;
@@ -370,9 +370,9 @@ diff -ruN '--exclude=target' eframe-0.37.0/src/native/mod.rs /home/stefan/Devel/
 +// 9front: wgpu's painter, or the processor's (feature "software")
 +#[cfg(any(feature = "wgpu_no_default_features", feature = "software"))]
 +mod painter;
-diff -ruN '--exclude=target' eframe-0.37.0/src/native/painter.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/painter.rs
---- a/src/native/painter.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/native/painter.rs	2026-11-07 07:37:38.547292670 +0100
+diff -ruN a/src/native/painter.rs b/src/native/painter.rs
+--- a/src/native/painter.rs
++++ b/src/native/painter.rs
 @@ -0,0 +1,334 @@
 +//! 9front: the painter of [`super::wgpu_integration`]: wgpu's, or with the
 +//! feature `software` egui's shapes drawn on the processor
@@ -708,9 +708,9 @@ diff -ruN '--exclude=target' eframe-0.37.0/src/native/painter.rs /home/stefan/De
 +        start.elapsed().as_secs_f32()
 +    }
 +}
-diff -ruN '--exclude=target' eframe-0.37.0/src/native/run.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/run.rs
---- a/src/native/run.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/native/run.rs	2026-11-07 07:34:11.351177432 +0100
+diff -ruN a/src/native/run.rs b/src/native/run.rs
+--- a/src/native/run.rs
++++ b/src/native/run.rs
 @@ -494,7 +494,7 @@
  
  // ----------------------------------------------------------------------------
@@ -729,9 +729,9 @@ diff -ruN '--exclude=target' eframe-0.37.0/src/native/run.rs /home/stefan/Devel/
  pub fn create_wgpu<'a>(
      app_name: &str,
      native_options: epi::NativeOptions,
-diff -ruN '--exclude=target' eframe-0.37.0/src/native/wgpu_integration.rs /home/stefan/Devel/9front-rust/crates/eframe-0.37.0/src/native/wgpu_integration.rs
---- a/src/native/wgpu_integration.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/native/wgpu_integration.rs	2026-11-07 07:34:50.438924749 +0100
+diff -ruN a/src/native/wgpu_integration.rs b/src/native/wgpu_integration.rs
+--- a/src/native/wgpu_integration.rs
++++ b/src/native/wgpu_integration.rs
 @@ -86,7 +86,7 @@
  pub struct SharedState {
      egui_ctx: egui::Context,

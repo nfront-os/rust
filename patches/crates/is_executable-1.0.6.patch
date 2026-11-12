@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' is_executable-1.0.6/src/lib.rs /home/stefan/Devel/9front-rust/crates/is_executable-1.0.6/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-29 12:51:53.438569104 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -122,6 +122,24 @@
  // Since wasm and wasi
  //  is not supposed to add executables ideologically,

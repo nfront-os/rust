@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' tokio-1.54.1/Cargo.toml /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/Cargo.toml
---- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-10-31 00:57:34.106770928 +0100
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -978,7 +978,8 @@
  [target.'cfg(any(not(target_family = "wasm"), target_os = "emscripten"))'.dev-dependencies.tempfile]
  version = "3.1.0"
@@ -11,9 +11,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/Cargo.toml /home/stefan/Devel/9front-r
  version = "0.6.3"
  features = ["all"]
  optional = true
-diff -ruN '--exclude=target' tokio-1.54.1/src/lib.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-31 09:45:18.653417809 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -584,6 +584,8 @@
      feature = "io-std",
      feature = "net",
@@ -23,9 +23,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/lib.rs /home/stefan/Devel/9front-r
  ))]
  mod blocking;
  
-diff -ruN '--exclude=target' tokio-1.54.1/src/macros/cfg.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/macros/cfg.rs
---- a/src/macros/cfg.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/macros/cfg.rs	2026-10-31 09:43:25.071931864 +0100
+diff -ruN a/src/macros/cfg.rs b/src/macros/cfg.rs
+--- a/src/macros/cfg.rs
++++ b/src/macros/cfg.rs
 @@ -142,6 +142,8 @@
                  feature = "io-std",
                  feature = "fs",
@@ -35,9 +35,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/macros/cfg.rs /home/stefan/Devel/9
          ))] $item )*
      }
  }
-diff -ruN '--exclude=target' tokio-1.54.1/src/net/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/mod.rs
---- a/src/net/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/mod.rs	2026-10-31 00:59:03.943966746 +0100
+diff -ruN a/src/net/mod.rs b/src/net/mod.rs
+--- a/src/net/mod.rs
++++ b/src/net/mod.rs
 @@ -43,6 +43,7 @@
      pub use tcp::listener::TcpListener;
      pub use tcp::stream::TcpStream;
@@ -46,9 +46,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/net/mod.rs /home/stefan/Devel/9fro
          pub use tcp::socket::TcpSocket;
  
          mod udp;
-diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/listener.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/tcp/listener.rs
---- a/src/net/tcp/listener.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/tcp/listener.rs	2026-10-31 00:59:03.943467894 +0100
+diff -ruN a/src/net/tcp/listener.rs b/src/net/tcp/listener.rs
+--- a/src/net/tcp/listener.rs
++++ b/src/net/tcp/listener.rs
 @@ -289,7 +289,7 @@
                  .map(|raw_socket| unsafe { std::net::TcpListener::from_raw_socket(raw_socket) })
          }
@@ -58,9 +58,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/listener.rs /home/stefan/D
          {
              use std::os::fd::{FromRawFd, IntoRawFd};
              self.io
-diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/tcp/mod.rs
---- a/src/net/tcp/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/tcp/mod.rs	2026-10-31 00:59:03.943899737 +0100
+diff -ruN a/src/net/tcp/mod.rs b/src/net/tcp/mod.rs
+--- a/src/net/tcp/mod.rs
++++ b/src/net/tcp/mod.rs
 @@ -3,6 +3,8 @@
  pub(crate) mod listener;
  
@@ -70,9 +70,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/mod.rs /home/stefan/Devel/
      pub(crate) mod socket;
  }
  
-diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/stream.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/tcp/stream.rs
---- a/src/net/tcp/stream.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/tcp/stream.rs	2026-10-31 00:59:03.947935157 +0100
+diff -ruN a/src/net/tcp/stream.rs b/src/net/tcp/stream.rs
+--- a/src/net/tcp/stream.rs
++++ b/src/net/tcp/stream.rs
 @@ -287,7 +287,7 @@
                  .map(|raw_socket| unsafe { std::net::TcpStream::from_raw_socket(raw_socket) })
          }
@@ -112,9 +112,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/net/tcp/stream.rs /home/stefan/Dev
              socket2::SockRef::from(self).set_linger(Some(Duration::ZERO))
          }
      }
-diff -ruN '--exclude=target' tokio-1.54.1/src/net/udp.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/net/udp.rs
---- a/src/net/udp.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/net/udp.rs	2026-10-31 00:59:03.949469374 +0100
+diff -ruN a/src/net/udp.rs b/src/net/udp.rs
+--- a/src/net/udp.rs
++++ b/src/net/udp.rs
 @@ -273,10 +273,17 @@
          }
      }
@@ -177,9 +177,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/net/udp.rs /home/stefan/Devel/9fro
 +        self.unsupported()
 +    }
 +}
-diff -ruN '--exclude=target' tokio-1.54.1/src/process/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/process/mod.rs
---- a/src/process/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/process/mod.rs	2026-10-31 09:45:49.222166066 +0100
+diff -ruN a/src/process/mod.rs b/src/process/mod.rs
+--- a/src/process/mod.rs
++++ b/src/process/mod.rs
 @@ -239,6 +239,11 @@
  #[cfg(windows)]
  mod imp;
@@ -227,9 +227,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/process/mod.rs /home/stefan/Devel/
  
          Ok(Child {
              child: FusedChild::Child(ChildDropGuard {
-diff -ruN '--exclude=target' tokio-1.54.1/src/process/plan9.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/process/plan9.rs
---- a/src/process/plan9.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/process/plan9.rs	2026-10-31 09:45:49.222327635 +0100
+diff -ruN a/src/process/plan9.rs b/src/process/plan9.rs
+--- a/src/process/plan9.rs
++++ b/src/process/plan9.rs
 @@ -0,0 +1,309 @@
 +//! 9front (Plan 9) asynchronous process handling.
 +//!
@@ -540,9 +540,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/process/plan9.rs /home/stefan/Deve
 +
 +    Arc::try_unwrap(raw).or_else(|raw| raw.try_clone())
 +}
-diff -ruN '--exclude=target' tokio-1.54.1/src/signal/ctrl_c.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/signal/ctrl_c.rs
---- a/src/signal/ctrl_c.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/signal/ctrl_c.rs	2026-10-31 09:43:25.072111952 +0100
+diff -ruN a/src/signal/ctrl_c.rs b/src/signal/ctrl_c.rs
+--- a/src/signal/ctrl_c.rs
++++ b/src/signal/ctrl_c.rs
 @@ -2,6 +2,8 @@
  use super::unix::{self as os_impl};
  #[cfg(windows)]
@@ -552,9 +552,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/signal/ctrl_c.rs /home/stefan/Deve
  
  use std::io;
  
-diff -ruN '--exclude=target' tokio-1.54.1/src/signal/mod.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/signal/mod.rs
---- a/src/signal/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/signal/mod.rs	2026-10-31 09:43:25.072045783 +0100
+diff -ruN a/src/signal/mod.rs b/src/signal/mod.rs
+--- a/src/signal/mod.rs
++++ b/src/signal/mod.rs
 @@ -55,6 +55,9 @@
  
  pub mod unix;
@@ -565,9 +565,9 @@ diff -ruN '--exclude=target' tokio-1.54.1/src/signal/mod.rs /home/stefan/Devel/9
  
  mod reusable_box;
  use self::reusable_box::ReusableBoxFuture;
-diff -ruN '--exclude=target' tokio-1.54.1/src/signal/plan9.rs /home/stefan/Devel/9front-rust/crates/tokio-1.54.1/src/signal/plan9.rs
---- a/src/signal/plan9.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/signal/plan9.rs	2026-10-31 09:43:41.648600878 +0100
+diff -ruN a/src/signal/plan9.rs b/src/signal/plan9.rs
+--- a/src/signal/plan9.rs
++++ b/src/signal/plan9.rs
 @@ -0,0 +1,85 @@
 +//! 9front (Plan 9) specific types for signal handling: notes.
 +//!

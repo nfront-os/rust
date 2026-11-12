@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' iced_graphics-0.14.0/src/settings.rs /home/stefan/Devel/9front-rust/crates/iced_graphics-0.14.0/src/settings.rs
---- a/src/settings.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/settings.rs	2026-11-06 22:50:55.091955836 +0100
+diff -ruN a/src/settings.rs b/src/settings.rs
+--- a/src/settings.rs
++++ b/src/settings.rs
 @@ -37,8 +37,9 @@
  impl From<core::Settings> for Settings {
      fn from(settings: core::Settings) -> Self {

@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' dirs-sys-0.5.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/dirs-sys-0.5.0/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-31 11:17:48.836145404 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -133,6 +133,33 @@
  #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
  pub use self::target_unix_not_mac::{user_dir, user_dirs};

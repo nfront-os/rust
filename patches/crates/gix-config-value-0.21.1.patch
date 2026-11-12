@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' gix-config-value-0.21.1/src/path.rs /home/stefan/Devel/9front-rust/crates/gix-config-value-0.21.1/src/path.rs
---- a/src/path.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/path.rs	2026-10-29 12:51:53.427939929 +0100
+diff -ruN a/src/path.rs b/src/path.rs
+--- a/src/path.rs
++++ b/src/path.rs
 @@ -39,9 +39,16 @@
      #[cfg_attr(windows, allow(unused_variables))]
      #[cfg_attr(all(target_family = "wasm", not(target_os = "emscripten")), allow(unused_variables))]

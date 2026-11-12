@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' curl-0.4.50/Cargo.toml /home/stefan/Devel/9front-rust/crates/curl-0.4.50/Cargo.toml
---- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-10-29 12:51:53.374399829 +0100
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -126,9 +126,6 @@
  [dependencies.libc]
  version = "0.2.42"
@@ -25,9 +25,9 @@ diff -ruN '--exclude=target' curl-0.4.50/Cargo.toml /home/stefan/Devel/9front-ru
 +version = "0.4.83"
 +default-features = false
 +features = ["rustls"]
-diff -ruN '--exclude=target' curl-0.4.50/src/easy/form.rs /home/stefan/Devel/9front-rust/crates/curl-0.4.50/src/easy/form.rs
---- a/src/easy/form.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/easy/form.rs	2026-10-29 12:51:53.374517238 +0100
+diff -ruN a/src/easy/form.rs b/src/easy/form.rs
+--- a/src/easy/form.rs
++++ b/src/easy/form.rs
 @@ -332,9 +332,12 @@
          }
      }
@@ -42,9 +42,9 @@ diff -ruN '--exclude=target' curl-0.4.50/src/easy/form.rs /home/stefan/Devel/9fr
          self.bytes2cstr(p.as_os_str().as_bytes())
      }
  
-diff -ruN '--exclude=target' curl-0.4.50/src/easy/handler.rs /home/stefan/Devel/9front-rust/crates/curl-0.4.50/src/easy/handler.rs
---- a/src/easy/handler.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/easy/handler.rs	2026-10-29 22:00:30.826825153 +0100
+diff -ruN a/src/easy/handler.rs b/src/easy/handler.rs
+--- a/src/easy/handler.rs
++++ b/src/easy/handler.rs
 @@ -10,6 +10,7 @@
  use std::time::Duration;
  

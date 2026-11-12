@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' hyper-util-0.1.21/Cargo.toml /home/stefan/Devel/9front-rust/crates/hyper-util-0.1.21/Cargo.toml
---- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-10-31 09:03:47.086371785 +0100
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -205,7 +205,8 @@
  [dependencies.pin-project-lite]
  version = "0.2.4"
@@ -11,9 +11,9 @@ diff -ruN '--exclude=target' hyper-util-0.1.21/Cargo.toml /home/stefan/Devel/9fr
  version = "0.6"
  features = ["all"]
  optional = true
-diff -ruN '--exclude=target' hyper-util-0.1.21/src/client/legacy/connect/http.rs /home/stefan/Devel/9front-rust/crates/hyper-util-0.1.21/src/client/legacy/connect/http.rs
---- a/src/client/legacy/connect/http.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/client/legacy/connect/http.rs	2026-10-31 09:04:10.440062615 +0100
+diff -ruN a/src/client/legacy/connect/http.rs b/src/client/legacy/connect/http.rs
+--- a/src/client/legacy/connect/http.rs
++++ b/src/client/legacy/connect/http.rs
 @@ -11,8 +11,11 @@
  use futures_util::future::Either;
  use http::uri::{Scheme, Uri};

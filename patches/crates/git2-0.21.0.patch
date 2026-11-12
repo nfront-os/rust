@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' git2-0.21.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/git2-0.21.0/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-29 12:51:53.424408587 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -896,6 +896,7 @@
  }
  
@@ -9,9 +9,9 @@ diff -ruN '--exclude=target' git2-0.21.0/src/lib.rs /home/stefan/Devel/9front-ru
      windows,
      target_os = "macos",
      target_os = "ios",
-diff -ruN '--exclude=target' git2-0.21.0/src/util.rs /home/stefan/Devel/9front-rust/crates/git2-0.21.0/src/util.rs
---- a/src/util.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/util.rs	2026-10-29 12:51:53.424621815 +0100
+diff -ruN a/src/util.rs b/src/util.rs
+--- a/src/util.rs
++++ b/src/util.rs
 @@ -101,6 +101,12 @@
      use std::os::unix::prelude::*;
      Path::new(OsStr::from_bytes(b))

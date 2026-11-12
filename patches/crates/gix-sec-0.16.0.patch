@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' gix-sec-0.16.0/src/identity.rs /home/stefan/Devel/9front-rust/crates/gix-sec-0.16.0/src/identity.rs
---- a/src/identity.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/identity.rs	2026-10-29 12:51:53.431200814 +0100
+diff -ruN a/src/identity.rs b/src/identity.rs
+--- a/src/identity.rs
++++ b/src/identity.rs
 @@ -27,7 +27,18 @@
      }
  }

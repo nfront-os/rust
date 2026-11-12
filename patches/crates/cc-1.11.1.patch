@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' cc-1.11.1/src/lib.rs /home/stefan/Devel/9front-rust/crates/cc-1.11.1/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-11-10 15:12:32.741878610 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -3391,6 +3391,8 @@
                          if matches!(
                              target.os,

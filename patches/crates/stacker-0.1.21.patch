@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' stacker-0.1.21/src/lib.rs /home/stefan/Devel/9front-rust/crates/stacker-0.1.21/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-31 11:14:11.196983909 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -135,11 +135,12 @@
  
  psm_stack_manipulation! {

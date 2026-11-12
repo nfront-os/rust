@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' ring-0.17.14/build.rs /home/stefan/Devel/9front-rust/crates/ring-0.17.14/build.rs
---- a/build.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/build.rs	2026-10-29 12:51:53.493100476 +0100
+diff -ruN a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
 @@ -251,6 +251,8 @@
      "illumos",
      "netbsd",
@@ -10,9 +10,9 @@ diff -ruN '--exclude=target' ring-0.17.14/build.rs /home/stefan/Devel/9front-rus
      "linux",
      "redox",
      "solaris",
-diff -ruN '--exclude=target' ring-0.17.14/src/rand.rs /home/stefan/Devel/9front-rust/crates/ring-0.17.14/src/rand.rs
---- a/src/rand.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/rand.rs	2026-10-29 12:51:53.494143313 +0100
+diff -ruN a/src/rand.rs b/src/rand.rs
+--- a/src/rand.rs
++++ b/src/rand.rs
 @@ -137,6 +137,7 @@
      target_os = "linux",
      target_os = "netbsd",

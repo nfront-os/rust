@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' filetime-0.2.29/src/lib.rs /home/stefan/Devel/9front-rust/crates/filetime-0.2.29/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-29 12:51:53.404169206 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -44,6 +44,9 @@
      if #[cfg(target_os = "redox")] {
          #[path = "redox.rs"]
@@ -11,9 +11,9 @@ diff -ruN '--exclude=target' filetime-0.2.29/src/lib.rs /home/stefan/Devel/9fron
      } else if #[cfg(windows)] {
          #[path = "windows.rs"]
          mod imp;
-diff -ruN '--exclude=target' filetime-0.2.29/src/plan9.rs /home/stefan/Devel/9front-rust/crates/filetime-0.2.29/src/plan9.rs
---- a/src/plan9.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/plan9.rs	2026-10-29 12:51:53.404281295 +0100
+diff -ruN a/src/plan9.rs b/src/plan9.rs
+--- a/src/plan9.rs
++++ b/src/plan9.rs
 @@ -0,0 +1,26 @@
 +//! 9front (Plan 9): times of stat(5), in seconds; set through std (wstat).
 +use crate::FileTime;

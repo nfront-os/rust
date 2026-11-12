@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' raw-window-handle-0.6.2/src/lib.rs /home/stefan/Devel/9front-rust/crates/raw-window-handle-0.6.2/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-11-06 22:24:52.501609744 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -38,6 +38,7 @@
  mod borrowed;
  mod haiku;
@@ -57,9 +57,9 @@ diff -ruN '--exclude=target' raw-window-handle-0.6.2/src/lib.rs /home/stefan/Dev
  from_impl!(RawWindowHandle, OhosNdk, OhosNdkWindowHandle);
  from_impl!(RawWindowHandle, Xlib, XlibWindowHandle);
  from_impl!(RawWindowHandle, Xcb, XcbWindowHandle);
-diff -ruN '--exclude=target' raw-window-handle-0.6.2/src/plan9.rs /home/stefan/Devel/9front-rust/crates/raw-window-handle-0.6.2/src/plan9.rs
---- a/src/plan9.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/plan9.rs	2026-11-06 22:24:52.501913560 +0100
+diff -ruN a/src/plan9.rs b/src/plan9.rs
+--- a/src/plan9.rs
++++ b/src/plan9.rs
 @@ -0,0 +1,60 @@
 +// 9front: handles for 9front's window systems (rio, wsys) and draw(3).
 +// SPDX-License-Identifier: MIT OR Apache-2.0 OR Zlib (as the crate)

@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' wgpu-hal-30.0.1/Cargo.toml /home/stefan/Devel/9front-rust/crates/wgpu-hal-30.0.1/Cargo.toml
---- a/Cargo.toml	2006-07-24 03:21:28.000000000 +0200
-+++ b/Cargo.toml	2026-11-06 22:24:52.718500417 +0100
+diff -ruN a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
 @@ -325,10 +325,18 @@
  ]
  default-features = false
@@ -21,9 +21,9 @@ diff -ruN '--exclude=target' wgpu-hal-30.0.1/Cargo.toml /home/stefan/Devel/9fron
  [target.'cfg(not(target_arch = "wasm32"))'.dependencies.gpu-allocator]
  version = "0.28"
  features = ["hashbrown"]
-diff -ruN '--exclude=target' wgpu-hal-30.0.1/src/vulkan/instance.rs /home/stefan/Devel/9front-rust/crates/wgpu-hal-30.0.1/src/vulkan/instance.rs
---- a/src/vulkan/instance.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/vulkan/instance.rs	2026-11-06 22:24:52.727723195 +0100
+diff -ruN a/src/vulkan/instance.rs b/src/vulkan/instance.rs
+--- a/src/vulkan/instance.rs
++++ b/src/vulkan/instance.rs
 @@ -11,6 +11,10 @@
  use ash::{ext, khr, vk};
  use parking_lot::RwLock;

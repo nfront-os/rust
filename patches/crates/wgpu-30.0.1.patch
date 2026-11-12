@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' wgpu-30.0.1/build.rs /home/stefan/Devel/9front-rust/crates/wgpu-30.0.1/build.rs
---- a/build.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/build.rs	2026-11-06 22:24:52.622373935 +0100
+diff -ruN a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
 @@ -19,7 +19,9 @@
              all(any(windows, target_os = "linux", target_os = "android", target_os = "freebsd"), feature = "vulkan"),
              // On Apple platforms, however, we require the `vulkan-portability` feature

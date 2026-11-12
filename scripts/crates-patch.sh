@@ -14,8 +14,11 @@ diff)
 	mkdir -p "$P"
 	for d in "$TOP"/crates/*/; do
 		c=$(basename "$d")
+		e=$(printf '%s' "$c" | sed 's/[.+]/\\&/g')	# the name in a regular expression
 		(cd "$REG" && diff -ruN --exclude=target "$c" "$d" || true) |
-			sed "s|^--- $c/|--- a/|; s|^+++ $TOP/crates/$c/|+++ b/|" > "$P/$c.patch"
+			sed -E "s|^diff -ruN '--exclude=target' $e/([^ ]*) $TOP/crates/$e/.*|diff -ruN a/\\1 b/\\1|;
+				s|^--- $e/([^\t]*).*|--- a/\\1|; s|^\\+\\+\\+ $TOP/crates/$e/([^\t]*).*|+++ b/\\1|" > "$P/$c.patch"
+			# (no local paths, no file times: the same crates give the same patches)
 		[ -s "$P/$c.patch" ] || rm "$P/$c.patch"
 	done
 	ls "$P"

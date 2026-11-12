@@ -1,6 +1,6 @@
-diff -ruN '--exclude=target' libloading-0.9.0/src/lib.rs /home/stefan/Devel/9front-rust/crates/libloading-0.9.0/src/lib.rs
---- a/src/lib.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/lib.rs	2026-10-29 23:19:18.887023029 +0100
+diff -ruN a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
 @@ -55,13 +55,13 @@
  pub mod changelog;
  mod error;
@@ -17,9 +17,9 @@ diff -ruN '--exclude=target' libloading-0.9.0/src/lib.rs /home/stefan/Devel/9fro
  pub use self::safe::{Library, Symbol};
  
  /// Converts a library name to a filename generally appropriate for use on the system.
-diff -ruN '--exclude=target' libloading-0.9.0/src/os/mod.rs /home/stefan/Devel/9front-rust/crates/libloading-0.9.0/src/os/mod.rs
---- a/src/os/mod.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/os/mod.rs	2026-10-29 23:19:18.887239377 +0100
+diff -ruN a/src/os/mod.rs b/src/os/mod.rs
+--- a/src/os/mod.rs
++++ b/src/os/mod.rs
 @@ -25,3 +25,7 @@
  #[cfg(any(windows, libloading_docs))]
  #[cfg_attr(libloading_docs, doc(cfg(windows)))]
@@ -28,9 +28,9 @@ diff -ruN '--exclude=target' libloading-0.9.0/src/os/mod.rs /home/stefan/Devel/9
 +/// 9front (Plan 9): no dynamic libraries; opening one fails.
 +#[cfg(target_os = "plan9")]
 +pub mod plan9;
-diff -ruN '--exclude=target' libloading-0.9.0/src/os/plan9/mod.rs /home/stefan/Devel/9front-rust/crates/libloading-0.9.0/src/os/plan9/mod.rs
---- a/src/os/plan9/mod.rs	1970-01-01 01:00:00.000000000 +0100
-+++ b/src/os/plan9/mod.rs	2026-10-29 23:19:18.869772664 +0100
+diff -ruN a/src/os/plan9/mod.rs b/src/os/plan9/mod.rs
+--- a/src/os/plan9/mod.rs
++++ b/src/os/plan9/mod.rs
 @@ -0,0 +1,92 @@
 +//! 9front (Plan 9): no dynamic libraries. Opening one always fails, with that said in the
 +//! error; the types are there so that programs which may load libraries build.
@@ -124,9 +124,9 @@ diff -ruN '--exclude=target' libloading-0.9.0/src/os/plan9/mod.rs /home/stefan/D
 +        f.write_fmt(format_args!("Symbol@{:p}", self.pointer))
 +    }
 +}
-diff -ruN '--exclude=target' libloading-0.9.0/src/safe.rs /home/stefan/Devel/9front-rust/crates/libloading-0.9.0/src/safe.rs
---- a/src/safe.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/safe.rs	2026-10-29 23:19:18.887148678 +0100
+diff -ruN a/src/safe.rs b/src/safe.rs
+--- a/src/safe.rs
++++ b/src/safe.rs
 @@ -4,6 +4,8 @@
  use super::os::unix as imp;
  #[cfg(all(not(libloading_docs), windows))]
