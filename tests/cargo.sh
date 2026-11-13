@@ -14,9 +14,9 @@ GCC9BUILD=${GCC9BUILD:-$GCC9/build}
 case ${objtype:=amd64} in
 amd64)	TG=x86_64-unknown-plan9 X=x86_64-pc-plan9 LOG=cargo-guest.log ;;
 386)	TG=i686-unknown-plan9 X=i686-pc-plan9 LOG=cargo-guest.386.log
-	export PLAN9=${PLAN9:-$TREE_GCC} ;;
+	export PLAN9=${PLAN9:-$TREE} ;;
 arm64)	TG=aarch64-unknown-plan9 X=aarch64-pc-plan9 LOG=cargo-guest.arm64.log
-	export PLAN9=${PLAN9:-$TREE_GCC} ;;
+	export PLAN9=${PLAN9:-$TREE} ;;
 riscv64)	TG=riscv64gc-unknown-plan9 X=riscv64-unknown-plan9 LOG=cargo-guest.riscv64.log
 	export PLAN9=${PLAN9:-$TREE_RISCV} ;;
 *)	echo "cargo.sh: objtype=$objtype: no target" >&2; exit 1 ;;

@@ -21,7 +21,7 @@ esac
 # tests that make thousands of files)
 [ $objtype != riscv64 ] || export PLAN9=${PLAN9_RISCV:-$TREE_RISCV}
 [ $objtype != riscv64 ] || STDTEST_TIMEOUT=${STDTEST_TIMEOUT:-3600}
-export PLAN9=${PLAN9:-$TREE_GCC}
+export PLAN9=${PLAN9:-$TREE}
 name=$(basename "$bin")
 # rc quoting: each argument in '', a ' doubled
 args=

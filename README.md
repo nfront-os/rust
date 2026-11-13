@@ -5,7 +5,8 @@ Rust for 9front (Plan 9): the targets `x86_64-unknown-plan9`, `i686-unknown-plan
 C library (as `libp9.a`, its names `__p9_*`), cross-compiled on Linux. C and C++ in crates
 are APE programs as any; APE is linked beside the native libc. Programs are linked by
 nfront's gcc (`GCC_DIR` of nfront's `dist/paths.env`, `toolchain/gcc`) as cross gcc (its `build/`)
-against the gcc-built 9front tree, branch `gcc` (`TREE_GCC`, `tree-gcc`).
+against nfront's 9front tree (`TREE`, `tree`, branch `main`; its tests take another
+with `PLAN9=`, e.g. a worktree of the branch `gcc`).
 
 Log of the port: `NOTES.md`.
 

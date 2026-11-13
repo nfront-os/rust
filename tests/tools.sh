@@ -11,7 +11,7 @@
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
 . "$TOP/scripts/nfront-paths.sh"	# TREE, TREE_GCC, GCC_DIR, ... (the distribution's paths.env)
-export PLAN9=${PLAN9:-$TREE_GCC}
+export PLAN9=${PLAN9:-$TREE}
 GCC9OUT=${GCC9OUT:-$GCC_DIR/out}
 case ${objtype:=amd64} in
 amd64)	L= ;;
