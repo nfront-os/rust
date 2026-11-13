@@ -9,6 +9,8 @@
 # usage: [objtype=386|arm64] scripts/build-llvm.sh [ninja targets]
 set -e
 TOP=$(cd "$(dirname "$0")/.." && pwd)
+. "$TOP/scripts/nfront-paths.sh"	# GCC_DIR (the distribution's paths.env)
+export GCC9BUILD=${GCC9BUILD:-$GCC_DIR/build}	# cmake/plan9.cmake: the cross compilers
 case ${objtype:=amd64} in
 amd64)	B=$TOP/build/llvm-plan9 T=x86_64-unknown-plan9 L= BACKEND=X86 ;;
 386)	B=$TOP/build/llvm-plan9.386 T=i686-unknown-plan9 L=.386 BACKEND=X86 ;;
