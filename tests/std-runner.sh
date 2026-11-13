@@ -37,7 +37,7 @@ log=$(MEM=${MEM:-2048} CMDWAIT=${STDTEST_TIMEOUT:-900} GUEST_TIMEOUT=$(( ${STDTE
 # a guest that hit the time limit gives no log (boot-cli prints it at its end): its
 # console has what ran (the tests' results so far)
 if ! echo "$log" | grep -q '^STDTEST-STATUS'; then
-	log=$(tr -d '\r' < "${CLI_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/9front-cli}/console.log")
+	log=$(tr -d '\r' < "${CLI_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/nfront/cli}/console.log")
 	# a line as the command's for the awk below, then what came after the command
 	log=$(echo "/tests/$name STDTEST-STATUS"; echo "$log" | sed -n '/STDTEST-STATUS/,$p' | sed 1d)
 fi
